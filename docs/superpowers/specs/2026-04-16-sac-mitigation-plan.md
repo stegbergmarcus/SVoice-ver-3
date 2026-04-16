@@ -73,8 +73,8 @@ Användarens dev-maskin har SAC **aktiv medvetet** för att utveckla under samma
 
 ## Empiriska test — resultat 2026-04-16
 
-### Test 1: `cargo tauri build --debug`
-**Resultat:** ✅ **Fungerar.** Bygget genomförde 20 s, MSI genererades till `target/debug/bundle/msi/`.
+### Test 1: `cargo tauri build --debug` (MSI + NSIS)
+**Resultat:** ✅ **Fungerar.** Bygget genomförde 20 s, MSI + NSIS setup.exe genererades till `target/debug/bundle/`.
 
 ### Test 2: Installera osignerad MSI
 **Resultat:** ❌ **SAC blockerar fullständigt.**
@@ -85,8 +85,26 @@ Två samtidiga dialoger:
 
 **Viktigt:** SAC tillåter INGEN "Run anyway" / "More info" → "Run"-bypass som vanlig SmartScreen gör. Blockeringen är absolut för osignerade publishers.
 
-### Test 3: Kör installerad app
-**Inte möjligt** — installationen blev aldrig genomförd pga Test 2.
+### Test 3: Installera osignerad NSIS `.exe`
+**Resultat:** ❌ **SAC blockerar tyst** — ingen dialog, ingen toast. Absolut blockering.
+
+### Test 4: Köra installerad app
+**Inte möjligt** — inga installationer lyckades.
+
+### Test 5: `cargo build --release -p svoice-v3` (utan bundling)
+**Resultat:** ❌ **SAC blockerar byggprocessen.** Ny build-script-crate (`zmij`) som drivs in bara i release-mode blockerades med os error 4551. Release-builds blockeras därmed även utan att vi försöker installera.
+
+## Konsoliderad slutsats för denna dev-maskin
+
+Med SAC aktiv på dev-maskinen kan vi göra:
+- `cargo tauri dev` — ✅ utvecklings-testning
+- `cargo tauri build --debug` — ✅ genererar debug-MSI (men MSI blockeras vid install)
+- `cargo build --release` — ❌ blockeras på build-scripts
+
+Vi kan **inte**:
+- Installera någon osignerad MSI/NSIS på denna maskin
+- Köra full release-build
+- Distribuera osignerade binärer till vänner med SAC aktiv
 
 ## Konkreta slutsatser
 
@@ -113,7 +131,15 @@ Två samtidiga dialoger:
 ### Workaround för interna testare före EV-cert
 - **WSL2 / Docker / VM-bygge:** inga SAC-problem där, men slutresultatet måste ändå installeras på Windows. Hjälper inte för end-to-end-test.
 - **Slå av SAC tillfälligt på testmaskin** — möjligt men slutgiltigt val (kan inte slås på igen utan omreinstall).
-- **Microsoft Store dev-distribution** — går att "sideloada" signerade .msixbundle om utvecklarkontot är verifierat. Ett alternativ att utvärdera i iter 2.
+- **Microsoft Store dev-distribution** — går att "sideloada" signerade .msixbundle om utvecklarkontot är verifierat ($19 engångskostnad). Ett alternativ att utvärdera i iter 2.
+
+### Rekommendation för "mig + vänner"-fas (initial scope)
+
+Användaren primär-scope är personlig användning + några vänner. Kostnad-för-cert är inte motiverad ännu. Arbetsflöde:
+
+1. **Egen användning:** fortsätt köra via `cargo tauri dev`. Det fungerar utmärkt — exakt samma upplevelse som en installerad app, bara med dev-tools aktiva.
+2. **Vänner:** dela git-repo privat (GitHub private eller direkt kopia). Skriv ett PowerShell-setup-script som installerar Rust/Node/pnpm + checkar ut repot + kör första `cargo tauri dev`. En 20-min engångsinvestering för vännen, sedan fungerar det som för användaren.
+3. **Framtida publik release:** när appen är mogen nog och användaren vill distribuera bredare, utvärdera EV-cert ($1200-1500 / 3 år) eller MS Store ($19 engångs, med policy-risk).
 
 ## Kostnad-uppskattning
 
