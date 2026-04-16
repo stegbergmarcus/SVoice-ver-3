@@ -29,27 +29,29 @@ pub enum InjectMethod {
     Clipboard,
 }
 
-/// Försöker SendInput först. Vid fel (PartialSend) faller tillbaka till clipboard-paste.
+/// Försöker clipboard-paste först (snabbast och robust mot modifier-interference
+/// under långa SendInput-sekvenser). Vid fel faller tillbaka till Unicode
+/// SendInput för fält där Ctrl+V inte fungerar (vissa URL-fält, lösenordsfält).
 #[cfg(windows)]
 pub fn inject(text: &str) -> Result<InjectMethod, InjectError> {
-    match send_unicode(text) {
+    match paste_via_clipboard(text) {
         Ok(()) => {
             tracing::debug!(
-                "inject: SendInput lyckades ({} tecken)",
+                "inject: clipboard-paste lyckades ({} tecken)",
                 text.chars().count()
             );
-            Ok(InjectMethod::SendInput)
+            Ok(InjectMethod::Clipboard)
         }
-        Err(send_err) => {
+        Err(cb_err) => {
             tracing::warn!(
-                "inject: SendInput misslyckades ({send_err}); faller tillbaka till clipboard"
+                "inject: clipboard-paste misslyckades ({cb_err}); faller tillbaka till SendInput"
             );
-            match paste_via_clipboard(text) {
+            match send_unicode(text) {
                 Ok(()) => {
-                    tracing::debug!("inject: clipboard-fallback lyckades");
-                    Ok(InjectMethod::Clipboard)
+                    tracing::debug!("inject: SendInput-fallback lyckades");
+                    Ok(InjectMethod::SendInput)
                 }
-                Err(cb_err) => Err(InjectError::BothFailed {
+                Err(send_err) => Err(InjectError::BothFailed {
                     send_input: send_err.to_string(),
                     clipboard: cb_err.to_string(),
                 }),

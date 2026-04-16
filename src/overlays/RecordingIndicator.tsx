@@ -6,15 +6,20 @@ type PttState = "idle" | "recording" | "processing";
 export default function RecordingIndicator() {
   const [state, setState] = useState<PttState>("idle");
   const [volume, setVolume] = useState<number>(0);
+  const [stateEventCount, setStateEventCount] = useState<number>(0);
+  const [volumeEventCount, setVolumeEventCount] = useState<number>(0);
   const decayRef = useRef<number | null>(null);
 
   useEffect(() => {
+    console.log("[overlay] RecordingIndicator mounted — attaching listeners");
     const unlistenState = listen<PttState>("ptt_state", (ev) => {
+      console.log("[overlay] ptt_state:", ev.payload);
       setState(ev.payload);
+      setStateEventCount((c) => c + 1);
       if (ev.payload !== "recording") setVolume(0);
     });
     const unlistenVolume = listen<number>("ptt_volume", (ev) => {
-      // Mjuk decay: om ny volym är lägre än senaste, faller den långsamt.
+      setVolumeEventCount((c) => c + 1);
       setVolume((prev) => Math.max(ev.payload, prev * 0.85));
     });
     return () => {
@@ -24,7 +29,6 @@ export default function RecordingIndicator() {
     };
   }, []);
 
-  // Kontinuerlig decay så bar:en faller tillbaka när det blir tyst.
   useEffect(() => {
     if (state !== "recording") return;
     const tick = () => {
@@ -41,8 +45,6 @@ export default function RecordingIndicator() {
     state === "recording" ? "#dc2626" : state === "processing" ? "#f59e0b" : "#6b7280";
   const label =
     state === "recording" ? "Spelar in…" : state === "processing" ? "Transkriberar…" : "Redo";
-
-  // Skala volym så normalt tal (RMS ~0.05-0.15) fyller bar:en visuellt.
   const volumePct = Math.min(100, Math.round(volume * 400));
 
   return (
@@ -50,50 +52,51 @@ export default function RecordingIndicator() {
       style={{
         display: "flex",
         flexDirection: "column",
-        gap: 6,
-        padding: "10px 14px",
-        borderRadius: 14,
+        gap: 4,
+        padding: "8px 12px",
+        borderRadius: 12,
         background: "rgba(17, 24, 39, 0.92)",
         color: "white",
-        fontSize: 13,
+        fontSize: 12,
         boxShadow: "0 4px 12px rgba(0,0,0,0.35)",
         userSelect: "none",
         fontFamily: "system-ui, -apple-system, sans-serif",
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span
           style={{
-            width: 12,
-            height: 12,
+            width: 10,
+            height: 10,
             borderRadius: 999,
             background: dotColor,
             boxShadow:
-              state === "recording" ? `0 0 ${4 + volumePct / 10}px rgba(220,38,38,0.7)` : "none",
+              state === "recording" ? `0 0 ${3 + volumePct / 12}px rgba(220,38,38,0.8)` : "none",
             transition: "box-shadow 40ms linear",
           }}
         />
         <span>{label}</span>
       </div>
-      {state === "recording" && (
+      <div
+        style={{
+          height: 4,
+          background: "rgba(255,255,255,0.12)",
+          borderRadius: 2,
+          overflow: "hidden",
+        }}
+      >
         <div
           style={{
-            height: 4,
-            background: "rgba(255,255,255,0.12)",
-            borderRadius: 2,
-            overflow: "hidden",
+            height: "100%",
+            width: `${volumePct}%`,
+            background: "linear-gradient(90deg, #10b981, #f59e0b, #dc2626)",
+            transition: "width 40ms linear",
           }}
-        >
-          <div
-            style={{
-              height: "100%",
-              width: `${volumePct}%`,
-              background: "linear-gradient(90deg, #10b981, #f59e0b, #dc2626)",
-              transition: "width 40ms linear",
-            }}
-          />
-        </div>
-      )}
+        />
+      </div>
+      <div style={{ fontSize: 9, opacity: 0.55, fontFamily: "monospace" }}>
+        evt s:{stateEventCount} v:{volumeEventCount} vol:{volume.toFixed(3)}
+      </div>
     </div>
   );
 }

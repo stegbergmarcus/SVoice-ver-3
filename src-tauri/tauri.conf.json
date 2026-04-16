@@ -22,8 +22,8 @@
       {
         "label": "overlay",
         "url": "src/overlays/overlay.html",
-        "width": 220,
-        "height": 60,
+        "width": 240,
+        "height": 90,
         "x": 20,
         "y": 20,
         "decorations": false,
