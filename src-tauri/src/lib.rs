@@ -75,12 +75,14 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
+// VolumeMeter-slot:en hålls bara för sin Drop-semantik (när Some(m) drop:s
+// stoppas streamen). Compiler kan inte se Drop-side-effekten.
+#[allow(unused_assignments, unused_variables)]
 fn ptt_worker_loop(
     rx: mpsc::Receiver<LlKeyEvent>,
     app_handle: AppHandle,
     ptt: Arc<Mutex<PttMachine>>,
 ) {
-    // VolumeMeter lever bara medan vi faktiskt spelar in. Drop av Option stänger streamen.
     let mut meter: Option<VolumeMeter> = None;
 
     for ev in rx {
