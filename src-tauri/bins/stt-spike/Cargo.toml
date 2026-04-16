@@ -9,4 +9,4 @@ name = "stt-spike"
 path = "src/main.rs"
 
 [dependencies]
-anyhow.workspace = true
+anyhow = { workspace = true }
