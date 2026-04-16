@@ -1,0 +1,39 @@
+# Rust / Cargo
+target/
+**/*.rs.bk
+
+# Node / pnpm
+node_modules/
+.pnpm-store/
+dist/
+dist-ssr/
+*.local
+
+# Tauri
+src-tauri/target/
+src-tauri/gen/schemas/
+WixTools/
+
+# Editors / OS
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# Testdata (stora ljudfiler checkas inte in)
+**/testdata/*.wav
+**/testdata/*.mp3
+
+# Modellcache (aldrig committas)
+**/models/
+
+# Logfiler
+*.log
+
+# Secrets / lokala konfigfiler
+.env
+.env.local
+*.key
