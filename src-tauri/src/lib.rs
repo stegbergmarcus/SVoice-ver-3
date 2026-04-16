@@ -98,14 +98,14 @@ fn ptt_worker_loop(
             }
         }
 
-        let _ = app_handle.emit("ptt://state", state_after);
+        let _ = app_handle.emit("ptt_state", state_after);
         update_tray_for_state(&app_handle, state_after);
 
         if ev == LlKeyEvent::Pressed && state_after == PttState::Recording {
             // Starta volym-mätaren medan PTT hålls.
             let app_h = app_handle.clone();
             match VolumeMeter::start(move |rms| {
-                let _ = app_h.emit("ptt://volume", rms);
+                let _ = app_h.emit("ptt_volume", rms);
             }) {
                 Ok(m) => meter = Some(m),
                 Err(e) => tracing::error!("kunde inte starta volym-mätare: {e}"),
@@ -115,7 +115,7 @@ fn ptt_worker_loop(
         if ev == LlKeyEvent::Released && state_after == PttState::Processing {
             // Stäng volym-streamen före inject (inject tar ~40ms).
             meter = None;
-            let _ = app_handle.emit("ptt://volume", 0.0f32);
+            let _ = app_handle.emit("ptt_volume", 0.0f32);
 
             let text = dummy_transcribe();
             match inject(&text) {
@@ -131,7 +131,7 @@ fn ptt_worker_loop(
             let mut m = ptt.lock().unwrap();
             m.on_finish_processing();
             let final_state = m.state();
-            let _ = app_handle.emit("ptt://state", final_state);
+            let _ = app_handle.emit("ptt_state", final_state);
             update_tray_for_state(&app_handle, final_state);
         }
     }

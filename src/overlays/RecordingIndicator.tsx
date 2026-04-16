@@ -9,11 +9,11 @@ export default function RecordingIndicator() {
   const decayRef = useRef<number | null>(null);
 
   useEffect(() => {
-    const unlistenState = listen<PttState>("ptt://state", (ev) => {
+    const unlistenState = listen<PttState>("ptt_state", (ev) => {
       setState(ev.payload);
       if (ev.payload !== "recording") setVolume(0);
     });
-    const unlistenVolume = listen<number>("ptt://volume", (ev) => {
+    const unlistenVolume = listen<number>("ptt_volume", (ev) => {
       // Mjuk decay: om ny volym är lägre än senaste, faller den långsamt.
       setVolume((prev) => Math.max(ev.payload, prev * 0.85));
     });

@@ -70,6 +70,10 @@ unsafe extern "system" fn hook_proc(code: i32, w_param: WPARAM, l_param: LPARAM)
                     }
                 }
             }
+            // Konsumera höger Ctrl så fokuserat fönster aldrig ser "Ctrl är
+            // nedtryckt". Annars blir vår SendInject-text tolkad som Ctrl+<char>
+            // medan användaren håller tangenten, och inject avbryts mitt i.
+            return LRESULT(1);
         }
     }
     CallNextHookEx(None, code, w_param, l_param)
