@@ -1,0 +1,12 @@
+[package]
+name = "svoice-stt-spike"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "stt-spike"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
