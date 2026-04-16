@@ -65,11 +65,22 @@ impl VolumeMeter {
             cpal::SampleFormat::F32 => {
                 let cb = callback.clone();
                 let last = last_emit_ns.clone();
+                let call_counter = Arc::new(AtomicU64::new(0));
+                let cc = call_counter.clone();
                 device
                     .build_input_stream(
                         &stream_config,
                         move |data: &[f32], _| {
+                            let n = cc.fetch_add(1, Ordering::Relaxed);
                             let rms = rms_f32(data);
+                            if n % 50 == 0 {
+                                tracing::debug!(
+                                    "audio callback #{}: {} samples, rms={:.5}",
+                                    n,
+                                    data.len(),
+                                    rms
+                                );
+                            }
                             maybe_emit(&last, min_interval, &cb, rms);
                         },
                         err_cb,
@@ -134,6 +145,7 @@ fn maybe_emit(
         return;
     }
     last.store(now_ns, Ordering::Relaxed);
+    tracing::trace!("volume emit: rms={:.4}", rms);
     cb(rms);
 }
 
