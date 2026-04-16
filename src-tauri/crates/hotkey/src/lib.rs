@@ -1,8 +1,5 @@
-// svoice-hotkey — stub för iter 1
-// Fylls i i senare iterationer enligt plan.md.
+pub mod ptt_state;
+pub mod register;
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_compiles() {}
-}
+pub use ptt_state::{PttEvent, PttMachine, PttState};
+pub use register::{is_key_down, register_ptt, HotkeyCallback, HotkeyError, RegisteredHotkey};

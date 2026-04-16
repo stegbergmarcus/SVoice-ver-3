@@ -8,3 +8,8 @@ rust-version.workspace = true
 path = "src/lib.rs"
 
 [dependencies]
+serde = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+tauri = { workspace = true }
+tauri-plugin-global-shortcut = { workspace = true }

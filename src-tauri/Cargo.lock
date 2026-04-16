@@ -3255,6 +3255,13 @@ version = "0.1.0"
 [[package]]
 name = "svoice-hotkey"
 version = "0.1.0"
+dependencies = [
+ "serde",
+ "tauri",
+ "tauri-plugin-global-shortcut",
+ "thiserror 1.0.69",
+ "tracing",
+]
 
 [[package]]
 name = "svoice-inject"
