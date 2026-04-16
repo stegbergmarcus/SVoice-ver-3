@@ -4,11 +4,14 @@ use std::sync::{Arc, Mutex};
 use svoice_hotkey::{install_rctrl_hook, LlCallback, LlKeyEvent, PttMachine, PttState};
 use svoice_inject::{inject, InjectMethod};
 use svoice_stt::dummy_transcribe;
-use tauri::{Emitter, Manager};
+use tauri::image::Image;
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::TrayIconBuilder;
+use tauri::{AppHandle, Emitter, Manager};
 
-/// Worker-thread-arbete som måste ske utanför hook-callbacken.
-/// LowLevelKeyboardHook kräver att callbacken returnerar snabbt — annars
-/// börjar Windows input-kön uppföra sig oväntat (t.ex. att tangenter fastnar).
+const TRAY_IDLE_BYTES: &[u8] = include_bytes!("../icons/tray-idle.png");
+const TRAY_REC_BYTES: &[u8] = include_bytes!("../icons/tray-recording.png");
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tracing_subscriber::fmt()
@@ -25,11 +28,24 @@ pub fn run() {
         .setup(move |app| {
             tracing::info!("svoice-v3 startar");
 
+            // Tray
+            let quit_item = MenuItem::with_id(app, "quit", "Avsluta", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&quit_item])?;
+            let idle_img = Image::from_bytes(TRAY_IDLE_BYTES)?;
+            let _tray = TrayIconBuilder::with_id("main-tray")
+                .icon(idle_img)
+                .menu(&menu)
+                .tooltip("SVoice 3 — idle")
+                .on_menu_event(|app, ev| {
+                    if ev.id.as_ref() == "quit" {
+                        app.exit(0);
+                    }
+                })
+                .build(app)?;
+
+            // PTT worker
             let app_handle = app.handle().clone();
             let ptt_worker = ptt.clone();
-
-            // Channel: hook-callbacken är producer, worker-thread är consumer.
-            // Hook-callbacken måste vara snabb; all riktig logik körs i workern.
             let (tx, rx) = mpsc::channel::<LlKeyEvent>();
 
             std::thread::Builder::new()
@@ -60,7 +76,7 @@ pub fn run() {
 
 fn ptt_worker_loop(
     rx: mpsc::Receiver<LlKeyEvent>,
-    app_handle: tauri::AppHandle,
+    app_handle: AppHandle,
     ptt: Arc<Mutex<PttMachine>>,
 ) {
     for ev in rx {
@@ -79,6 +95,7 @@ fn ptt_worker_loop(
         }
 
         let _ = app_handle.emit("ptt://state", state_after);
+        update_tray_for_state(&app_handle, state_after);
 
         if ev == LlKeyEvent::Released && state_after == PttState::Processing {
             let text = dummy_transcribe();
@@ -96,6 +113,25 @@ fn ptt_worker_loop(
             m.on_finish_processing();
             let final_state = m.state();
             let _ = app_handle.emit("ptt://state", final_state);
+            update_tray_for_state(&app_handle, final_state);
         }
+    }
+}
+
+fn update_tray_for_state(app: &AppHandle, state: PttState) {
+    if let Some(tray) = app.tray_by_id("main-tray") {
+        let bytes = match state {
+            PttState::Recording => TRAY_REC_BYTES,
+            _ => TRAY_IDLE_BYTES,
+        };
+        if let Ok(img) = Image::from_bytes(bytes) {
+            let _ = tray.set_icon(Some(img));
+        }
+        let tip = match state {
+            PttState::Idle => "SVoice 3 — idle",
+            PttState::Recording => "SVoice 3 — spelar in",
+            PttState::Processing => "SVoice 3 — transkriberar",
+        };
+        let _ = tray.set_tooltip(Some(tip));
     }
 }
