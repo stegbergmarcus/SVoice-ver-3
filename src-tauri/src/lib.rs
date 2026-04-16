@@ -1,6 +1,7 @@
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 
+use svoice_audio::VolumeMeter;
 use svoice_hotkey::{install_rctrl_hook, LlCallback, LlKeyEvent, PttMachine, PttState};
 use svoice_inject::{inject, InjectMethod};
 use svoice_stt::dummy_transcribe;
@@ -79,6 +80,9 @@ fn ptt_worker_loop(
     app_handle: AppHandle,
     ptt: Arc<Mutex<PttMachine>>,
 ) {
+    // VolumeMeter lever bara medan vi faktiskt spelar in. Drop av Option stänger streamen.
+    let mut meter: Option<VolumeMeter> = None;
+
     for ev in rx {
         let state_after: PttState;
         match ev {
@@ -97,7 +101,22 @@ fn ptt_worker_loop(
         let _ = app_handle.emit("ptt://state", state_after);
         update_tray_for_state(&app_handle, state_after);
 
+        if ev == LlKeyEvent::Pressed && state_after == PttState::Recording {
+            // Starta volym-mätaren medan PTT hålls.
+            let app_h = app_handle.clone();
+            match VolumeMeter::start(move |rms| {
+                let _ = app_h.emit("ptt://volume", rms);
+            }) {
+                Ok(m) => meter = Some(m),
+                Err(e) => tracing::error!("kunde inte starta volym-mätare: {e}"),
+            }
+        }
+
         if ev == LlKeyEvent::Released && state_after == PttState::Processing {
+            // Stäng volym-streamen före inject (inject tar ~40ms).
+            meter = None;
+            let _ = app_handle.emit("ptt://volume", 0.0f32);
+
             let text = dummy_transcribe();
             match inject(&text) {
                 Ok(method) => {

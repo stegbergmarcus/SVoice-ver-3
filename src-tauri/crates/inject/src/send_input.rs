@@ -8,18 +8,20 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     KEYEVENTF_UNICODE, VIRTUAL_KEY,
 };
 
-/// Windows input queue begränsar hur många keyboard-events den levererar per
-/// batch. Stora `SendInput`-batchar (typ 80 events för 40 tecken) returnerar OK
-/// men target-fönstret tappar bort events mitt i, vilket visar sig som
-/// repeterande / hängande tecken. Genom att skicka en code unit åt gången med
-/// en kort paus får Windows tid att flusha input queue per tecken.
-const INTER_CHAR_DELAY: Duration = Duration::from_millis(5);
+/// Antal UTF-16 code units som skickas per SendInput-anrop. Större batchar
+/// skriver ut texten snabbare, men Windows input queue rate-limitar stora
+/// batchar (~40+ events → tappade tecken). 5 code units (10 events) ger
+/// bra balans: ~5× snabbare än 1-i-taget, fortfarande stabilt.
+const CHARS_PER_BATCH: usize = 5;
+
+/// Paus mellan SendInput-batchar. Låter Windows input queue flusha.
+const INTER_BATCH_DELAY: Duration = Duration::from_millis(5);
 
 #[derive(Debug, thiserror::Error)]
 pub enum SendInputError {
-    #[error("SendInput misslyckades vid tecken {index} (code unit 0x{unit:04X}, sent={sent}/{total}, GetLastError=0x{err:X})")]
+    #[error("SendInput misslyckades vid batch {batch_index} (first code unit 0x{unit:04X}, sent={sent}/{total}, GetLastError=0x{err:X})")]
     PartialSend {
-        index: usize,
+        batch_index: usize,
         unit: u16,
         sent: u32,
         total: u32,
@@ -30,7 +32,8 @@ pub enum SendInputError {
 }
 
 /// Skriver Unicode-text via SendInput med KEYEVENTF_UNICODE.
-/// En UTF-16 code unit åt gången för att undvika Windows input-queue-rate-limiting.
+/// Skickar tecken i små batchar (se CHARS_PER_BATCH) för att undvika Windows
+/// input-queue-rate-limiting som visar sig som tappade/repeterande tecken.
 pub fn send_unicode(text: &str) -> Result<(), SendInputError> {
     if text.is_empty() {
         return Err(SendInputError::EmptyText);
@@ -38,25 +41,35 @@ pub fn send_unicode(text: &str) -> Result<(), SendInputError> {
 
     let code_units: Vec<u16> = text.encode_utf16().collect();
 
-    for (index, unit) in code_units.iter().enumerate() {
-        let inputs = [
-            make_keyboard_input(*unit, KEYEVENTF_UNICODE),
-            make_keyboard_input(*unit, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP),
-        ];
+    for (batch_index, chunk) in code_units.chunks(CHARS_PER_BATCH).enumerate() {
+        let mut inputs: Vec<INPUT> = Vec::with_capacity(chunk.len() * 2);
+        for unit in chunk {
+            inputs.push(make_keyboard_input(*unit, KEYEVENTF_UNICODE));
+            inputs.push(make_keyboard_input(
+                *unit,
+                KEYEVENTF_UNICODE | KEYEVENTF_KEYUP,
+            ));
+        }
         let total = inputs.len() as u32;
         let sent = unsafe { SendInput(&inputs, size_of::<INPUT>() as i32) };
-        tracing::trace!("inject char {}: unit=0x{:04X} sent={}/{}", index, unit, sent, total);
+        tracing::trace!(
+            "inject batch {}: {} units, sent={}/{}",
+            batch_index,
+            chunk.len(),
+            sent,
+            total
+        );
         if sent != total {
             let err = unsafe { GetLastError().0 };
             return Err(SendInputError::PartialSend {
-                index,
-                unit: *unit,
+                batch_index,
+                unit: *chunk.first().unwrap_or(&0),
                 sent,
                 total,
                 err,
             });
         }
-        sleep(INTER_CHAR_DELAY);
+        sleep(INTER_BATCH_DELAY);
     }
 
     Ok(())
