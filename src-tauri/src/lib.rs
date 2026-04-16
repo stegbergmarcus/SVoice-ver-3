@@ -1,9 +1,9 @@
 use std::sync::{Arc, Mutex};
 
-use svoice_hotkey::{is_key_down, register_ptt, HotkeyCallback, PttMachine, PttState};
+use svoice_hotkey::{install_rctrl_hook, LlCallback, LlKeyEvent, PttMachine, PttState};
 use svoice_inject::{inject, InjectMethod};
 use svoice_stt::dummy_transcribe;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{Emitter, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -21,45 +21,48 @@ pub fn run() {
         .setup(move |app| {
             tracing::info!("svoice-v3 startar");
 
+            let app_handle = app.handle().clone();
             let ptt_cb = ptt.clone();
-            let callback: HotkeyCallback<tauri::Wry> = Arc::new(
-                move |app: &AppHandle<tauri::Wry>, _sc, ev| {
-                    let state_after: PttState;
-                    if is_key_down(&ev) {
+
+            let callback: LlCallback = Arc::new(move |ev: LlKeyEvent| {
+                let state_after: PttState;
+                match ev {
+                    LlKeyEvent::Pressed => {
                         let mut m = ptt_cb.lock().unwrap();
                         m.on_key_down();
                         state_after = m.state();
-                    } else {
+                    }
+                    LlKeyEvent::Released => {
                         let mut m = ptt_cb.lock().unwrap();
                         m.on_key_up();
                         state_after = m.state();
                     }
+                }
 
-                    let _ = app.emit("ptt://state", state_after);
+                let _ = app_handle.emit("ptt://state", state_after);
 
-                    if !is_key_down(&ev) && state_after == PttState::Processing {
-                        let text = dummy_transcribe();
-                        match inject(&text) {
-                            Ok(method) => {
-                                let method_str = match method {
-                                    InjectMethod::SendInput => "send_input",
-                                    InjectMethod::Clipboard => "clipboard",
-                                };
-                                tracing::info!("inject OK via {method_str}");
-                            }
-                            Err(e) => tracing::error!("inject FAIL: {e}"),
+                if ev == LlKeyEvent::Released && state_after == PttState::Processing {
+                    let text = dummy_transcribe();
+                    match inject(&text) {
+                        Ok(method) => {
+                            let method_str = match method {
+                                InjectMethod::SendInput => "send_input",
+                                InjectMethod::Clipboard => "clipboard",
+                            };
+                            tracing::info!("inject OK via {method_str}");
                         }
-                        let mut m = ptt_cb.lock().unwrap();
-                        m.on_finish_processing();
-                        let final_state = m.state();
-                        let _ = app.emit("ptt://state", final_state);
+                        Err(e) => tracing::error!("inject FAIL: {e}"),
                     }
-                },
-            );
+                    let mut m = ptt_cb.lock().unwrap();
+                    m.on_finish_processing();
+                    let final_state = m.state();
+                    let _ = app_handle.emit("ptt://state", final_state);
+                }
+            });
 
-            match register_ptt(&app.handle(), callback) {
-                Ok(reg) => tracing::info!("hotkey aktiv: {}", reg.label),
-                Err(e) => tracing::error!("hotkey-registrering misslyckades: {e}"),
+            match install_rctrl_hook(callback) {
+                Ok(()) => tracing::info!("PTT aktiv: håll höger Ctrl (RightCtrl) för att diktera"),
+                Err(e) => tracing::error!("kunde inte installera RightCtrl-hook: {e}"),
             }
 
             let _ = app.get_webview_window("main");

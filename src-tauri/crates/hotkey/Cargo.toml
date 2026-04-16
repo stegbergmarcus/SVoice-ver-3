@@ -13,3 +13,6 @@ tracing = { workspace = true }
 thiserror = { workspace = true }
 tauri = { workspace = true }
 tauri-plugin-global-shortcut = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true }
