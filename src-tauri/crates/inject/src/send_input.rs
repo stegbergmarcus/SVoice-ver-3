@@ -13,7 +13,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 /// men target-fönstret tappar bort events mitt i, vilket visar sig som
 /// repeterande / hängande tecken. Genom att skicka en code unit åt gången med
 /// en kort paus får Windows tid att flusha input queue per tecken.
-const INTER_CHAR_DELAY: Duration = Duration::from_millis(1);
+const INTER_CHAR_DELAY: Duration = Duration::from_millis(5);
 
 #[derive(Debug, thiserror::Error)]
 pub enum SendInputError {
@@ -45,6 +45,7 @@ pub fn send_unicode(text: &str) -> Result<(), SendInputError> {
         ];
         let total = inputs.len() as u32;
         let sent = unsafe { SendInput(&inputs, size_of::<INPUT>() as i32) };
+        tracing::trace!("inject char {}: unit=0x{:04X} sent={}/{}", index, unit, sent, total);
         if sent != total {
             let err = unsafe { GetLastError().0 };
             return Err(SendInputError::PartialSend {
