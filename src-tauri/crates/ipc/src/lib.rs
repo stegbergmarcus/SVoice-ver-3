@@ -1,8 +1,2 @@
-// svoice-ipc — stub för iter 1
-// Fylls i i senare iterationer enligt plan.md.
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_compiles() {}
-}
+pub mod commands;
+pub use commands::{run_dummy_inject, InjectResult, PttStateReport};
