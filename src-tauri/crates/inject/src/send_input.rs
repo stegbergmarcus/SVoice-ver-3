@@ -5,7 +5,8 @@ use std::time::Duration;
 use windows::Win32::Foundation::GetLastError;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
-    KEYEVENTF_UNICODE, VIRTUAL_KEY,
+    KEYEVENTF_UNICODE, VIRTUAL_KEY, VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_RCONTROL, VK_RMENU,
+    VK_RSHIFT,
 };
 
 /// Antal UTF-16 code units som skickas per SendInput-anrop. Större batchar
@@ -31,13 +32,54 @@ pub enum SendInputError {
     EmptyText,
 }
 
+/// Skickar key-up för alla Ctrl/Alt/Shift-modifiers. Används innan vi injicerar
+/// Unicode för att säkerställa att target-fönstret inte har någon modifier
+/// "fastnad" (t.ex. om användaren just släppte RightCtrl-PTT men Windows
+/// interna state inte hunnit uppdateras).
+pub fn clear_modifier_state() {
+    let modifiers = [
+        VK_LCONTROL,
+        VK_RCONTROL,
+        VK_LSHIFT,
+        VK_RSHIFT,
+        VK_LMENU,
+        VK_RMENU,
+    ];
+    let inputs: Vec<INPUT> = modifiers
+        .iter()
+        .map(|&vk| INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT {
+                    wVk: vk,
+                    wScan: 0,
+                    dwFlags: KEYEVENTF_KEYUP,
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        })
+        .collect();
+    unsafe {
+        SendInput(&inputs, size_of::<INPUT>() as i32);
+    }
+}
+
 /// Skriver Unicode-text via SendInput med KEYEVENTF_UNICODE.
 /// Skickar tecken i små batchar (se CHARS_PER_BATCH) för att undvika Windows
 /// input-queue-rate-limiting som visar sig som tappade/repeterande tecken.
+///
+/// Före utskrift rensas alla modifier-tangenter (Ctrl/Alt/Shift). Det är viktigt
+/// när inject triggas från en PTT-release där `GetAsyncKeyState` i target-
+/// fönstret fortfarande kan se modifiern som nedtryckt.
 pub fn send_unicode(text: &str) -> Result<(), SendInputError> {
     if text.is_empty() {
         return Err(SendInputError::EmptyText);
     }
+
+    clear_modifier_state();
+    // Kort paus så Windows hinner registrera key-ups innan Unicode-streamen börjar.
+    sleep(Duration::from_millis(20));
 
     let code_units: Vec<u16> = text.encode_utf16().collect();
 

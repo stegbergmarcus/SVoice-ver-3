@@ -117,6 +117,11 @@ fn ptt_worker_loop(
             meter = None;
             let _ = app_handle.emit("ptt_volume", 0.0f32);
 
+            // Låt Windows helt registrera RightCtrl-release innan vi inject:ar.
+            // Utan denna paus hinner vissa target-fönster fortfarande se Ctrl
+            // nedtryckt när de tar emot Unicode-tecknen.
+            std::thread::sleep(std::time::Duration::from_millis(50));
+
             let text = dummy_transcribe();
             match inject(&text) {
                 Ok(method) => {
