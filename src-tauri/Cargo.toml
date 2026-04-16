@@ -1,3 +1,36 @@
+[package]
+name = "svoice-v3"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "SVoice 3 — svensk dikterings-app för Windows"
+default-run = "svoice-v3"
+
+[lib]
+name = "svoice_v3_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { workspace = true }
+
+[dependencies]
+tauri = { workspace = true }
+tauri-plugin-global-shortcut = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+svoice-hotkey = { path = "crates/hotkey" }
+svoice-inject = { path = "crates/inject" }
+svoice-stt = { path = "crates/stt" }
+svoice-ipc = { path = "crates/ipc" }
+
+[[bin]]
+name = "svoice-v3"
+path = "src/main.rs"
+
 [workspace]
 resolver = "2"
 members = [
