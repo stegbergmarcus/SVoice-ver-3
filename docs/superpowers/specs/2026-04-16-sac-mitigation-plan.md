@@ -71,14 +71,60 @@ Användarens dev-maskin har SAC **aktiv medvetet** för att utveckla under samma
 - **Observerat:** vid `cargo build` av komplexa deps (`ct2rs`, `num-traits`) blockerade SAC enskilda build-scripts. Påverkar inte Tauri-dev-flödet (vi byggde `svoice-v3` tusen gånger utan SAC-problem).
 - **Om SAC börjar blockera dev-flödet mer aggressivt:** överväga en tillfällig byggmaskin i WSL2 eller VM där SAC inte gäller, eller ge upp och slå av SAC på dev-maskinen (men den möjligheten vill användaren undvika).
 
-## Empiriska test som återstår
+## Empiriska test — resultat 2026-04-16
 
-- [ ] `cargo tauri build --debug` på dev-maskinen → fungerar det? Eller blockerar SAC?
-- [ ] Installera resulterande MSI → SAC-varning eller tyst installation?
-- [ ] Kör installerad app → fungerar hotkey, injection, overlay som i dev?
-- [ ] Prova kopiera MSI:n till en annan Windows 11-maskin med SAC-on → samma test
+### Test 1: `cargo tauri build --debug`
+**Resultat:** ✅ **Fungerar.** Bygget genomförde 20 s, MSI genererades till `target/debug/bundle/msi/`.
 
-Dessa tester utförs **direkt efter detta dokument skrivs** så vi har konkret data.
+### Test 2: Installera osignerad MSI
+**Resultat:** ❌ **SAC blockerar fullständigt.**
+
+Två samtidiga dialoger:
+1. `Windows Installer`-dialog: *"Systemadministratören har angett systemprinciper som hindrar den här installationen."* — bara OK-knapp, ingen bypass.
+2. `Windows-säkerhet`-toast: *"Smart appkontroll har blockerat den här appen. SVoice 3_0.1.0_x64_en-US.msi blockerades eftersom vi inte kan bekräfta vem som publicerade den och det är inte en app som vi känner till."*
+
+**Viktigt:** SAC tillåter INGEN "Run anyway" / "More info" → "Run"-bypass som vanlig SmartScreen gör. Blockeringen är absolut för osignerade publishers.
+
+### Test 3: Kör installerad app
+**Inte möjligt** — installationen blev aldrig genomförd pga Test 2.
+
+## Konkreta slutsatser
+
+1. **Dev-flödet fungerar.** `cargo tauri dev` bygger och kör `svoice-v3.exe` utan SAC-problem. Dev-binärerna startas inte från ett "downloaded/signed"-context.
+2. **Distribution kräver EV-signing eller Microsoft Store.** Punkt. OV-cert räcker sannolikt inte på SAC-aggressiva maskiner. Utan signering kan slutanvändare med SAC-on aldrig installera MSI:n.
+3. **Dev-maskin kan inte testa signerad MSI lokalt** förrän vi har ett cert. Tills dess är `cargo tauri dev` + manuell verifiering vår enda testväg. Det är OK — dev-flödet täcker 95% av feature-testning.
+4. **SAC-check mäter publisher-reputation, inte individuell fil.** När vi börjar signera med EV, bör SAC tillåta automatiskt eftersom certutgivaren (DigiCert/Sectigo) är en betrodd CA.
+
+## Reviderad strategi
+
+### Nu (iter 1 avslut)
+- Mitigation-plan (detta dokument) är tillräcklig. Dev fortsätter via `cargo tauri dev`.
+- Flagga i iter 2-spec att första release-milstolpen kräver EV-cert.
+
+### Iter 2
+- Implementera Python-subprocess-STT och resterande features.
+- All verifiering sker via `cargo tauri dev`. Inga MSI-tester krävs för feature-validering.
+
+### Innan första skarp release (post-iter-2)
+- **Beställ EV-cert.** Räkna 4-6 veckor för företagsverifiering. Starta processen ~2 månader före planerad launch.
+- **Signera MSI automatiskt** i CI (GitHub Actions Windows runner + cert i secrets via `signtool`).
+- **Verifiera** genom att köra den signerade MSI:n på dev-maskinen (med aktiv SAC) — nu ska den installera utan varning.
+
+### Workaround för interna testare före EV-cert
+- **WSL2 / Docker / VM-bygge:** inga SAC-problem där, men slutresultatet måste ändå installeras på Windows. Hjälper inte för end-to-end-test.
+- **Slå av SAC tillfälligt på testmaskin** — möjligt men slutgiltigt val (kan inte slås på igen utan omreinstall).
+- **Microsoft Store dev-distribution** — går att "sideloada" signerade .msixbundle om utvecklarkontot är verifierat. Ett alternativ att utvärdera i iter 2.
+
+## Kostnad-uppskattning
+
+| Post | Kostnad (ENG) | Kommentar |
+|---|---|---|
+| EV Code Signing Certificate (3 år, DigiCert) | ~$1200-1500 | Engångskostnad för företagsverifiering + USB-token eller HSM |
+| Microsoft Store Developer Account | $19 (individ) / $99 (företag) | Engångskostnad |
+| GitHub Actions byggkostnad | $0 (inom free tier för private repos) | Bygger + signerar MSI |
+| **Totalt första år (förbered launch)** | ~**$1300** | |
+
+Billigare alternativ: OV-cert ~$75-150/år. Men på SAC-maskiner ofta otillräcklig.
 
 ## Beslutpunkter för iter 2
 
