@@ -1,0 +1,74 @@
+[package]
+name = "svoice-v3"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "SVoice 3 — svensk dikterings-app för Windows"
+default-run = "svoice-v3"
+
+[lib]
+name = "svoice_v3_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { workspace = true }
+
+[dependencies]
+tauri = { workspace = true, features = ["image-png"] }
+tauri-plugin-global-shortcut = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+svoice-audio = { path = "crates/audio" }
+svoice-hotkey = { path = "crates/hotkey" }
+svoice-inject = { path = "crates/inject" }
+svoice-stt = { path = "crates/stt" }
+svoice-ipc = { path = "crates/ipc" }
+
+[[bin]]
+name = "svoice-v3"
+path = "src/main.rs"
+
+[workspace]
+resolver = "2"
+members = [
+    "crates/audio",
+    "crates/stt",
+    "crates/hotkey",
+    "crates/inject",
+    "crates/llm",
+    "crates/settings",
+    "crates/ipc",
+    "crates/integrations",
+    "bins/stt-spike",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.95"
+
+[workspace.dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-global-shortcut = "2"
+tauri-build = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tokio = { version = "1", features = ["full"] }
+windows = { version = "0.60", features = [
+    "Win32_Foundation",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+    "Win32_System_Ole",
+    "Win32_Graphics_Gdi",
+] }
+arboard = "3"
+anyhow = "1"

@@ -1,0 +1,17 @@
+[package]
+name = "svoice-ipc"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+tauri = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+svoice-hotkey = { path = "../hotkey" }
+svoice-inject = { path = "../inject" }
+svoice-stt = { path = "../stt" }
