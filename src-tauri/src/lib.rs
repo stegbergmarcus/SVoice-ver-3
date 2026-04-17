@@ -13,6 +13,9 @@ use tauri::{AppHandle, Emitter, Manager};
 const TRAY_IDLE_BYTES: &[u8] = include_bytes!("../icons/tray-idle.png");
 const TRAY_REC_BYTES: &[u8] = include_bytes!("../icons/tray-recording.png");
 
+const EV_PTT_STATE: &str = "ptt_state";
+const EV_PTT_VOLUME: &str = "ptt_volume";
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tracing_subscriber::fmt()
@@ -82,6 +85,14 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
+/// Emit Tauri-event och logga fel (debug-nivå — normalt betyder ett emit-fel
+/// att appen stänger eller att webview ännu inte är redo).
+fn emit_event<T: serde::Serialize + Clone>(app: &AppHandle, event: &str, payload: T) {
+    if let Err(e) = app.emit(event, payload) {
+        tracing::debug!("emit '{event}' misslyckades: {e}");
+    }
+}
+
 // VolumeMeter-slot:en hålls bara för sin Drop-semantik (när Some(m) drop:s
 // stoppas streamen). Compiler kan inte se Drop-side-effekten.
 #[allow(unused_assignments, unused_variables)]
@@ -93,78 +104,105 @@ fn ptt_worker_loop(
     let mut meter: Option<VolumeMeter> = None;
 
     for ev in rx {
-        let state_after: PttState;
-        match ev {
-            LlKeyEvent::Pressed => {
-                let mut m = ptt.lock().unwrap();
-                m.on_key_down();
-                state_after = m.state();
-            }
-            LlKeyEvent::Released => {
-                let mut m = ptt.lock().unwrap();
-                m.on_key_up();
-                state_after = m.state();
-            }
-        }
+        let state_after = apply_event(&ptt, ev);
 
-        let _ = app_handle.emit("ptt_state", state_after);
+        emit_event(&app_handle, EV_PTT_STATE, state_after);
         update_tray_for_state(&app_handle, state_after);
 
         if ev == LlKeyEvent::Pressed && state_after == PttState::Recording {
-            // Starta volym-mätaren medan PTT hålls.
-            let app_h = app_handle.clone();
-            match VolumeMeter::start(move |rms| {
-                let _ = app_h.emit("ptt_volume", rms);
-            }) {
-                Ok(m) => meter = Some(m),
-                Err(e) => tracing::error!("kunde inte starta volym-mätare: {e}"),
-            }
+            meter = start_volume_meter(&app_handle);
         }
 
         if ev == LlKeyEvent::Released && state_after == PttState::Processing {
             // Stäng volym-streamen före inject (inject tar ~40ms).
             meter = None;
-            let _ = app_handle.emit("ptt_volume", 0.0f32);
+            emit_event(&app_handle, EV_PTT_VOLUME, 0.0f32);
 
             // Låt Windows helt registrera RightCtrl-release innan vi inject:ar.
             // Utan denna paus hinner vissa target-fönster fortfarande se Ctrl
             // nedtryckt när de tar emot Unicode-tecknen.
             std::thread::sleep(std::time::Duration::from_millis(50));
 
-            let text = dummy_transcribe();
-            match inject(&text) {
-                Ok(method) => {
-                    let method_str = match method {
-                        InjectMethod::SendInput => "send_input",
-                        InjectMethod::Clipboard => "clipboard",
-                    };
-                    tracing::info!("inject OK via {method_str}");
-                }
-                Err(e) => tracing::error!("inject FAIL: {e}"),
-            }
-            let mut m = ptt.lock().unwrap();
-            m.on_finish_processing();
-            let final_state = m.state();
-            let _ = app_handle.emit("ptt_state", final_state);
+            perform_inject();
+
+            let final_state = {
+                let mut m = ptt_lock(&ptt);
+                m.on_finish_processing();
+                m.state()
+            };
+            emit_event(&app_handle, EV_PTT_STATE, final_state);
             update_tray_for_state(&app_handle, final_state);
         }
     }
 }
 
-fn update_tray_for_state(app: &AppHandle, state: PttState) {
-    if let Some(tray) = app.tray_by_id("main-tray") {
-        let bytes = match state {
-            PttState::Recording => TRAY_REC_BYTES,
-            _ => TRAY_IDLE_BYTES,
-        };
-        if let Ok(img) = Image::from_bytes(bytes) {
-            let _ = tray.set_icon(Some(img));
+/// Applicera PTT-state-transition. Panic:ar om PttMachine's mutex är poisoned —
+/// det kan bara hända om en tidigare lock-holder paniserat, och vi gör aldrig
+/// något fallibelt inne i critical section, så detta är praktiskt omöjligt.
+fn apply_event(ptt: &Mutex<PttMachine>, ev: LlKeyEvent) -> PttState {
+    let mut m = ptt_lock(ptt);
+    match ev {
+        LlKeyEvent::Pressed => {
+            m.on_key_down();
         }
-        let tip = match state {
-            PttState::Idle => "SVoice 3 — idle",
-            PttState::Recording => "SVoice 3 — spelar in",
-            PttState::Processing => "SVoice 3 — transkriberar",
-        };
-        let _ = tray.set_tooltip(Some(tip));
+        LlKeyEvent::Released => {
+            m.on_key_up();
+        }
+    }
+    m.state()
+}
+
+fn ptt_lock(ptt: &Mutex<PttMachine>) -> std::sync::MutexGuard<'_, PttMachine> {
+    ptt.lock()
+        .expect("PttMachine-mutex poisoned — inget critical section panic:ar")
+}
+
+fn start_volume_meter(app_handle: &AppHandle) -> Option<VolumeMeter> {
+    let app_h = app_handle.clone();
+    match VolumeMeter::start(move |rms| {
+        emit_event(&app_h, EV_PTT_VOLUME, rms);
+    }) {
+        Ok(m) => Some(m),
+        Err(e) => {
+            tracing::error!("kunde inte starta volym-mätare: {e}");
+            None
+        }
+    }
+}
+
+fn perform_inject() {
+    let text = dummy_transcribe();
+    match inject(&text) {
+        Ok(method) => {
+            let method_str = match method {
+                InjectMethod::SendInput => "send_input",
+                InjectMethod::Clipboard => "clipboard",
+            };
+            tracing::info!("inject OK via {method_str}");
+        }
+        Err(e) => tracing::error!("inject FAIL: {e}"),
+    }
+}
+
+fn update_tray_for_state(app: &AppHandle, state: PttState) {
+    let Some(tray) = app.tray_by_id("main-tray") else {
+        return;
+    };
+    let bytes = match state {
+        PttState::Recording => TRAY_REC_BYTES,
+        _ => TRAY_IDLE_BYTES,
+    };
+    if let Ok(img) = Image::from_bytes(bytes) {
+        if let Err(e) = tray.set_icon(Some(img)) {
+            tracing::debug!("tray.set_icon misslyckades: {e}");
+        }
+    }
+    let tip = match state {
+        PttState::Idle => "SVoice 3 — idle",
+        PttState::Recording => "SVoice 3 — spelar in",
+        PttState::Processing => "SVoice 3 — transkriberar",
+    };
+    if let Err(e) = tray.set_tooltip(Some(tip)) {
+        tracing::debug!("tray.set_tooltip misslyckades: {e}");
     }
 }
