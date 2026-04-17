@@ -3,3 +3,5 @@ pub use ringbuffer::AudioRing;
 
 pub mod volume;
 pub use volume::{VolumeMeter, VolumeMeterError};
+
+pub mod resample;
