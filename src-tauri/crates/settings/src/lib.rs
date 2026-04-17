@@ -8,6 +8,12 @@ pub struct Settings {
     pub stt_model: String,
     pub stt_compute_mode: ComputeMode,
     pub vad_threshold: f32,
+    /// Anthropic Claude API-nyckel för action-LLM popup (iter 3).
+    /// OBS: sparas i klartext i settings.json — flyttas till Windows
+    /// Credential Manager via keyring i iter 4.
+    pub anthropic_api_key: Option<String>,
+    /// Anthropic-modell för action-popup. Default claude-sonnet-4-5.
+    pub anthropic_model: String,
 }
 
 impl Default for Settings {
@@ -17,6 +23,8 @@ impl Default for Settings {
             stt_model: "KBLab/kb-whisper-medium".into(),
             stt_compute_mode: ComputeMode::Auto,
             vad_threshold: 0.005,
+            anthropic_api_key: None,
+            anthropic_model: "claude-sonnet-4-5".into(),
         }
     }
 }
@@ -73,12 +81,16 @@ mod tests {
             stt_model: "kb-whisper-large".into(),
             stt_compute_mode: ComputeMode::Gpu,
             vad_threshold: 0.01,
+            anthropic_api_key: Some("sk-ant-test".into()),
+            anthropic_model: "claude-opus-4-7".into(),
         };
         let json = serde_json::to_string(&original).unwrap();
         let restored: Settings = serde_json::from_str(&json).unwrap();
         assert_eq!(original.mic_device, restored.mic_device);
         assert_eq!(original.stt_model, restored.stt_model);
         assert_eq!(original.stt_compute_mode, restored.stt_compute_mode);
+        assert_eq!(original.anthropic_api_key, restored.anthropic_api_key);
+        assert_eq!(original.anthropic_model, restored.anthropic_model);
     }
 
     #[test]

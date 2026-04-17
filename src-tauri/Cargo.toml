@@ -28,6 +28,8 @@ svoice-inject = { path = "crates/inject" }
 svoice-stt = { path = "crates/stt" }
 svoice-ipc = { path = "crates/ipc" }
 svoice-settings = { path = "crates/settings" }
+svoice-llm = { path = "crates/llm" }
+futures-util = "0.3"
 
 [[bin]]
 name = "svoice-v3"

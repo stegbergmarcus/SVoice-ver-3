@@ -1,5 +1,6 @@
 use serde::Serialize;
 use svoice_hotkey::PttState;
+use svoice_inject::paste_and_restore;
 use svoice_settings::Settings;
 
 #[derive(Debug, Serialize)]
@@ -26,4 +27,26 @@ pub fn get_settings() -> Settings {
 #[tauri::command]
 pub fn set_settings(settings: Settings) -> Result<(), String> {
     settings.save().map_err(|e| format!("kunde inte spara settings: {e}"))
+}
+
+/// Applicera action-popup LLM-resultatet: klistra in i tidigare fokuserat fönster
+/// via clipboard-paste, och återställ ursprungligt clipboard-innehåll efteråt.
+///
+/// Kör på blocking-thread eftersom clipboard + SendInput är synchrona Win32-calls.
+#[tauri::command]
+pub async fn action_apply(result: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || paste_and_restore(&result))
+        .await
+        .map_err(|e| format!("join error: {e}"))?
+        .map_err(|e| format!("paste failed: {e}"))?;
+    tracing::info!(
+        "action-popup: result applied via clipboard"
+    );
+    Ok(())
+}
+
+/// Användaren avbröt action-popupen utan att applicera resultatet.
+#[tauri::command]
+pub fn action_cancel() {
+    tracing::debug!("action-popup: cancelled by user");
 }

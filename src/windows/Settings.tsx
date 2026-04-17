@@ -202,6 +202,71 @@ export default function SettingsView() {
           </div>
         </article>
 
+        {/* Action-LLM (iter 3) */}
+        <article className="settings-section">
+          <div className="settings-section-label">
+            <h2>Action-LLM</h2>
+            <p>
+              Håll <strong>höger Alt</strong> och ge ett kommando för att öppna
+              LLM-popup. Markerad text transformeras, tomt fält blir Q&amp;A.
+            </p>
+          </div>
+          <div className="settings-section-body">
+            <div className="field">
+              <label className="field-label" htmlFor="api-key">
+                Anthropic API-nyckel
+              </label>
+              <input
+                id="api-key"
+                className="input"
+                type="password"
+                placeholder="sk-ant-…"
+                value={draft.anthropic_api_key ?? ""}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    anthropic_api_key:
+                      e.target.value.trim() === "" ? null : e.target.value,
+                  })
+                }
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <div className="field-help">
+                Sparas i klartext i settings.json i denna iter. Flyttas till
+                Windows Credential Manager i iter 4.
+              </div>
+            </div>
+
+            <div className="field">
+              <label className="field-label" htmlFor="anthropic-model">
+                Modell
+              </label>
+              <select
+                id="anthropic-model"
+                className="select"
+                value={draft.anthropic_model}
+                onChange={(e) =>
+                  setDraft({ ...draft, anthropic_model: e.target.value })
+                }
+              >
+                <option value="claude-haiku-4-5-20251001">
+                  Claude Haiku 4.5 — snabbast, billigast
+                </option>
+                <option value="claude-sonnet-4-5">
+                  Claude Sonnet 4.5 — balans
+                </option>
+                <option value="claude-sonnet-4-6">
+                  Claude Sonnet 4.6 — senaste Sonnet
+                </option>
+                <option value="claude-opus-4-7">
+                  Claude Opus 4.7 — högsta kvalitet
+                </option>
+              </select>
+            </div>
+          </div>
+        </article>
+
         {/* Röstdetektion */}
         <article className="settings-section">
           <div className="settings-section-label">

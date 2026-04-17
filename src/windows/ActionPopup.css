@@ -1,0 +1,230 @@
+/* Action-LLM popup (iter 3).
+ * Dark modal med serif-display, fade+scale in när event kommer.
+ * Tar fokus så Enter/Escape fungerar direkt.
+ */
+
+.action-popup-root {
+  position: fixed;
+  inset: 16px;
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  gap: var(--space-4);
+  padding: var(--space-6) var(--space-6) var(--space-5);
+  background: linear-gradient(
+    180deg,
+    rgba(19, 19, 22, 0.96) 0%,
+    rgba(13, 13, 15, 0.96) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  box-shadow:
+    0 32px 80px rgba(0, 0, 0, 0.55),
+    0 1px 0 rgba(255, 255, 255, 0.04) inset;
+  backdrop-filter: blur(20px) saturate(1.25);
+  opacity: 0;
+  transform: translateY(6px) scale(0.985);
+  transition: opacity 200ms var(--ease-out),
+              transform 280ms var(--ease-spring);
+  overflow: hidden;
+}
+
+.action-popup-root.visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+/* Subtil amber-glow i topp vänster — visuellt anchor. */
+.action-popup-root::before {
+  content: "";
+  position: absolute;
+  top: -30%;
+  left: -20%;
+  width: 80%;
+  height: 80%;
+  background: radial-gradient(
+    ellipse,
+    rgba(230, 168, 92, 0.10),
+    transparent 60%
+  );
+  pointer-events: none;
+  z-index: 0;
+}
+
+.action-popup-header {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--ink-divider);
+}
+
+.action-popup-logo {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  background: radial-gradient(
+    ellipse at 30% 30%,
+    var(--accent-hot),
+    var(--accent) 70%
+  );
+  display: grid;
+  place-items: center;
+  color: var(--bg-void);
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-style: italic;
+  font-size: 16px;
+  letter-spacing: -0.04em;
+  box-shadow: 0 3px 10px var(--accent-glow);
+}
+
+.action-popup-command {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.action-popup-command-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink-tertiary);
+}
+
+.action-popup-command-text {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 20px;
+  line-height: 1.25;
+  color: var(--ink-primary);
+  font-variation-settings: "opsz" 72;
+}
+
+.action-popup-mode {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 4px 10px;
+  border-radius: 999px;
+  align-self: flex-start;
+  white-space: nowrap;
+}
+
+/* Context (markerad text) */
+.action-popup-context {
+  position: relative;
+  z-index: 2;
+  background: var(--bg-raised);
+  border: 1px solid var(--ink-divider);
+  border-left: 2px solid var(--accent);
+  border-radius: 8px;
+  padding: var(--space-3) var(--space-4);
+  max-height: 100px;
+  overflow-y: auto;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-secondary);
+  font-style: italic;
+}
+
+.action-popup-context-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink-tertiary);
+  font-style: normal;
+  margin-bottom: 4px;
+  display: block;
+}
+
+/* Response-streaming */
+.action-popup-response {
+  position: relative;
+  z-index: 2;
+  overflow-y: auto;
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: var(--ink-primary);
+  font-family: var(--font-body);
+  white-space: pre-wrap;
+  padding-right: 4px;
+}
+
+.action-popup-response:empty::before {
+  content: "väntar på svar…";
+  color: var(--ink-tertiary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  animation: response-shimmer 1.8s ease-in-out infinite;
+}
+
+@keyframes response-shimmer {
+  0%, 100% { opacity: 0.4; }
+  50%      { opacity: 0.9; }
+}
+
+.action-popup-response.streaming::after {
+  content: "▍";
+  color: var(--accent);
+  animation: cursor-blink 1s steps(2) infinite;
+  margin-left: 2px;
+}
+
+@keyframes cursor-blink {
+  50% { opacity: 0; }
+}
+
+.action-popup-error {
+  background: rgba(199, 85, 68, 0.1);
+  border: 1px solid rgba(199, 85, 68, 0.3);
+  border-radius: 8px;
+  padding: var(--space-3) var(--space-4);
+  color: var(--danger);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* Footer med keybindings */
+.action-popup-footer {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--ink-divider);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--ink-tertiary);
+}
+
+.action-popup-footer .kbd {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--bg-raised);
+  border: 1px solid var(--ink-divider);
+  color: var(--ink-secondary);
+  font-size: 10px;
+  margin: 0 4px;
+}
+
+.action-popup-footer .kbd.primary {
+  background: var(--accent);
+  color: var(--bg-void);
+  border-color: var(--accent);
+}

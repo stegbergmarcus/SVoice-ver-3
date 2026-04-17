@@ -1,8 +1,13 @@
-// svoice-llm — stub för iter 1
-// Fylls i i senare iterationer enligt plan.md.
+//! SVoice LLM-klient (iter 3).
+//!
+//! Provider-trait med Anthropic som primär implementation. Ollama-stöd
+//! (lokalt) + OpenAI-compat kommer i iter 3b/4.
+//!
+//! **Designprincip:** backend är streaming-först. `complete` returnerar en
+//! async stream av text-chunks så UI kan visa tokens live i action-popup.
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_compiles() {}
-}
+pub mod anthropic;
+pub mod provider;
+
+pub use anthropic::AnthropicClient;
+pub use provider::{LlmError, LlmProvider, LlmRequest, LlmStream, Role, TurnContent};
