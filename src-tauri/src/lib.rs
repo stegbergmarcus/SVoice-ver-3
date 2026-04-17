@@ -63,7 +63,25 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            let stt = Arc::new(PythonStt::new(SttConfig::default()));
+            // Bygg SttConfig: använd bundlat runtime om det finns, annars dev-default.
+            let mut stt_config = SttConfig::default();
+            if let Ok(res_dir) = app.path().resource_dir() {
+                let bundled_python = res_dir
+                    .join("python-runtime")
+                    .join("python")
+                    .join("python.exe");
+                if bundled_python.exists() {
+                    tracing::info!("använder bundlad Python: {}", bundled_python.display());
+                    stt_config.python_path = bundled_python;
+                    stt_config.python_args = vec![]; // bundlat är redan 3.11
+                }
+                let bundled_script = res_dir.join("python").join("stt_sidecar.py");
+                if bundled_script.exists() {
+                    tracing::info!("använder bundlat sidecar-script: {}", bundled_script.display());
+                    stt_config.script_path = bundled_script;
+                }
+            }
+            let stt = Arc::new(PythonStt::new(stt_config));
             let rt = Arc::new(tokio::runtime::Runtime::new().expect("tokio runtime"));
 
             // PTT worker
