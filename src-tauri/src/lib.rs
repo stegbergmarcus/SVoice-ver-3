@@ -17,6 +17,7 @@ const TRAY_REC_BYTES: &[u8] = include_bytes!("../icons/tray-recording.png");
 
 const EV_PTT_STATE: &str = "ptt_state";
 const EV_PTT_VOLUME: &str = "ptt_volume";
+const EV_MIC_LEVEL: &str = "mic_level";
 
 /// Wrapping för volume-events. Tauri 2 emit:ar scalars via JSON och en del
 /// scalar-types tas inte emot pålitligt av webview-listeners. Object-payload
@@ -119,7 +120,17 @@ pub fn run() {
                     // är !Send på Windows (WASAPI). Skapas och drop:as på samma
                     // tråd — inget unsafe behövs.
                     let ring = Arc::new(AudioRing::new(16000 * 30));
-                    let capture = match AudioCapture::start(ring.clone()) {
+                    // Alltid-på mic-meter som driver Settings-vyns live-bar.
+                    // Samma cpal-stream som ringbufferen — ingen dubbel öppning.
+                    let mic_app = app_handle.clone();
+                    let rms_cb: svoice_audio::capture::RmsCallback =
+                        Arc::new(move |rms: f32| {
+                            emit_event(&mic_app, EV_MIC_LEVEL, VolumeEvent { rms });
+                        });
+                    let capture = match AudioCapture::start_with_rms(
+                        ring.clone(),
+                        Some(rms_cb),
+                    ) {
                         Ok(c) => c,
                         Err(e) => {
                             tracing::error!("kunde inte starta audio-capture: {e}");

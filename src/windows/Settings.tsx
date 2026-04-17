@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import {
   getSettings,
   setSettings,
@@ -25,6 +26,7 @@ export default function SettingsView() {
   const [saving, setSaving] = useState(false);
   const [savedTick, setSavedTick] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [micLevel, setMicLevel] = useState(0);
 
   useEffect(() => {
     getSettings()
@@ -33,6 +35,15 @@ export default function SettingsView() {
         setLoaded(s);
       })
       .catch((e) => setError(String(e)));
+  }, []);
+
+  useEffect(() => {
+    const unlisten = listen<{ rms: number }>("mic_level", (ev) => {
+      setMicLevel(ev.payload.rms);
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
   }, []);
 
   async function handleSave() {
@@ -224,9 +235,40 @@ export default function SettingsView() {
                 <span>↓ fångar svagt tal</span>
                 <span>↑ ignorerar rum-brus</span>
               </div>
+
+              {/* Live mic-meter — visar aktuell ingångsnivå. Bar fylls bärnsten
+                  när över tröskel (tal detekterat), grå under (tystnad). */}
+              <div
+                className="mic-meter"
+                title="Live mic-nivå"
+                role="meter"
+                aria-valuenow={Math.round(micLevel * 1000) / 1000}
+                aria-valuemin={0}
+                aria-valuemax={0.05}
+              >
+                <div
+                  className={
+                    "mic-meter-fill" +
+                    (micLevel > draft.vad_threshold ? " active" : "")
+                  }
+                  style={{ width: `${Math.min(100, (micLevel / 0.05) * 100)}%` }}
+                />
+                <div
+                  className="mic-meter-threshold"
+                  style={{ left: `${(draft.vad_threshold / 0.05) * 100}%` }}
+                  aria-hidden
+                />
+              </div>
+              <div className="mic-meter-legend">
+                <span>
+                  {micLevel > draft.vad_threshold ? "🎙 tal upptäckt" : "tystnad"}
+                </span>
+                <span className="mono">RMS {micLevel.toFixed(3)}</span>
+              </div>
+
               <div className="field-help">
-                Standard är 0.005. Live-mic-meter och automatisk kalibrering kommer i
-                iter 2.5.
+                Standard är 0.005. Tröskeln är linjen i mätaren — tala normalt och
+                justera slidern så att din röst är över linjen men bakgrundsbrus under.
               </div>
             </div>
           </div>

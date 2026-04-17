@@ -377,6 +377,60 @@
   color: var(--ink-tertiary);
 }
 
+/* Live mic-meter */
+.mic-meter {
+  position: relative;
+  height: 10px;
+  margin-top: var(--space-3);
+  border-radius: 999px;
+  background: var(--bg-raised);
+  border: 1px solid var(--ink-divider);
+  overflow: hidden;
+}
+
+.mic-meter-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--ink-divider);
+  border-radius: 999px;
+  transition: width 80ms linear, background var(--dur-fast) var(--ease-out);
+  will-change: width;
+}
+
+.mic-meter-fill.active {
+  background: linear-gradient(
+    90deg,
+    var(--accent) 0%,
+    var(--accent-hot) 100%
+  );
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+
+.mic-meter-threshold {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  background: var(--ink-primary);
+  border-radius: 2px;
+  transform: translateX(-1px);
+  box-shadow: 0 0 0 3px var(--bg-surface);
+  pointer-events: none;
+}
+
+.mic-meter-legend {
+  display: flex;
+  justify-content: space-between;
+  margin-top: var(--space-2);
+  font-size: 11px;
+  color: var(--ink-secondary);
+}
+
+.mic-meter-legend .mono {
+  font-family: var(--font-mono);
+  color: var(--ink-tertiary);
+}
+
 /* ===== Footer actions ===== */
 
 .settings-footer {
