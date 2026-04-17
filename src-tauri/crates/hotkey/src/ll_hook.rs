@@ -91,35 +91,35 @@ unsafe impl Send for HookHandle {}
 unsafe extern "system" fn hook_proc(code: i32, w_param: WPARAM, l_param: LPARAM) -> LRESULT {
     if code == HC_ACTION as i32 {
         let kb = &*(l_param.0 as *const KBDLLHOOKSTRUCT);
-        // Snabb-skanning utan att hålla mutex genom CallNextHookEx — viktigt för
-        // att inte introducera input-latency. Vi tar bara locken under dispatch.
         let vk = kb.vkCode;
         let msg = w_param.0 as u32;
         let pressed = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN;
         let released = msg == WM_KEYUP || msg == WM_SYSKEYUP;
         if pressed || released {
-            // Hämta callback om denna key är registrerad.
-            let cb_to_fire = {
+            // Bestäm om denna key är registrerad och om vi ska fire callback.
+            // VIKTIGT: vi måste ALLTID konsumera registrerade keys (LRESULT 1),
+            // inklusive key-repeats, annars ser target-fönstret repeat-events
+            // och tror tangenten är fast nedtryckt → Ctrl/modifier-state blir
+            // korrupt efter release.
+            let outcome = {
                 let state = state_slot().lock().unwrap();
-                state.registered.get(&vk).and_then(|entry| {
+                state.registered.get(&vk).map(|entry| {
                     if pressed {
-                        if !entry.is_down.swap(true, Ordering::SeqCst) {
-                            Some((entry.callback.clone(), LlKeyEvent::Pressed))
-                        } else {
-                            None
-                        }
-                    } else if entry.is_down.swap(false, Ordering::SeqCst) {
-                        Some((entry.callback.clone(), LlKeyEvent::Released))
+                        // Fire callback bara vid initial keydown, inte vid repeats.
+                        let initial = !entry.is_down.swap(true, Ordering::SeqCst);
+                        (initial.then(|| entry.callback.clone()), LlKeyEvent::Pressed)
                     } else {
-                        None
+                        let was_down = entry.is_down.swap(false, Ordering::SeqCst);
+                        (was_down.then(|| entry.callback.clone()), LlKeyEvent::Released)
                     }
                 })
             };
-            if let Some((cb, ev)) = cb_to_fire {
-                cb(ev);
-                // Konsumera eventet så fokuserat fönster aldrig ser "X är nedtryckt".
-                // Annars blir vår SendInput-text tolkad som modifier+<char>
-                // medan användaren håller tangenten, och inject avbryts mitt i.
+            if let Some((maybe_cb, ev)) = outcome {
+                if let Some(cb) = maybe_cb {
+                    cb(ev);
+                }
+                // Konsumera eventet OAVSETT om callback firade — så target
+                // aldrig ser repeats eller osymmetriska down/up-events.
                 return LRESULT(1);
             }
         }
