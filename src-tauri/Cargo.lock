@@ -3724,6 +3724,7 @@ dependencies = [
  "svoice-hotkey",
  "svoice-inject",
  "svoice-ipc",
+ "svoice-settings",
  "svoice-stt",
  "tauri",
  "tauri-build",

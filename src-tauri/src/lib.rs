@@ -5,6 +5,7 @@ use svoice_audio::vad::trim_silence;
 use svoice_audio::{AudioCapture, AudioRing, VolumeMeter};
 use svoice_hotkey::{install_rctrl_hook, LlCallback, LlKeyEvent, PttMachine, PttState};
 use svoice_inject::{inject, InjectMethod};
+use svoice_settings::{ComputeMode, Settings};
 use svoice_stt::{PythonStt, SttConfig};
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem};
@@ -63,8 +64,29 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            // Bygg SttConfig: använd bundlat runtime om det finns, annars dev-default.
+            // Läs användar-settings från disk (eller default).
+            let user_settings = Settings::load();
+            tracing::info!(
+                "settings: model={}, compute={:?}, vad={:.3}",
+                user_settings.stt_model,
+                user_settings.stt_compute_mode,
+                user_settings.vad_threshold
+            );
+
+            // Bygg SttConfig: användar-val + ev. bundlat runtime.
             let mut stt_config = SttConfig::default();
+            stt_config.model = user_settings.stt_model.clone();
+            match user_settings.stt_compute_mode {
+                ComputeMode::Cpu => {
+                    stt_config.device = "cpu".into();
+                    stt_config.compute_type = "int8".into();
+                }
+                ComputeMode::Gpu => {
+                    stt_config.device = "cuda".into();
+                    stt_config.compute_type = "float16".into();
+                }
+                ComputeMode::Auto => { /* lämna default (cuda/float16 med CPU-fallback via Python) */ }
+            }
             if let Ok(res_dir) = app.path().resource_dir() {
                 let bundled_python = res_dir
                     .join("python-runtime")
@@ -83,6 +105,7 @@ pub fn run() {
             }
             let stt = Arc::new(PythonStt::new(stt_config));
             let rt = Arc::new(tokio::runtime::Runtime::new().expect("tokio runtime"));
+            let vad_threshold = user_settings.vad_threshold;
 
             // PTT worker
             let app_handle = app.handle().clone();
@@ -109,7 +132,7 @@ pub fn run() {
                         capture.channels
                     );
                     let _capture = capture; // hålls vid liv hela worker-tråden
-                    ptt_worker_loop(rx, app_handle, ptt_worker, ring, stt, rt);
+                    ptt_worker_loop(rx, app_handle, ptt_worker, ring, stt, rt, vad_threshold);
                 })
                 .expect("kunde inte starta PTT worker-thread");
 
@@ -153,6 +176,7 @@ fn ptt_worker_loop(
     ring: Arc<AudioRing>,
     stt: Arc<PythonStt>,
     rt: Arc<tokio::runtime::Runtime>,
+    vad_threshold: f32,
 ) {
     let mut meter: Option<VolumeMeter> = None;
 
@@ -177,7 +201,7 @@ fn ptt_worker_loop(
             // nedtryckt när de tar emot Unicode-tecknen.
             std::thread::sleep(std::time::Duration::from_millis(50));
 
-            perform_transcribe_and_inject(&ring, &stt, &rt);
+            perform_transcribe_and_inject(&ring, &stt, &rt, vad_threshold);
 
             let final_state = {
                 let mut m = ptt_lock(&ptt);
@@ -228,9 +252,10 @@ fn perform_transcribe_and_inject(
     ring: &AudioRing,
     stt: &PythonStt,
     rt: &tokio::runtime::Runtime,
+    vad_threshold: f32,
 ) {
     let audio = ring.drain();
-    let (start, end) = trim_silence(&audio, 16000, 0.005);
+    let (start, end) = trim_silence(&audio, 16000, vad_threshold);
     let segment = &audio[start..end];
     if segment.is_empty() {
         tracing::warn!("inget tal detekterat (VAD trimmade allt)");

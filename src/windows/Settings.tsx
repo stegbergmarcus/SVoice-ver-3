@@ -74,7 +74,7 @@ export default function SettingsView() {
           </div>
           <h1 className="settings-wordmark-title">
             SVoice
-            <sub>v3 · Svensk diktering</sub>
+            <sub>by Stegberg · v3</sub>
           </h1>
           <p className="settings-wordmark-lede">
             Lokal tal-till-text. Privat först. Håll höger Ctrl i valfri app för att diktera —
@@ -98,6 +98,13 @@ export default function SettingsView() {
             Inställningar<em>.</em>
           </h1>
           <div className="settings-panel-meta">
+            <span
+              key={savedTick}
+              className={`save-status${savedTick > 0 && !dirty ? " visible" : ""}`}
+              style={{ marginRight: 12 }}
+            >
+              <span className="tick">✓</span> sparat
+            </span>
             %APPDATA%/svoice-v3/settings.json
           </div>
         </header>
@@ -187,16 +194,16 @@ export default function SettingsView() {
         {/* Röstdetektion */}
         <article className="settings-section">
           <div className="settings-section-label">
-            <h2>Röstdetektion</h2>
+            <h2>Tystnadströskel</h2>
             <p>
-              RMS-tröskel för att trimma tystnad före och efter tal. Högre värde = mer
-              aggressiv trimning.
+              Hur känslig mic-en ska vara. Ljud under denna nivå räknas som tystnad och
+              klipps bort i början och slutet av inspelningen.
             </p>
           </div>
           <div className="settings-section-body">
             <div className="field">
               <label className="field-label" htmlFor="vad">
-                VAD-tröskel
+                Känslighet
               </label>
               <div className="slider-row">
                 <input
@@ -213,16 +220,20 @@ export default function SettingsView() {
                 />
                 <div className="slider-value">{draft.vad_threshold.toFixed(3)}</div>
               </div>
+              <div className="slider-scale">
+                <span>↓ fångar svagt tal</span>
+                <span>↑ ignorerar rum-brus</span>
+              </div>
               <div className="field-help">
-                Standard är 0.005. Öka om appen plockar upp rum-brus; minska om tyst tal
-                missas.
+                Standard är 0.005. Live-mic-meter och automatisk kalibrering kommer i
+                iter 2.5.
               </div>
             </div>
           </div>
         </article>
 
-        {/* Footer */}
-        <footer className="settings-footer">
+        {/* Footer — fade in endast vid osparade ändringar */}
+        <footer className={`settings-footer${dirty ? " visible" : ""}`}>
           {error && (
             <div
               style={{
@@ -235,12 +246,6 @@ export default function SettingsView() {
               {error}
             </div>
           )}
-          <div
-            key={savedTick}
-            className={`save-status${savedTick > 0 && !dirty ? " visible" : ""}`}
-          >
-            ✓ sparat
-          </div>
           <button
             type="button"
             className="btn btn-ghost"

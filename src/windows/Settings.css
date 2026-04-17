@@ -367,6 +367,16 @@
   text-align: right;
 }
 
+.slider-scale {
+  display: flex;
+  justify-content: space-between;
+  margin-top: calc(var(--space-1) * -1);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--ink-tertiary);
+}
+
 /* ===== Footer actions ===== */
 
 .settings-footer {
@@ -386,6 +396,19 @@
   justify-content: flex-end;
   gap: var(--space-4);
   z-index: 3;
+
+  /* Gömd tills något faktiskt ändrats — footer ska inte skymma innehållet. */
+  opacity: 0;
+  transform: translateY(12px);
+  pointer-events: none;
+  transition: opacity var(--dur-base) var(--ease-out),
+              transform var(--dur-base) var(--ease-out);
+}
+
+.settings-footer.visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
 }
 
 .save-status {
@@ -398,11 +421,20 @@
   transform: translateY(4px);
   transition: opacity var(--dur-base) var(--ease-out),
               transform var(--dur-base) var(--ease-out);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .save-status.visible {
   opacity: 1;
   transform: translateY(0);
+}
+
+.save-status .tick {
+  color: var(--ok);
+  font-family: var(--font-body);
+  font-size: 13px;
 }
 
 .btn {
