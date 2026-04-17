@@ -2,7 +2,7 @@
 
 ## Första meddelandet att skicka till Claude
 
-> Hej! Vi fortsätter på SVoice 3. Appen är fullt fungerande på `main` och vi har en roadmap att följa. Läs i ordning: `docs/superpowers/plans/2026-04-17-remaining-work-roadmap.md` (komplett plan), `plan.md` (ursprunglig vision), `docs/superpowers/specs/` (specs). Börja med att kolla git-state: senaste commit `51b3167`, branch `main`, taggar iter1→iter3-complete. Rekommenderat nästa steg enligt roadmap: **Keyring för API-nyckel** (säkerhet, ~2-3 dagar). Alternativt: direkt på **Google-integration iter 4**. Använd `superpowers:subagent-driven-development` för större implementations-arbete.
+> Hej! Vi fortsätter på SVoice 3. Appen är fullt fungerande på `main` och vi har en roadmap att följa. Läs i ordning: `docs/superpowers/plans/2026-04-17-remaining-work-roadmap.md` (komplett plan), `plan.md` (ursprunglig vision), `docs/superpowers/specs/` (specs). Git-state: senaste tag `iter4.5a-complete`, branch `main`. Rekommenderat nästa steg enligt roadmap: **Iter 4.5b** (notifikationer + konfigurerbara hotkeys) eller direkt på **Google-integration iter 4**. Använd `superpowers:subagent-driven-development` för större implementations-arbete.
 
 ## Status — appen i nuläget
 
@@ -23,9 +23,9 @@
 ## Git
 
 ```
-main @ 51b3167
-Taggar: iter1-complete, iter2-complete, iter2.5-complete, iter3-complete
-(senaste iter-taggen är iter3-complete; alla senare polish-commits otaggade än)
+main @ tag iter4.5a-complete
+Taggar: iter1-complete, iter2-complete, iter2.5-complete, iter3-complete, iter4.5a-complete
+Repo: https://github.com/stegbergmarcus/SVoice-ver-3 (privat)
 ```
 
 ## Vad som är kvar — läs roadmap-filen
@@ -34,7 +34,7 @@ Taggar: iter1-complete, iter2-complete, iter2.5-complete, iter3-complete
 
 | Prio | Fas | Scope |
 |---|---|---|
-| 🔥 | Iter 4.5a | Keyring (flytta API-nyckel till Windows Credential Manager) |
+| ✅ | Iter 4.5a | Keyring (klar — nyckel i Windows Credential Manager, `svoice-secrets`-crate) |
 | 🔥 | Iter 4.5b | Notifikationer när download klar + konfigurerbara hotkeys |
 | ⚠️ | Iter 4 | Google-integration: OAuth 2.1 + Gmail/Calendar + tool-use-loop |
 | 💡 | Iter 5a | Silero VAD + streaming STT |
