@@ -6,5 +6,10 @@
 //!
 //! I iter 4 fas 2 läggs `calendar` och `gmail` till med REST-wrappers.
 
+pub mod calendar;
 pub mod callback_server;
+pub mod client;
+pub mod gmail;
 pub mod oauth;
+
+pub use client::{ClientError, GoogleClient};
