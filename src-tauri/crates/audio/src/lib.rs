@@ -1,6 +1,7 @@
 pub mod capture;
 pub mod resample;
 pub mod ringbuffer;
+pub mod vad;
 pub mod volume;
 
 pub use capture::{AudioCapture, CaptureError};
