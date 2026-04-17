@@ -32,6 +32,9 @@ svoice-llm = { path = "crates/llm" }
 svoice-secrets = { path = "crates/secrets" }
 futures-util = "0.3"
 
+[dev-dependencies]
+tempfile = "3"
+
 [[bin]]
 name = "svoice-v3"
 path = "src/main.rs"

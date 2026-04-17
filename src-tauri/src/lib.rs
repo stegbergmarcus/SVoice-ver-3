@@ -2,6 +2,8 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 
+mod migrate;
+
 /// Förhindrar att båda PTT-flöden (diktering RCtrl och action Insert) kör
 /// samtidigt — de delar AudioRing och skulle tömma varandras data.
 /// Första Pressed vinner, andra ignoreras tills första releases.
@@ -107,6 +109,12 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+
+            // Kör best-effort migration av klartext anthropic_api_key → keyring.
+            // Idempotent; no-op efter första migration.
+            if let Err(e) = migrate::migrate_anthropic_key(&Settings::path()) {
+                tracing::error!("settings-migration fel: {e}");
+            }
 
             // Läs användar-settings från disk (eller default).
             let user_settings = Settings::load();
