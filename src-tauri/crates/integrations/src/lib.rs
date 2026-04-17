@@ -1,8 +1,11 @@
-// svoice-integrations — stub för iter 1
-// Fylls i i senare iterationer enligt plan.md.
+//! Externa integrationer för SVoice 3.
+//!
+//! För närvarande bara Google (Gmail + Calendar i iter 4). Senare: Outlook,
+//! Slack, Notion (iter 5+).
+//!
+//! Arkitekturprincip: varje integration är en self-contained modul med
+//! OAuth-flow, token-storage (via svoice-secrets) och REST-wrappers.
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_compiles() {}
-}
+pub mod google;
+
+pub use google::oauth::{GoogleAuthError, GoogleOAuthFlow, GoogleTokens};

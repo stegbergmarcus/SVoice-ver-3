@@ -9,6 +9,7 @@
     "core:window:default",
     "core:app:default",
     "core:webview:default",
-    "notification:default"
+    "notification:default",
+    "opener:default"
   ]
 }

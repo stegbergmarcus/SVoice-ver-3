@@ -224,3 +224,83 @@ pub fn clear_anthropic_key() -> Result<(), String> {
     svoice_secrets::delete_anthropic_key()
         .map_err(|e| format!("kunde inte radera nyckel: {e}"))
 }
+
+// ───────── Google OAuth ─────────
+
+#[derive(Debug, Serialize)]
+pub struct GoogleStatus {
+    pub connected: bool,
+    pub client_id_configured: bool,
+}
+
+/// Returnera status för Google-integration. Frontend använder detta för att
+/// rendera "Anslut"- vs "Frånkoppla"-knappar + hint om client-id-konfig.
+#[tauri::command]
+pub fn google_connection_status() -> GoogleStatus {
+    let settings = Settings::load();
+    GoogleStatus {
+        connected: svoice_integrations::google::oauth::is_connected(),
+        client_id_configured: settings
+            .google_oauth_client_id
+            .as_deref()
+            .map(|s| !s.is_empty())
+            .unwrap_or(false),
+    }
+}
+
+/// Starta OAuth-flowet. Öppnar browsern och väntar på callback.
+/// Returnerar när user har godkänt OCH refresh-token är sparad i keyring.
+/// Timeout 5 min (om user inte klickar igenom returneras fel).
+#[tauri::command]
+pub async fn google_connect(app: AppHandle) -> Result<(), String> {
+    use svoice_integrations::google::oauth::{GoogleOAuthFlow, GoogleScope};
+    use tauri_plugin_opener::OpenerExt;
+
+    let settings = Settings::load();
+    let client_id = settings
+        .google_oauth_client_id
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            "Google OAuth client-ID saknas — konfigurera i Settings först".to_string()
+        })?;
+
+    // Scopes: börja med Calendar + Gmail read-only. Full CRUD kommer senare.
+    let scopes = &[
+        GoogleScope::CalendarReadonly,
+        GoogleScope::CalendarEvents,
+        GoogleScope::GmailReadonly,
+    ];
+
+    let flow = GoogleOAuthFlow::start(client_id, scopes)
+        .await
+        .map_err(|e| format!("kunde inte starta OAuth: {e}"))?;
+
+    // Öppna browsern. tauri-plugin-opener är cross-platform wrapper.
+    app.opener()
+        .open_url(&flow.auth_url, None::<&str>)
+        .map_err(|e| format!("kunde inte öppna browser: {e}"))?;
+
+    tracing::info!("OAuth-flow startad; väntar på callback på port {}", flow.port);
+
+    let tokens = flow
+        .finalize()
+        .await
+        .map_err(|e| format!("OAuth misslyckades: {e}"))?;
+
+    let refresh = tokens
+        .refresh_token
+        .ok_or_else(|| "Google returnerade ingen refresh-token".to_string())?;
+    svoice_secrets::set_google_refresh_token(&refresh)
+        .map_err(|e| format!("kunde inte spara refresh-token: {e}"))?;
+
+    tracing::info!("Google-integration ansluten");
+    Ok(())
+}
+
+/// Koppla från Google genom att radera refresh-token ur keyring.
+#[tauri::command]
+pub fn google_disconnect() -> Result<(), String> {
+    svoice_integrations::google::oauth::disconnect()
+        .map_err(|e| format!("kunde inte koppla från: {e}"))
+}

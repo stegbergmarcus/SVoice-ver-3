@@ -17,6 +17,7 @@ tauri-build = { workspace = true }
 tauri = { workspace = true, features = ["image-png"] }
 tauri-plugin-global-shortcut = { workspace = true }
 tauri-plugin-notification = { workspace = true }
+tauri-plugin-opener = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
@@ -26,6 +27,7 @@ anyhow = { workspace = true }
 svoice-audio = { path = "crates/audio" }
 svoice-hotkey = { path = "crates/hotkey" }
 svoice-inject = { path = "crates/inject" }
+svoice-integrations = { path = "crates/integrations" }
 svoice-stt = { path = "crates/stt" }
 svoice-ipc = { path = "crates/ipc" }
 svoice-settings = { path = "crates/settings" }
@@ -64,6 +66,7 @@ rust-version = "1.95"
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-notification = "2"
+tauri-plugin-opener = "2"
 tauri-build = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

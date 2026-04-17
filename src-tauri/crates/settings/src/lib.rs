@@ -39,6 +39,11 @@ pub struct Settings {
     pub dictation_hotkey: HotKey,
     /// Hotkey för action-popup. Standard: Insert.
     pub action_hotkey: HotKey,
+
+    /// Google OAuth client-ID (från Google Cloud Console → "Desktop app").
+    /// Om None: Google-integration disabled. User registrerar själv en
+    /// OAuth-client och matar in ID:t. Hemlighet behövs INTE (PKCE-flow).
+    pub google_oauth_client_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
@@ -68,6 +73,7 @@ impl Default for Settings {
             ollama_url: "http://127.0.0.1:11434".into(),
             dictation_hotkey: HotKey::RightCtrl,
             action_hotkey: HotKey::Insert,
+            google_oauth_client_id: None,
         }
     }
 }
@@ -137,6 +143,7 @@ mod tests {
             ollama_url: "http://127.0.0.1:11434".into(),
             dictation_hotkey: HotKey::F12,
             action_hotkey: HotKey::Pause,
+            google_oauth_client_id: Some("1234.apps.googleusercontent.com".into()),
         };
         let json = serde_json::to_string(&original).unwrap();
         let restored: Settings = serde_json::from_str(&json).unwrap();
@@ -148,6 +155,7 @@ mod tests {
         assert_eq!(original.ollama_model, restored.ollama_model);
         assert_eq!(original.dictation_hotkey, restored.dictation_hotkey);
         assert_eq!(original.action_hotkey, restored.action_hotkey);
+        assert_eq!(original.google_oauth_client_id, restored.google_oauth_client_id);
     }
 
     #[test]
