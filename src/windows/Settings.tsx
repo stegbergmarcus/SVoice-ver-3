@@ -215,6 +215,7 @@ export default function SettingsView() {
 
   function handleReset() {
     if (loaded) setDraft(loaded);
+    setKeyDraft(null);
   }
 
   if (!draft) {
@@ -225,7 +226,8 @@ export default function SettingsView() {
     );
   }
 
-  const dirty = JSON.stringify(draft) !== JSON.stringify(loaded);
+  const dirty =
+    JSON.stringify(draft) !== JSON.stringify(loaded) || keyDraft !== null;
 
   return (
     <div className="settings-root">
