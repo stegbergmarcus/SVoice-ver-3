@@ -1,103 +1,102 @@
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import "./RecordingIndicator.css";
 
 type PttState = "idle" | "recording" | "processing";
 
+const BAR_COUNT = 28;
+
+/**
+ * "Voice-oval" — SVoice's recording-indicator overlay.
+ *
+ * Vänster: SV-monogram (logotyp). Höger: live waveform som reagerar på
+ * mic-volym via ptt_volume-eventet. Under STT-inferens byter waveform till
+ * en indeterminate progress-bar.
+ *
+ * Eventflöde:
+ *   ptt_state (idle|recording|processing) styr synlighet och meter-mode.
+ *   ptt_volume {rms} driver bar-heights vid recording.
+ */
 export default function RecordingIndicator() {
   const [state, setState] = useState<PttState>("idle");
-  const [volume, setVolume] = useState<number>(0);
-  const [stateEventCount, setStateEventCount] = useState<number>(0);
-  const [volumeEventCount, setVolumeEventCount] = useState<number>(0);
-  const decayRef = useRef<number | null>(null);
+  const [bars, setBars] = useState<number[]>(() => Array(BAR_COUNT).fill(0));
+  const barsRef = useRef<number[]>(Array(BAR_COUNT).fill(0));
+  const rafRef = useRef<number | null>(null);
 
+  // Lyssna på state + volume-events.
   useEffect(() => {
-    console.log("[overlay] RecordingIndicator mounted — attaching listeners");
     const unlistenState = listen<PttState>("ptt_state", (ev) => {
-      console.log("[overlay] ptt_state:", ev.payload);
       setState(ev.payload);
-      setStateEventCount((c) => c + 1);
-      if (ev.payload !== "recording") setVolume(0);
+      if (ev.payload !== "recording") {
+        barsRef.current = Array(BAR_COUNT).fill(0);
+        setBars(barsRef.current);
+      }
     });
+
     const unlistenVolume = listen<{ rms: number }>("ptt_volume", (ev) => {
-      console.log("[overlay] ptt_volume:", ev.payload);
-      setVolumeEventCount((c) => c + 1);
-      setVolume((prev) => Math.max(ev.payload.rms, prev * 0.85));
+      // Shifta alla bars en plats vänsterut, injicera nyaste volym längst till höger.
+      // Ger klassisk "wandering waveform"-effekt där nya samples flödar in och gamla
+      // fade:ar ut till vänster.
+      const rms = ev.payload.rms;
+      // Kompander RMS till [0, 1] — mic-inputs är typiskt 0-0.3, logaritmisk skala
+      // ger snyggare respons än linjär.
+      const amplitude = Math.min(1, Math.pow(rms * 3.2, 0.7));
+      const shifted = [...barsRef.current.slice(1), amplitude];
+      barsRef.current = shifted;
     });
+
     return () => {
       unlistenState.then((fn) => fn());
       unlistenVolume.then((fn) => fn());
-      if (decayRef.current !== null) cancelAnimationFrame(decayRef.current);
     };
   }, []);
 
+  // Animation-loop: applicera friktion och skriv state. Separerar event-rate
+  // från render-rate så vi får smooth 60 FPS även om volume-events är 30 Hz.
   useEffect(() => {
     if (state !== "recording") return;
     const tick = () => {
-      setVolume((prev) => prev * 0.9);
-      decayRef.current = requestAnimationFrame(tick);
+      // Subtle decay så bars inte stannar vid senaste värdet när mic blir tyst.
+      barsRef.current = barsRef.current.map((v, i) => {
+        // De äldre (vänster) bars decay:ar snabbare än de nya (höger).
+        const ageFactor = 1 - i / BAR_COUNT;
+        return v * (0.92 + ageFactor * 0.06);
+      });
+      setBars([...barsRef.current]);
+      rafRef.current = requestAnimationFrame(tick);
     };
-    decayRef.current = requestAnimationFrame(tick);
+    rafRef.current = requestAnimationFrame(tick);
     return () => {
-      if (decayRef.current !== null) cancelAnimationFrame(decayRef.current);
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
   }, [state]);
 
-  const dotColor =
-    state === "recording" ? "#dc2626" : state === "processing" ? "#f59e0b" : "#6b7280";
-  const label =
-    state === "recording" ? "Spelar in…" : state === "processing" ? "Transkriberar…" : "Redo";
-  const volumePct = Math.min(100, Math.round(volume * 400));
+  const containerClass = `voice-oval ${state !== "idle" ? "visible" : ""} ${state}`;
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: 4,
-        padding: "8px 12px",
-        borderRadius: 12,
-        background: "rgba(17, 24, 39, 0.92)",
-        color: "white",
-        fontSize: 12,
-        boxShadow: "0 4px 12px rgba(0,0,0,0.35)",
-        userSelect: "none",
-        fontFamily: "system-ui, -apple-system, sans-serif",
-      }}
-    >
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <span
-          style={{
-            width: 10,
-            height: 10,
-            borderRadius: 999,
-            background: dotColor,
-            boxShadow:
-              state === "recording" ? `0 0 ${3 + volumePct / 12}px rgba(220,38,38,0.8)` : "none",
-            transition: "box-shadow 40ms linear",
-          }}
-        />
-        <span>{label}</span>
+    <div className={containerClass}>
+      <div className="voice-oval-logo" aria-hidden>
+        SV
       </div>
-      <div
-        style={{
-          height: 4,
-          background: "rgba(255,255,255,0.12)",
-          borderRadius: 2,
-          overflow: "hidden",
-        }}
-      >
-        <div
-          style={{
-            height: "100%",
-            width: `${volumePct}%`,
-            background: "linear-gradient(90deg, #10b981, #f59e0b, #dc2626)",
-            transition: "width 40ms linear",
-          }}
-        />
-      </div>
-      <div style={{ fontSize: 9, opacity: 0.55, fontFamily: "monospace" }}>
-        evt s:{stateEventCount} v:{volumeEventCount} vol:{volume.toFixed(3)}
-      </div>
+
+      {state === "processing" ? (
+        <div className="voice-oval-meter voice-oval-meter--progress">
+          <div className="progress-label">transkriberar…</div>
+          <div className="progress-bar" role="progressbar" aria-busy="true" />
+        </div>
+      ) : (
+        <div className="voice-oval-meter">
+          <div className="waveform" role="meter" aria-label="Mikrofonnivå">
+            {bars.map((h, i) => (
+              <div
+                key={i}
+                className="waveform-bar"
+                style={{ height: `${Math.max(3, h * 36)}px` }}
+              />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
