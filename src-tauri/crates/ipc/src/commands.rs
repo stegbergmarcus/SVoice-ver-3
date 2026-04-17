@@ -179,6 +179,23 @@ pub async fn pull_ollama_model(app: AppHandle, model: String) -> Result<(), Stri
         "ollama_pull_done",
         serde_json::json!({ "model": model }),
     );
+
+    // OS-notifikation — user kan ha stängt Settings-fönstret.
+    use tauri_plugin_notification::NotificationExt;
+    if let Err(e) = app
+        .notification()
+        .builder()
+        .title("SVoice")
+        .body(format!("Modell nedladdad: {model}"))
+        .show()
+    {
+        tracing::warn!("kunde inte visa notifikation: {e}");
+    }
+
+    // TODO(iter 5): STT download notification — HF-Whisper laddar ned modeller
+    // transparently i Python-sidecaret vid första transcribe mot ocachad modell.
+    // Kräver IPC-signal från sidecar när caching är klar.
+
     Ok(())
 }
 

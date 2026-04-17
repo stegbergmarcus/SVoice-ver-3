@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use svoice_hotkey::HotKey;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(default)]
@@ -33,6 +34,11 @@ pub struct Settings {
     pub ollama_model: String,
     /// Ollama-server URL. Default http://127.0.0.1:11434.
     pub ollama_url: String,
+
+    /// Hotkey för diktering (hold-to-talk). Standard: höger Ctrl.
+    pub dictation_hotkey: HotKey,
+    /// Hotkey för action-popup. Standard: Insert.
+    pub action_hotkey: HotKey,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
@@ -60,6 +66,8 @@ impl Default for Settings {
             anthropic_model: "claude-sonnet-4-5".into(),
             ollama_model: "qwen2.5:14b".into(),
             ollama_url: "http://127.0.0.1:11434".into(),
+            dictation_hotkey: HotKey::RightCtrl,
+            action_hotkey: HotKey::Insert,
         }
     }
 }
@@ -109,6 +117,8 @@ mod tests {
         assert!((s.vad_threshold - 0.005).abs() < 1e-6);
         assert_eq!(s.llm_provider, LlmProvider::Auto);
         assert_eq!(s.ollama_model, "qwen2.5:14b");
+        assert_eq!(s.dictation_hotkey, HotKey::RightCtrl);
+        assert_eq!(s.action_hotkey, HotKey::Insert);
     }
 
     #[test]
@@ -125,6 +135,8 @@ mod tests {
             anthropic_model: "claude-opus-4-7".into(),
             ollama_model: "qwen2.5:32b".into(),
             ollama_url: "http://127.0.0.1:11434".into(),
+            dictation_hotkey: HotKey::F12,
+            action_hotkey: HotKey::Pause,
         };
         let json = serde_json::to_string(&original).unwrap();
         let restored: Settings = serde_json::from_str(&json).unwrap();
@@ -134,6 +146,8 @@ mod tests {
         assert_eq!(original.anthropic_model, restored.anthropic_model);
         assert_eq!(original.llm_provider, restored.llm_provider);
         assert_eq!(original.ollama_model, restored.ollama_model);
+        assert_eq!(original.dictation_hotkey, restored.dictation_hotkey);
+        assert_eq!(original.action_hotkey, restored.action_hotkey);
     }
 
     #[test]

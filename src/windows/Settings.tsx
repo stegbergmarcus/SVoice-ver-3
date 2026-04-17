@@ -12,6 +12,7 @@ import {
   setAnthropicKey,
   setSettings,
   type ComputeMode,
+  type HotKeyChoice,
   type LlmProviderChoice,
   type OllamaModelInfo,
   type PullProgress,
@@ -36,6 +37,29 @@ const PROVIDER_LABELS: Record<LlmProviderChoice, string> = {
   ollama: "Lokal (Ollama)",
   claude: "Claude API",
 };
+
+const HOTKEY_LABELS: Record<HotKeyChoice, string> = {
+  right_ctrl: "Höger Ctrl",
+  insert: "Insert",
+  right_alt: "Höger Alt",
+  f12: "F12",
+  pause: "Pause / Break",
+  scroll_lock: "Scroll Lock",
+  caps_lock: "Caps Lock",
+  home: "Home",
+  end: "End",
+};
+const HOTKEY_ORDER: HotKeyChoice[] = [
+  "right_ctrl",
+  "insert",
+  "right_alt",
+  "f12",
+  "pause",
+  "scroll_lock",
+  "caps_lock",
+  "home",
+  "end",
+];
 
 // Rekommenderade Ollama-modeller för RTX 5080 (16 GB VRAM).
 // Användaren måste själv köra `ollama pull <modell>` innan första användning.
@@ -579,6 +603,75 @@ export default function SettingsView() {
                   Claude Opus 4.7 — högsta kvalitet
                 </option>
               </select>
+            </div>
+          </div>
+        </article>
+
+        {/* Snabbkommandon */}
+        <article className="settings-section">
+          <div className="settings-section-label">
+            <h2>Snabbkommandon</h2>
+            <p>
+              Vilken tangent som ska hållas för diktering respektive action-popup.
+              Samma tangent kan inte användas för båda.
+            </p>
+          </div>
+          <div className="settings-section-body">
+            <div className="field">
+              <label className="field-label" htmlFor="dict-hotkey">
+                Dikterings-tangent
+              </label>
+              <select
+                id="dict-hotkey"
+                className="select"
+                value={draft.dictation_hotkey}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    dictation_hotkey: e.target.value as HotKeyChoice,
+                  })
+                }
+              >
+                {HOTKEY_ORDER.map((k) => (
+                  <option key={k} value={k} disabled={k === draft.action_hotkey}>
+                    {HOTKEY_LABELS[k]}
+                  </option>
+                ))}
+              </select>
+              <div className="field-help">
+                Håll nedtryckt för att spela in. Default: Höger Ctrl.
+              </div>
+            </div>
+            <div className="field">
+              <label className="field-label" htmlFor="action-hotkey">
+                Action-popup-tangent
+              </label>
+              <select
+                id="action-hotkey"
+                className="select"
+                value={draft.action_hotkey}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    action_hotkey: e.target.value as HotKeyChoice,
+                  })
+                }
+              >
+                {HOTKEY_ORDER.map((k) => (
+                  <option key={k} value={k} disabled={k === draft.dictation_hotkey}>
+                    {HOTKEY_LABELS[k]}
+                  </option>
+                ))}
+              </select>
+              <div className="field-help">
+                Öppnar LLM-popupen. Default: Insert.
+              </div>
+            </div>
+            <div
+              className="field-help"
+              style={{ marginTop: 8, fontStyle: "italic", opacity: 0.8 }}
+            >
+              ⚠ Kräver omstart för att träda i kraft.
             </div>
           </div>
         </article>

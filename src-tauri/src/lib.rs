@@ -16,7 +16,7 @@ use futures_util::StreamExt;
 use svoice_audio::vad::trim_silence;
 use svoice_audio::{AudioCapture, AudioRing, VolumeMeter};
 use svoice_hotkey::{
-    install_rctrl_hook, register_hotkey, HotKey, LlCallback, LlKeyEvent, PttMachine, PttState,
+    register_hotkey, HotKey, LlCallback, LlKeyEvent, PttMachine, PttState,
 };
 use svoice_inject::{capture_selection, inject, remember_foreground_target, InjectMethod};
 use svoice_llm::{AnthropicClient, LlmProvider, LlmRequest, OllamaClient, Role, TurnContent};
@@ -76,6 +76,7 @@ pub fn run() {
     let ptt = Arc::new(Mutex::new(PttMachine::new()));
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(move |app| {
             tracing::info!("svoice-v3 startar");
@@ -217,14 +218,29 @@ pub fn run() {
                 })
                 .expect("kunde inte starta PTT worker-thread");
 
+            // Läs hotkey-val. Validera: om båda är samma, använd default.
+            let (dict_key, action_key) = {
+                let d = user_settings.dictation_hotkey;
+                let a = user_settings.action_hotkey;
+                if d == a {
+                    tracing::warn!(
+                        "dictation_hotkey == action_hotkey ({:?}) — faller tillbaka till default",
+                        d
+                    );
+                    (HotKey::RightCtrl, HotKey::Insert)
+                } else {
+                    (d, a)
+                }
+            };
+
             let ptt_cb: LlCallback = Arc::new(move |ev: LlKeyEvent| {
                 if ptt_tx.send(ev).is_err() {
                     tracing::warn!("PTT worker-channel stängd; tappar event {:?}", ev);
                 }
             });
-            match install_rctrl_hook(ptt_cb) {
-                Ok(()) => tracing::info!("PTT aktiv: håll höger Ctrl för att diktera"),
-                Err(e) => tracing::error!("kunde inte installera RightCtrl-hook: {e}"),
+            match register_hotkey(dict_key, ptt_cb) {
+                Ok(()) => tracing::info!("PTT aktiv: håll {:?} för att diktera", dict_key),
+                Err(e) => tracing::error!("kunde inte registrera dikterings-hotkey: {e}"),
             }
 
             // Action-PTT (höger Alt) — iter 3 action-LLM popup.
@@ -257,9 +273,9 @@ pub fn run() {
                     tracing::warn!("action worker-channel stängd; tappar event {:?}", ev);
                 }
             });
-            match register_hotkey(HotKey::Insert, action_cb) {
-                Ok(()) => tracing::info!("Action-PTT aktiv: håll Insert för LLM-popup"),
-                Err(e) => tracing::error!("kunde inte registrera Insert-hook: {e}"),
+            match register_hotkey(action_key, action_cb) {
+                Ok(()) => tracing::info!("Action-PTT aktiv: håll {:?} för LLM-popup", action_key),
+                Err(e) => tracing::error!("kunde inte registrera action-hotkey: {e}"),
             }
 
             let _ = app.get_webview_window("main");
