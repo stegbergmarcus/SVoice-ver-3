@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use svoice_stt::{Sidecar, SttRequest, SttResponse};
+use svoice_stt::Sidecar;
 
 #[tokio::test]
 #[ignore] // kräver systempython — kör manuellt med `cargo test -p svoice-stt -- --ignored`
