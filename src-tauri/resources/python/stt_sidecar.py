@@ -6,15 +6,24 @@ Rust pratar via stdin/stdout. En JSON per rad; Transcribe-request följs av
 import json
 import os
 import site
-import struct
 import sys
 import time
 from pathlib import Path
+
+import numpy as np
+
+# Windows default-stdout är cp1252; tvinga UTF-8 utan CRLF-translation så att
+# Rust's line-reader kan parsa svenska transkript.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", newline="\n")
+if hasattr(sys.stdin, "reconfigure"):
+    sys.stdin.reconfigure(encoding="utf-8", newline="\n")
 
 
 def _add_nvidia_dll_dirs():
     if not hasattr(os, "add_dll_directory"):
         return
+    added = []
     for base in site.getsitepackages() + [site.getusersitepackages()]:
         nvidia_root = Path(base) / "nvidia"
         if not nvidia_root.exists():
@@ -24,8 +33,14 @@ def _add_nvidia_dll_dirs():
             if bin_dir.exists():
                 try:
                     os.add_dll_directory(str(bin_dir))
+                    added.append(str(bin_dir))
                 except OSError:
                     pass
+    # ctranslate2 är en C-extension; den letar cublas64_12.dll via Windows
+    # conventional PATH, inte os.add_dll_directory. Injicera därför även i
+    # PATH innan `faster_whisper` importeras.
+    if added:
+        os.environ["PATH"] = os.pathsep.join(added) + os.pathsep + os.environ.get("PATH", "")
 
 
 _add_nvidia_dll_dirs()
@@ -50,7 +65,8 @@ def read_audio(n_samples: int):
     data = sys.stdin.buffer.read(n_samples * 4)
     if len(data) != n_samples * 4:
         raise IOError(f"unexpected audio length: got {len(data)}, expected {n_samples * 4}")
-    return struct.unpack(f"<{n_samples}f", data)
+    # faster-whisper kräver numpy-array (eller str/Path), inte tuple.
+    return np.frombuffer(data, dtype="<f4").copy()
 
 
 def main():
