@@ -9,6 +9,7 @@ path = "src/lib.rs"
 
 [dependencies]
 tauri = { workspace = true }
+tauri-plugin-notification = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }

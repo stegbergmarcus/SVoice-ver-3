@@ -76,6 +76,7 @@ pub fn run() {
     let ptt = Arc::new(Mutex::new(PttMachine::new()));
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(move |app| {
             tracing::info!("svoice-v3 startar");
