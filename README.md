@@ -6,8 +6,12 @@ testtext i valfri Windows-app.
 
 ## Status
 
-- **Iter 1 (walking skeleton + STT-spike):** klar på `iter1/walking-skeleton-spike`.
-- **Iter 2 (riktig STT via Python-subprocess + WASAPI-capture + VAD):** planeras.
+- **Iter 1 (walking skeleton + STT-spike):** klar, merged till main (tag `iter1-complete`).
+- **Iter 2 (riktig STT + settings-UI):** klar, merged till main (tag `iter2-complete`).
+  Svensk tal-till-text via KB-Whisper på Python-sidecar + faster-whisper, CUDA-inferens
+  ~300-700 ms, Settings-UI med live mic-meter och JSON-persistens.
+- **Iter 2.5 (overlay-polish + logotyp):** nästa.
+- **Iter 3 (action-LLM popup):** planerat.
 
 Se `plan.md` för övergripande vision och `docs/superpowers/specs/` för detaljerade
 iter-specifikationer och spike-rapporter.
@@ -29,11 +33,29 @@ Initial användning: kör från source via `cargo tauri dev`.
 git clone <repo-url> "SVoice ver 3"
 cd "SVoice ver 3"
 .\scripts\setup-dev.ps1
+pnpm install
+# För release-build (MSI): kör även bundle-python.ps1 innan cargo tauri build
 cargo tauri dev
 ```
 
 Setup-skriptet installerar Rust, Node.js, pnpm, CMake och Tauri CLI via winget,
 kör ett första cargo build och förbereder allt för `cargo tauri dev`.
+
+**Systemkrav för dev-mode:**
+- Python 3.11 installerat (`py -3.11 --version` ska fungera).
+- `pip install faster-whisper numpy nvidia-cublas-cu12 nvidia-cudnn-cu12 nvidia-cuda-runtime-cu12 nvidia-cuda-nvrtc-cu12` i Python 3.11-miljön (vänner som redan har det från spike kan skippa).
+- NVIDIA GPU med CUDA-stöd (fallback till CPU möjlig via Settings → Beräkningsläge).
+
+### Bundla Python-runtime för release-build
+
+För att bygga en fristående MSI där Python följer med:
+
+```powershell
+.\scripts\bundle-python.ps1    # laddar ner ~2 GB Python + CUDA
+cargo tauri build              # bygger MSI med bundlad runtime
+```
+
+Utan bundlat runtime använder appen systemets Python 3.11 via `py -3.11`.
 
 ### Manuell setup
 
@@ -41,12 +63,14 @@ kör ett första cargo build och förbereder allt för `cargo tauri dev`.
 2. **Node.js LTS**: `winget install OpenJS.NodeJS.LTS`.
 3. **pnpm**: `npm install -g pnpm`.
 4. **Tauri CLI**: `cargo install tauri-cli --version "^2.0" --locked`.
-5. **CMake** (valfritt, endast för STT-spike): `winget install Kitware.CMake`.
+5. **Python 3.11**: `winget install Python.Python.3.11`.
+6. **CMake** (valfritt, endast för STT-spike): `winget install Kitware.CMake`.
 
 Sen:
 
 ```powershell
 pnpm install
+py -3.11 -m pip install faster-whisper numpy nvidia-cublas-cu12 nvidia-cudnn-cu12 nvidia-cuda-runtime-cu12 nvidia-cuda-nvrtc-cu12
 cargo tauri dev
 ```
 
@@ -54,22 +78,23 @@ cargo tauri dev
 
 När appen kör:
 
-- **Huvudfönstret** visar en minimal statusvy.
+- **Huvudfönstret** visar Settings-vyn (mörkt tema med vänster wordmark + höger inställningspanel) — mikrofon, STT-modell, beräkningsläge, tystnadströskel med live mic-meter.
 - **Overlay-pill** i övre vänstra hörnet visar PTT-state (Redo / Spelar in… / Transkriberar…).
 - **Tray-ikon** i Windows systemfält visar aktuell state och har en Avsluta-meny.
-- **Push-to-talk:** håll **höger Ctrl** i valfri Windows-app och släpp. I iter 1
-  injiceras en fast testtext; i iter 2 ersätts det med riktig tal-till-text.
+- **Push-to-talk:** håll **höger Ctrl** i valfri Windows-app och säg något på svenska. Släpp Ctrl och transkriptet injiceras där fokus är. Första PTT-tryck efter start laddar modellen (~1-2 s), sen cachad.
 
 ## Arkitektur
 
-- **Frontend:** React 18 + TypeScript + Vite (multi-window via Tauri 2).
+- **Frontend:** React 18 + TypeScript + Vite (multi-window via Tauri 2). Design-språk: editorial minimalism × pro-audio studio (Fraunces display-serif, Instrument Sans body, JetBrains Mono värden, charcoal + bärnsten-amber).
 - **Backend:** Rust (Tauri 2) uppdelad i separata crates:
   - `svoice-hotkey` — LowLevelKeyboardHook för höger Ctrl PTT + PTT state machine
   - `svoice-inject` — clipboard-paste + SendInput Unicode-fallback
-  - `svoice-audio` — cpal-wrapper för mikrofon volym-mätning
-  - `svoice-stt` — dummy-transcribe (iter 1), Python-subprocess-wrapper (iter 2)
-  - `svoice-ipc` — Tauri-kommandon och event-typer
-  - `svoice-llm`, `svoice-settings`, `svoice-integrations` — stubs tills iter 2+
+  - `svoice-audio` — WASAPI-capture, ringbuffer, linjär resample till 16 kHz mono, energi-VAD, live RMS-emit
+  - `svoice-stt` — async Python-sidecar-driver (faster-whisper), JSON-protokoll över stdin/stdout
+  - `svoice-settings` — JSON-backed settings i `%APPDATA%/svoice-v3/settings.json`
+  - `svoice-ipc` — Tauri-kommandon (get_settings, set_settings) och event-typer
+  - `svoice-llm`, `svoice-integrations` — stubs tills iter 3+
+- **Python-sidecar:** `src-tauri/resources/python/stt_sidecar.py` — long-living subprocess med faster-whisper, UTF-8-stdio, CUDA-DLL PATH-injection.
 - **Spike-binär:** `svoice-stt-spike` + Python-script för STT-benchmark.
 
 ## Licens
