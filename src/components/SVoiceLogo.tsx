@@ -5,17 +5,14 @@ interface Props {
 }
 
 /**
- * SVoice-logotypen — stiliserat "S" som flödar som en ljudvåg.
+ * SVoice-logotypen — geometriskt S byggt av tre horisontella bars.
  *
  * Komposition:
- *   - Cirkulär amber-gradient-base (matchar editorial × studio-tema)
- *   - Subtil glas-highlight topp-vänster för 3D-känsla
- *   - Flödande S-form i mörk gradient (Bezier-kurva, inte literal bokstav)
- *   - Två "voice-pulser" vid kurvans ändpunkter
- *   - I recording-läge pulserar dots med amber-glow
- *
- * Skalar rent i alla storlekar via viewBox. Aria-hidden för dekorativ
- * användning; wrappas i beskrivande element för screen-readers.
+ *   - Cirkulär amber-gradient-base (editorial × studio-tema)
+ *   - Topp-vänster gloss för 3D-känsla
+ *   - Tre parallella bars: kort-höger, lång-mitten, kort-vänster — bildar
+ *     ett abstrakt S-mönster samtidigt som det antyder audio-meter
+ *   - I recording-läge pulserar den mellersta bar:en i amber
  */
 export default function SVoiceLogo({
   size = 48,
@@ -23,6 +20,7 @@ export default function SVoiceLogo({
   className,
 }: Props) {
   const uid = `svlogo-${useIdRef()}`;
+  const mark = `url(#${uid}-mark)`;
   return (
     <svg
       width={size}
@@ -48,48 +46,32 @@ export default function SVoiceLogo({
         </linearGradient>
       </defs>
 
-      {/* Circular base */}
+      {/* Cirkulär base */}
       <circle cx="24" cy="24" r="23.5" fill={`url(#${uid}-bg)`} />
 
-      {/* Top-left gloss for 3D depth */}
+      {/* Top-left gloss */}
       <path
         d="M 24 0 A 24 24 0 0 0 0 24 L 0 0 Z"
         fill={`url(#${uid}-gloss)`}
       />
 
-      {/* Flowing S-wave — inte bokstav utan abstraktion av ljudrörelse.
-          Bezier med två tighta svängar, rundade ändar för warmth. */}
-      <path
-        d="M 32 13
-           C 26 10, 18 12, 16 18
-           C 14 24, 24 24, 30 28
-           C 34 30, 32 36, 24 36
-           C 18 36, 15 33, 15 33"
-        stroke={`url(#${uid}-mark)`}
-        strokeWidth="3.6"
-        strokeLinecap="round"
-        fill="none"
+      {/* Tre horisontella bars — bildar ett geometriskt S-mönster.
+          Kort+förskjuten höger, lång mitten, kort+förskjuten vänster.
+          Rundade ändar för mjukhet, men absolut raka linjer. */}
+      <rect x="17" y="13" width="18" height="4" rx="2" fill={mark} />
+      <rect
+        x="10"
+        y="22"
+        width="28"
+        height="4"
+        rx="2"
+        fill={mark}
+        className={recording ? "svlogo-pulse-bar" : ""}
+        style={{ transformOrigin: "24px 24px" }}
       />
+      <rect x="13" y="31" width="18" height="4" rx="2" fill={mark} />
 
-      {/* Voice-pulser vid ändpunkter */}
-      <circle
-        cx="32"
-        cy="13"
-        r="2.6"
-        fill={`url(#${uid}-mark)`}
-        className={recording ? "svlogo-pulse" : ""}
-        style={{ transformOrigin: "32px 13px" }}
-      />
-      <circle
-        cx="15"
-        cy="33"
-        r="2.6"
-        fill={`url(#${uid}-mark)`}
-        className={recording ? "svlogo-pulse" : ""}
-        style={{ transformOrigin: "15px 33px", animationDelay: "0.4s" }}
-      />
-
-      {/* Subtle inner shadow för att ge djup */}
+      {/* Subtle inner rand för djup */}
       <circle
         cx="24"
         cy="24"
@@ -102,11 +84,8 @@ export default function SVoiceLogo({
   );
 }
 
-// Enkel uid-generator för att undvika gradient-id-kollision när
-// samma logo renderas flera gånger på sidan.
 let counter = 0;
 function useIdRef() {
-  // Unik per anrop, stable nog för SVG-defs scope
   counter = (counter + 1) % 10000;
   return counter.toString(36);
 }
