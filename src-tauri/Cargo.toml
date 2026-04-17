@@ -27,6 +27,7 @@ svoice-hotkey = { path = "crates/hotkey" }
 svoice-inject = { path = "crates/inject" }
 svoice-stt = { path = "crates/stt" }
 svoice-ipc = { path = "crates/ipc" }
+svoice-settings = { path = "crates/settings" }
 
 [[bin]]
 name = "svoice-v3"

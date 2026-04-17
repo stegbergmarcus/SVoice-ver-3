@@ -191,11 +191,39 @@ Appen bor i tray; ljudenhet stängd; Whisper-modell unloadas efter 2 min idle (k
 Tauri-scaffold, WASAPI-capture, kb-whisper-medium via faster-whisper (CUDA), push-to-talk, SendInput-injektion, minimal tray + settings, Model Center med 3 KB Whisper-storlekar. **Ingen LLM-kod kompileras in som hårt beroende** — `llm::*` modulerna finns som stubs.
 **Exit:** diktera i valfri Windows-app med <1.5 s end-to-end latens på RTX 5080, utan att någon LLM-komponent är installerad eller konfigurerad.
 
-### Fas 2 — LLM som valbart tillägg (3–4 veckor)
-Ollama-sidecar (lazy-spawn), API-providers (OpenAI-compat + Anthropic), smart-function runner, command palette, 5 inbyggda funktioner, prestandaprofiler, keyring-backad nyckelhantering, whisper.cpp-fallback för svaga datorer. Oberoende togglar: `llm_polish_enabled`, `llm_smart_fns_enabled`. "STT + actions-only" blir default för nya profiler i denna fas.
+### Fas 1.5 — UI-polish + branding (iter 2.5, 3–5 dagar)
+Polera overlay och visuell identitet innan Fas 2 börjar. Målet är att appen ska kännas som en färdig produkt redan vid MVP.
 
-### Fas 3 — Google-integration (2–3 veckor)
-OAuth 2.1 PKCE, Gmail/Calendar-klienter, tool-call-loop i Anthropic + OpenAI-compat, Integrations-UI, 5 första verktyg, cloud-aktivitets-indikatorer.
+- **Recording pill → "voice-oval"**: oval overlay med två zoner.
+  - Vänster: SVoice-monogram (SV) som logotyp.
+  - Höger: realtids-waveform (~30 Hz uppdatering) som visar mic-volym som en vågrörelse/brus, inte statisk meter.
+- **Transcribing state**: waveform byter till ett progress-streck (indeterminate loader) när STT-pipen kör, så användaren ser att appen arbetar efter key-up.
+- **SVoice-logo**: design av monogram (SV) i samma visuella språk som overlay, används även för tray-ikon, Start-meny och ev. MSI-installer.
+- **Micro-animationer**: ease-in/out-transitioner mellan idle → recording → processing → idle. Inga abrupta state-switchar.
+- **Design-mål**: "wow-känsla". Modern, polerad, professionell — inte hobby-ig. Medveten typografi, spacing, färg.
+
+### Fas 2 — Action-LLM popup + smart-functions (iter 3, 4–5 veckor)
+Samlar vad som tidigare var "LLM polering", "smart functions" och "command palette" till en **unified röstdriven LLM-UX**: en andra PTT-hotkey (action-PTT) som öppnar en snygg kontextmedveten popup.
+
+**Tre interaktionslägen beroende på kontext** (detekteras automatiskt vid action-PTT):
+
+1. **Text markerad i aktiv applikation + röstkommando** → LLM transformerar markeringen enligt kommandot (t.ex. "gör detta till punktlista", "skriv om formellt", "förkorta", "översätt till engelska") → preview i popup → **Enter = ersätt** originalet via clipboard-paste. Escape = stäng utan ändring.
+2. **Ingen markering + fråga** → Fri Q&A. LLM-svar streamas i popup. Enter = kopiera till clipboard / stäng.
+3. **Agentic kommando** ("lägg till detta i kalendern på fredag", "svara på mailet från X") → LLM tool-callar Google-integrationen (Fas 3), utför, bekräftelse visas i popup.
+
+**Infrastruktur:**
+- Ollama-sidecar (lazy-spawn, samma mönster som STT-sidecar i iter 2).
+- API-providers (OpenAI-compat + Anthropic) med keyring-backad nyckelhantering.
+- Selection-detection via Win32 UI Automation / clipboard-snapshot + restore.
+- Popup = separat Tauri-window (always-on-top, center-of-screen, blur-backdrop).
+- Prestandaprofiler (Fast/Balanced/Quality) styr både STT och LLM-default.
+- whisper.cpp-fallback för svaga datorer.
+- Oberoende togglar: `llm_polish_enabled` (STT→LLM-polering av diktering) och `llm_action_enabled` (action-popup). Default: polering av, action-popup på.
+
+**Design-mål**: popup-en ska vara den visuella höjdpunkten — "Siri/Cortana for productivity".
+
+### Fas 3 — Google-integration (iter 4, 2–3 veckor)
+OAuth 2.1 PKCE, Gmail/Calendar-klienter, tool-call-loop i Anthropic + OpenAI-compat, Integrations-UI, första 5 verktyg (`list_calendar_events`, `create_calendar_event`, `search_emails`, `read_email`, `draft_reply`), cloud-aktivitets-indikatorer. Integrerar direkt i action-popup från Fas 2 — användaren upptäcker det genom att prata agentic, inte via en separat UI.
 
 ### Fas 4 — Framtid
 VAD always-on med wake-word, MCP-klient, fler integrationer (Slack, Outlook, Notion), streaming STT från Deepgram/ElevenLabs, per-app-profiler (detektera foreground-app → byt profil automatiskt).

@@ -7,4 +7,13 @@ rust-version.workspace = true
 [lib]
 path = "src/lib.rs"
 
+[dev-dependencies]
+tokio = { workspace = true }
+
 [dependencies]
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }

@@ -14,4 +14,5 @@ serde_json = { workspace = true }
 tracing = { workspace = true }
 svoice-hotkey = { path = "../hotkey" }
 svoice-inject = { path = "../inject" }
+svoice-settings = { path = "../settings" }
 svoice-stt = { path = "../stt" }

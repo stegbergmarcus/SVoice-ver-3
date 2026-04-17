@@ -1,7 +1,6 @@
 use serde::Serialize;
 use svoice_hotkey::PttState;
-use svoice_inject::{inject, InjectError, InjectMethod};
-use svoice_stt::dummy_transcribe;
+use svoice_settings::Settings;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -15,23 +14,16 @@ pub struct PttStateReport {
     pub state: PttState,
 }
 
-/// Kör ett end-to-end inject av dummy-STT-texten. Används både som smoke-command
-/// från UI och som resultat i PTT-loop (via hotkey callback).
+/// Hämta nuvarande settings från disk. Returnerar default om filen saknas
+/// eller är korrupt (log-warning i så fall).
 #[tauri::command]
-pub fn run_dummy_inject() -> Result<InjectResult, String> {
-    let text = dummy_transcribe();
-    match inject(&text) {
-        Ok(method) => Ok(InjectResult {
-            method: match method {
-                InjectMethod::SendInput => "send_input".into(),
-                InjectMethod::Clipboard => "clipboard".into(),
-            },
-            chars: text.chars().count(),
-        }),
-        Err(e) => Err(map_inject_error(e)),
-    }
+pub fn get_settings() -> Settings {
+    Settings::load()
 }
 
-fn map_inject_error(e: InjectError) -> String {
-    format!("inject-fel: {e}")
+/// Skriv settings till disk. Returnerar fel-sträng till frontend på failure
+/// så att UI kan visa toast.
+#[tauri::command]
+pub fn set_settings(settings: Settings) -> Result<(), String> {
+    settings.save().map_err(|e| format!("kunde inte spara settings: {e}"))
 }

@@ -1,10 +1,12 @@
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 
-use svoice_audio::VolumeMeter;
+use svoice_audio::vad::trim_silence;
+use svoice_audio::{AudioCapture, AudioRing, VolumeMeter};
 use svoice_hotkey::{install_rctrl_hook, LlCallback, LlKeyEvent, PttMachine, PttState};
 use svoice_inject::{inject, InjectMethod};
-use svoice_stt::dummy_transcribe;
+use svoice_settings::{ComputeMode, Settings};
+use svoice_stt::{PythonStt, SttConfig};
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -15,6 +17,7 @@ const TRAY_REC_BYTES: &[u8] = include_bytes!("../icons/tray-recording.png");
 
 const EV_PTT_STATE: &str = "ptt_state";
 const EV_PTT_VOLUME: &str = "ptt_volume";
+const EV_MIC_LEVEL: &str = "mic_level";
 
 /// Wrapping för volume-events. Tauri 2 emit:ar scalars via JSON och en del
 /// scalar-types tas inte emot pålitligt av webview-listeners. Object-payload
@@ -62,6 +65,49 @@ pub fn run() {
                 })
                 .build(app)?;
 
+            // Läs användar-settings från disk (eller default).
+            let user_settings = Settings::load();
+            tracing::info!(
+                "settings: model={}, compute={:?}, vad={:.3}",
+                user_settings.stt_model,
+                user_settings.stt_compute_mode,
+                user_settings.vad_threshold
+            );
+
+            // Bygg SttConfig: användar-val + ev. bundlat runtime.
+            let mut stt_config = SttConfig::default();
+            stt_config.model = user_settings.stt_model.clone();
+            match user_settings.stt_compute_mode {
+                ComputeMode::Cpu => {
+                    stt_config.device = "cpu".into();
+                    stt_config.compute_type = "int8".into();
+                }
+                ComputeMode::Gpu => {
+                    stt_config.device = "cuda".into();
+                    stt_config.compute_type = "float16".into();
+                }
+                ComputeMode::Auto => { /* lämna default (cuda/float16 med CPU-fallback via Python) */ }
+            }
+            if let Ok(res_dir) = app.path().resource_dir() {
+                let bundled_python = res_dir
+                    .join("python-runtime")
+                    .join("python")
+                    .join("python.exe");
+                if bundled_python.exists() {
+                    tracing::info!("använder bundlad Python: {}", bundled_python.display());
+                    stt_config.python_path = bundled_python;
+                    stt_config.python_args = vec![]; // bundlat är redan 3.11
+                }
+                let bundled_script = res_dir.join("python").join("stt_sidecar.py");
+                if bundled_script.exists() {
+                    tracing::info!("använder bundlat sidecar-script: {}", bundled_script.display());
+                    stt_config.script_path = bundled_script;
+                }
+            }
+            let stt = Arc::new(PythonStt::new(stt_config));
+            let rt = Arc::new(tokio::runtime::Runtime::new().expect("tokio runtime"));
+            let vad_threshold = user_settings.vad_threshold;
+
             // PTT worker
             let app_handle = app.handle().clone();
             let ptt_worker = ptt.clone();
@@ -70,7 +116,34 @@ pub fn run() {
             std::thread::Builder::new()
                 .name("svoice-ptt-worker".into())
                 .spawn(move || {
-                    ptt_worker_loop(rx, app_handle, ptt_worker);
+                    // AudioCapture skapas INUTI worker-tråden eftersom cpal::Stream
+                    // är !Send på Windows (WASAPI). Skapas och drop:as på samma
+                    // tråd — inget unsafe behövs.
+                    let ring = Arc::new(AudioRing::new(16000 * 30));
+                    // Alltid-på mic-meter som driver Settings-vyns live-bar.
+                    // Samma cpal-stream som ringbufferen — ingen dubbel öppning.
+                    let mic_app = app_handle.clone();
+                    let rms_cb: svoice_audio::capture::RmsCallback =
+                        Arc::new(move |rms: f32| {
+                            emit_event(&mic_app, EV_MIC_LEVEL, VolumeEvent { rms });
+                        });
+                    let capture = match AudioCapture::start_with_rms(
+                        ring.clone(),
+                        Some(rms_cb),
+                    ) {
+                        Ok(c) => c,
+                        Err(e) => {
+                            tracing::error!("kunde inte starta audio-capture: {e}");
+                            return;
+                        }
+                    };
+                    tracing::info!(
+                        "audio-capture aktiv @ {} Hz, {} kanaler (resamplas → 16 kHz mono)",
+                        capture.sample_rate,
+                        capture.channels
+                    );
+                    let _capture = capture; // hålls vid liv hela worker-tråden
+                    ptt_worker_loop(rx, app_handle, ptt_worker, ring, stt, rt, vad_threshold);
                 })
                 .expect("kunde inte starta PTT worker-thread");
 
@@ -88,7 +161,10 @@ pub fn run() {
             let _ = app.get_webview_window("main");
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![svoice_ipc::run_dummy_inject])
+        .invoke_handler(tauri::generate_handler![
+            svoice_ipc::get_settings,
+            svoice_ipc::set_settings,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
@@ -108,6 +184,10 @@ fn ptt_worker_loop(
     rx: mpsc::Receiver<LlKeyEvent>,
     app_handle: AppHandle,
     ptt: Arc<Mutex<PttMachine>>,
+    ring: Arc<AudioRing>,
+    stt: Arc<PythonStt>,
+    rt: Arc<tokio::runtime::Runtime>,
+    vad_threshold: f32,
 ) {
     let mut meter: Option<VolumeMeter> = None;
 
@@ -118,6 +198,7 @@ fn ptt_worker_loop(
         update_tray_for_state(&app_handle, state_after);
 
         if ev == LlKeyEvent::Pressed && state_after == PttState::Recording {
+            ring.clear();
             meter = start_volume_meter(&app_handle);
         }
 
@@ -131,7 +212,7 @@ fn ptt_worker_loop(
             // nedtryckt när de tar emot Unicode-tecknen.
             std::thread::sleep(std::time::Duration::from_millis(50));
 
-            perform_inject();
+            perform_transcribe_and_inject(&ring, &stt, &rt, vad_threshold);
 
             let final_state = {
                 let mut m = ptt_lock(&ptt);
@@ -178,17 +259,37 @@ fn start_volume_meter(app_handle: &AppHandle) -> Option<VolumeMeter> {
     }
 }
 
-fn perform_inject() {
-    let text = dummy_transcribe();
-    match inject(&text) {
-        Ok(method) => {
-            let method_str = match method {
-                InjectMethod::SendInput => "send_input",
-                InjectMethod::Clipboard => "clipboard",
-            };
-            tracing::info!("inject OK via {method_str}");
+fn perform_transcribe_and_inject(
+    ring: &AudioRing,
+    stt: &PythonStt,
+    rt: &tokio::runtime::Runtime,
+    vad_threshold: f32,
+) {
+    let audio = ring.drain();
+    let (start, end) = trim_silence(&audio, 16000, vad_threshold);
+    let segment = &audio[start..end];
+    if segment.is_empty() {
+        tracing::warn!("inget tal detekterat (VAD trimmade allt)");
+        return;
+    }
+    match rt.block_on(stt.transcribe(segment)) {
+        Ok(text) => {
+            if text.is_empty() {
+                tracing::warn!("STT returnerade tom text");
+                return;
+            }
+            match inject(&text) {
+                Ok(method) => {
+                    let method_str = match method {
+                        InjectMethod::SendInput => "send_input",
+                        InjectMethod::Clipboard => "clipboard",
+                    };
+                    tracing::info!("inject OK via {method_str}: \"{}\"", text);
+                }
+                Err(e) => tracing::error!("inject FAIL: {e}"),
+            }
         }
-        Err(e) => tracing::error!("inject FAIL: {e}"),
+        Err(e) => tracing::error!("STT-fel: {e}"),
     }
 }
 

@@ -1,2 +1,2 @@
 pub mod commands;
-pub use commands::{run_dummy_inject, InjectResult, PttStateReport};
+pub use commands::{get_settings, set_settings, InjectResult, PttStateReport};
