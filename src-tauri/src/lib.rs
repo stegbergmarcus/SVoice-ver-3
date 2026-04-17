@@ -232,13 +232,18 @@ pub fn run() {
 
             // Action-PTT: spara target-HWND vid keydown INNAN popupen öppnas
             // så paste_and_restore kan SetForegroundWindow tillbaka efter hide.
-            // Utan detta hamnade Ctrl+V i popup-webviewen och Ctrl-state blev
-            // "fast" i Windows-session.
+            // remember_foreground_target() returnerar false om target är vår
+            // egen app — då skippar vi hela action-flödet (paste tillbaka till
+            // vår webview triggar Ctrl-state-hang i Windows).
+            let action_tx_for_cb = action_tx.clone();
             let action_cb: LlCallback = Arc::new(move |ev: LlKeyEvent| {
                 if ev == LlKeyEvent::Pressed {
-                    remember_foreground_target();
+                    if !remember_foreground_target() {
+                        // Target är vår egen app eller saknas — ignorera.
+                        return;
+                    }
                 }
-                if action_tx.send(ev).is_err() {
+                if action_tx_for_cb.send(ev).is_err() {
                     tracing::warn!("action worker-channel stängd; tappar event {:?}", ev);
                 }
             });

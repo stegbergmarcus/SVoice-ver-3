@@ -8,7 +8,9 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
     VIRTUAL_KEY, VK_C, VK_CONTROL, VK_V,
 };
-use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, SetForegroundWindow};
+use windows::Win32::UI::WindowsAndMessaging::{
+    GetForegroundWindow, GetWindowThreadProcessId, SetForegroundWindow,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ClipboardError {
@@ -24,9 +26,25 @@ static TARGET_HWND: AtomicIsize = AtomicIsize::new(0);
 
 /// Spara aktuellt foreground window som "target". Anropas vid action-PTT
 /// keydown, innan popupen tar fokus. Senare restore:s via [`restore_target_focus`].
-pub fn remember_foreground_target() {
+///
+/// Returnerar `false` om aktuellt fönster tillhör vår egen process — i så fall
+/// SKA action-PTT inte fortsätta, eftersom Ctrl+V tillbaka till vår webview
+/// lämnar Windows i konstigt key-state (Ctrl-up "äts" av webview-eventloopen).
+pub fn remember_foreground_target() -> bool {
     let hwnd = unsafe { GetForegroundWindow() };
+    if hwnd.0.is_null() {
+        return false;
+    }
+    // Kolla om fönstret tillhör vår process.
+    let our_pid = std::process::id();
+    let mut win_pid: u32 = 0;
+    unsafe { GetWindowThreadProcessId(hwnd, Some(&mut win_pid)) };
+    if win_pid == our_pid {
+        tracing::debug!("remember_foreground_target: fönstret är vårt eget (pid {our_pid}) — skippar");
+        return false;
+    }
     TARGET_HWND.store(hwnd.0 as isize, Ordering::SeqCst);
+    true
 }
 
 /// Återställ fokus till target-fönstret (om sparat). Returnerar true om
