@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::Path;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
@@ -20,6 +20,13 @@ pub enum SidecarError {
     Json(#[from] serde_json::Error),
 }
 
+/// Async driver for the Python STT sidecar.
+///
+/// **Concurrency:** `send_request` and `send_audio` each acquire the stdin
+/// mutex independently. For a `Transcribe` frame the caller must hold a
+/// higher-level serialising lock (see `PythonStt` in Task D1) so nothing else
+/// writes between the JSON line and the audio bytes. `Sidecar` does not
+/// enforce this alone.
 pub struct Sidecar {
     child: Child,
     stdin: Mutex<ChildStdin>,
@@ -27,7 +34,7 @@ pub struct Sidecar {
 }
 
 impl Sidecar {
-    pub async fn spawn(python_path: &PathBuf, script_path: &PathBuf) -> Result<Self, SidecarError> {
+    pub async fn spawn(python_path: &Path, script_path: &Path) -> Result<Self, SidecarError> {
         let mut child = Command::new(python_path)
             .arg(script_path)
             .stdin(std::process::Stdio::piped())
@@ -68,6 +75,8 @@ impl Sidecar {
         Ok(())
     }
 
+    // TODO(D1): wrap with tokio::time::timeout so a hung sidecar
+    // (e.g. first-run HF model download) doesn't block forever.
     pub async fn read_response(&self) -> Result<SttResponse, SidecarError> {
         let mut stdout = self.stdout.lock().await;
         let mut line = String::new();
