@@ -25,8 +25,6 @@ pub struct Settings {
     /// Auto = försök lokal först, fallback till API om inte tillgänglig.
     pub llm_provider: LlmProvider,
 
-    /// Anthropic Claude API-nyckel (klartext i JSON — keyring iter 4+).
-    pub anthropic_api_key: Option<String>,
     /// Anthropic-modell. Default claude-sonnet-4-5.
     pub anthropic_model: String,
 
@@ -59,7 +57,6 @@ impl Default for Settings {
             action_llm_enabled: true,
             llm_polish_dictation: false,
             llm_provider: LlmProvider::Auto,
-            anthropic_api_key: None,
             anthropic_model: "claude-sonnet-4-5".into(),
             ollama_model: "qwen2.5:14b".into(),
             ollama_url: "http://127.0.0.1:11434".into(),
@@ -125,7 +122,6 @@ mod tests {
             action_llm_enabled: true,
             llm_polish_dictation: true,
             llm_provider: LlmProvider::Ollama,
-            anthropic_api_key: Some("sk-ant-test".into()),
             anthropic_model: "claude-opus-4-7".into(),
             ollama_model: "qwen2.5:32b".into(),
             ollama_url: "http://127.0.0.1:11434".into(),
@@ -135,7 +131,6 @@ mod tests {
         assert_eq!(original.mic_device, restored.mic_device);
         assert_eq!(original.stt_model, restored.stt_model);
         assert_eq!(original.stt_compute_mode, restored.stt_compute_mode);
-        assert_eq!(original.anthropic_api_key, restored.anthropic_api_key);
         assert_eq!(original.anthropic_model, restored.anthropic_model);
         assert_eq!(original.llm_provider, restored.llm_provider);
         assert_eq!(original.ollama_model, restored.ollama_model);

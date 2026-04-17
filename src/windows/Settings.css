@@ -706,3 +706,17 @@
   letter-spacing: 0.2em;
   text-transform: uppercase;
 }
+
+.link-button {
+  background: none;
+  border: none;
+  color: var(--color-amber, #d4a955);
+  padding: 4px 0;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  margin-top: 4px;
+}
+.link-button:hover {
+  color: var(--color-amber-light, #e6c280);
+}

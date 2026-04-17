@@ -17,5 +17,6 @@ svoice-audio = { path = "../audio" }
 svoice-hotkey = { path = "../hotkey" }
 svoice-inject = { path = "../inject" }
 svoice-llm = { path = "../llm" }
+svoice-secrets = { path = "../secrets" }
 svoice-settings = { path = "../settings" }
 svoice-stt = { path = "../stt" }

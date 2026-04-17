@@ -12,7 +12,6 @@ export interface Settings {
   action_llm_enabled: boolean;
   llm_polish_dictation: boolean;
   llm_provider: LlmProviderChoice;
-  anthropic_api_key: string | null;
   anthropic_model: string;
   ollama_model: string;
   ollama_url: string;
@@ -53,4 +52,16 @@ export async function pullOllamaModel(model: string): Promise<void> {
 
 export async function checkHfCached(model: string): Promise<boolean> {
   return invoke<boolean>("check_hf_cached", { model });
+}
+
+export async function hasAnthropicKey(): Promise<boolean> {
+  return invoke<boolean>("has_anthropic_key");
+}
+
+export async function setAnthropicKey(key: string): Promise<void> {
+  await invoke<void>("set_anthropic_key", { key });
+}
+
+export async function clearAnthropicKey(): Promise<void> {
+  await invoke<void>("clear_anthropic_key");
 }

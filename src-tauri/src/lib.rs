@@ -2,6 +2,8 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 
+mod migrate;
+
 /// Förhindrar att båda PTT-flöden (diktering RCtrl och action Insert) kör
 /// samtidigt — de delar AudioRing och skulle tömma varandras data.
 /// Första Pressed vinner, andra ignoreras tills första releases.
@@ -108,6 +110,12 @@ pub fn run() {
                 })
                 .build(app)?;
 
+            // Kör best-effort migration av klartext anthropic_api_key → keyring.
+            // Idempotent; no-op efter första migration.
+            if let Err(e) = migrate::migrate_anthropic_key(&Settings::path()) {
+                tracing::error!("settings-migration fel: {e}");
+            }
+
             // Läs användar-settings från disk (eller default).
             let user_settings = Settings::load();
             tracing::info!(
@@ -115,7 +123,7 @@ pub fn run() {
                 user_settings.stt_model,
                 user_settings.stt_compute_mode,
                 user_settings.vad_threshold,
-                user_settings.anthropic_api_key.as_ref().map(|_| "****").unwrap_or("none"),
+                if svoice_secrets::has_anthropic_key() { "****" } else { "none" },
             );
 
             // Bygg SttConfig.
@@ -158,9 +166,9 @@ pub fn run() {
             // Anthropic-klient och VAD-threshold hot-reloadas från disk
             // vid varje PTT-trigger (se worker-looparna nedan) så användaren
             // slipper restart för att byta modell, nyckel eller känslighet.
-            if user_settings.anthropic_api_key.is_none() {
+            if !svoice_secrets::has_anthropic_key() {
                 tracing::info!(
-                    "action-LLM ej konfigurerad — lägg till anthropic_api_key i settings"
+                    "action-LLM ej konfigurerad — lägg till Anthropic-nyckel i Settings"
                 );
             }
 
@@ -276,14 +284,17 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            svoice_ipc::get_settings,
-            svoice_ipc::set_settings,
             svoice_ipc::action_apply,
             svoice_ipc::action_cancel,
+            svoice_ipc::check_hf_cached,
+            svoice_ipc::clear_anthropic_key,
+            svoice_ipc::get_settings,
+            svoice_ipc::has_anthropic_key,
             svoice_ipc::list_mic_devices,
             svoice_ipc::list_ollama_models,
             svoice_ipc::pull_ollama_model,
-            svoice_ipc::check_hf_cached,
+            svoice_ipc::set_anthropic_key,
+            svoice_ipc::set_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -457,7 +468,8 @@ fn perform_transcribe_and_inject(
 /// eller error om ingen provider är konfigurerad/når fram.
 async fn polish_transcript(raw: &str, settings: &Settings) -> anyhow::Result<String> {
     use futures_util::StreamExt;
-    let llm = select_llm_provider(settings)
+    let anthropic_key = svoice_secrets::get_anthropic_key().ok().flatten();
+    let llm = select_llm_provider(settings, anthropic_key.as_deref())
         .await
         .ok_or_else(|| anyhow::anyhow!("ingen LLM-provider konfigurerad för polering"))?;
     let req = LlmRequest {
@@ -573,7 +585,8 @@ fn action_worker_loop(
                 );
 
                 // Bygg LLM-provider från den settings vi redan laddade ovan.
-                let llm = rt.block_on(select_llm_provider(&current));
+                let anthropic_key = svoice_secrets::get_anthropic_key().ok().flatten();
+                let llm = rt.block_on(select_llm_provider(&current, anthropic_key.as_deref()));
 
                 if let Err(e) = handle_action_released(
                     &app_handle,
@@ -719,15 +732,16 @@ fn handle_action_released(
 /// Väljer LLM-provider baserat på settings. Auto prövar Ollama först (snabb
 /// health-check mot localhost:11434) och fallback till Anthropic om det
 /// misslyckas. Uttryckligt val (Claude/Ollama) gör ingen fallback.
-async fn select_llm_provider(settings: &Settings) -> Option<Arc<dyn LlmProvider>> {
+async fn select_llm_provider(
+    settings: &Settings,
+    anthropic_key: Option<&str>,
+) -> Option<Arc<dyn LlmProvider>> {
     let build_anthropic = || -> Option<Arc<dyn LlmProvider>> {
-        settings
-            .anthropic_api_key
-            .as_ref()
+        anthropic_key
             .filter(|k| !k.is_empty())
             .map(|key| {
                 Arc::new(
-                    AnthropicClient::new(key.clone())
+                    AnthropicClient::new(key.to_string())
                         .with_model(settings.anthropic_model.clone()),
                 ) as Arc<dyn LlmProvider>
             })

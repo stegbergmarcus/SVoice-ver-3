@@ -181,3 +181,29 @@ pub async fn pull_ollama_model(app: AppHandle, model: String) -> Result<(), Stri
     );
     Ok(())
 }
+
+/// Indikera till frontend om en Anthropic-nyckel ligger i Windows Credential
+/// Manager. Används för att visa `••••••••` vs tom input i Settings-UI.
+#[tauri::command]
+pub fn has_anthropic_key() -> bool {
+    svoice_secrets::has_anthropic_key()
+}
+
+/// Spara Anthropic API-nyckel i Windows Credential Manager. Ersätter ev.
+/// befintligt värde. Tom sträng betraktas som fel (anropa `clear` istället).
+#[tauri::command]
+pub fn set_anthropic_key(key: String) -> Result<(), String> {
+    let trimmed = key.trim();
+    if trimmed.is_empty() {
+        return Err("nyckel får inte vara tom — använd clear-kommandot istället".into());
+    }
+    svoice_secrets::set_anthropic_key(trimmed)
+        .map_err(|e| format!("kunde inte spara nyckel: {e}"))
+}
+
+/// Radera Anthropic API-nyckeln ur Credential Manager. No-op om den saknas.
+#[tauri::command]
+pub fn clear_anthropic_key() -> Result<(), String> {
+    svoice_secrets::delete_anthropic_key()
+        .map_err(|e| format!("kunde inte radera nyckel: {e}"))
+}
