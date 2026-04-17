@@ -150,6 +150,9 @@ pub fn run() {
             }
 
             let stt = Arc::new(PythonStt::new(stt_config));
+            // Registrera PythonStt som Tauri managed state så set_settings-IPC
+            // kan kalla stt.reload_config() vid modell/compute-byte.
+            app.manage(stt.clone());
             let rt = Arc::new(tokio::runtime::Runtime::new().expect("tokio runtime"));
 
             // Anthropic-klient och VAD-threshold hot-reloadas från disk

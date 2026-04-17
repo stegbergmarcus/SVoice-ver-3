@@ -17,7 +17,7 @@ pub enum SttError {
     Unexpected(String),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SttConfig {
     pub model: String,
     pub device: String,
@@ -38,10 +38,7 @@ impl Default for SttConfig {
             language: "sv".into(),
             beam_size: 3,
             python_path: PathBuf::from("py"),
-            // py-launcher: tvinga 3.11 så faster-whisper hittas (3.14 är default på maskinen).
             python_args: vec!["-3.11".into()],
-            // Relativ till cwd som i dev är `src-tauri/`. Release-build sätter absolut
-            // path via tauri resource_dir (Task E2).
             script_path: PathBuf::from("resources/python/stt_sidecar.py"),
         }
     }
@@ -49,12 +46,44 @@ impl Default for SttConfig {
 
 pub struct PythonStt {
     sidecar: Arc<Mutex<Option<Sidecar>>>,
-    config: SttConfig,
+    /// Config i Mutex så den kan hot-reloadas när user byter modell/compute
+    /// i Settings — reload_config() drop:ar sidecar och sätter ny config;
+    /// nästa transcribe triggar ensure_loaded som spawnar sidecar igen.
+    config: Arc<Mutex<SttConfig>>,
 }
 
 impl PythonStt {
     pub fn new(config: SttConfig) -> Self {
-        Self { sidecar: Arc::new(Mutex::new(None)), config }
+        Self {
+            sidecar: Arc::new(Mutex::new(None)),
+            config: Arc::new(Mutex::new(config)),
+        }
+    }
+
+    /// Byt SttConfig vid runtime. Om sidecar är spawnad shutdown:as den
+    /// graceful; nästa transcribe spawnar ny sidecar med ny config.
+    ///
+    /// Om `new_config` är identisk med befintlig config blir det en no-op.
+    pub async fn reload_config(&self, new_config: SttConfig) -> Result<bool, SttError> {
+        let mut current_cfg = self.config.lock().await;
+        if *current_cfg == new_config {
+            return Ok(false); // ingen ändring
+        }
+        tracing::info!(
+            "STT reload: model {} → {}, device {} → {}",
+            current_cfg.model,
+            new_config.model,
+            current_cfg.device,
+            new_config.device
+        );
+        // Shutdown nuvarande sidecar om den finns.
+        let mut sc_guard = self.sidecar.lock().await;
+        if let Some(sc) = sc_guard.take() {
+            // sc.shutdown konsumerar sc — best effort.
+            let _ = sc.shutdown().await;
+        }
+        *current_cfg = new_config;
+        Ok(true)
     }
 
     async fn ensure_loaded(&self) -> Result<(), SttError> {
@@ -62,24 +91,24 @@ impl PythonStt {
         if guard.is_some() {
             return Ok(());
         }
-        let sc = Sidecar::spawn(
-            &self.config.python_path,
-            &self.config.python_args,
-            &self.config.script_path,
-        )
-        .await?;
+        let cfg = self.config.lock().await.clone();
+        let sc = Sidecar::spawn(&cfg.python_path, &cfg.python_args, &cfg.script_path).await?;
         sc.send_request(&SttRequest::Load {
-            model: self.config.model.clone(),
-            device: self.config.device.clone(),
-            compute_type: self.config.compute_type.clone(),
-            language: self.config.language.clone(),
+            model: cfg.model.clone(),
+            device: cfg.device.clone(),
+            compute_type: cfg.compute_type.clone(),
+            language: cfg.language.clone(),
         })
         .await?;
         match sc.read_response().await? {
-            SttResponse::Loaded { load_ms, vram_used_mb } => {
+            SttResponse::Loaded {
+                load_ms,
+                vram_used_mb,
+            } => {
                 tracing::info!(
                     "STT-modell laddad på {} ms (VRAM: {:?} MB)",
-                    load_ms, vram_used_mb
+                    load_ms,
+                    vram_used_mb
                 );
             }
             SttResponse::Error { message, .. } => return Err(SttError::Remote(message)),
@@ -91,17 +120,20 @@ impl PythonStt {
 
     pub async fn transcribe(&self, audio: &[f32]) -> Result<String, SttError> {
         self.ensure_loaded().await?;
+        let beam_size = self.config.lock().await.beam_size;
         let guard = self.sidecar.lock().await;
         let sc = guard.as_ref().ok_or(SttError::NotLoaded)?;
         sc.send_request(&SttRequest::Transcribe {
             audio_samples: audio.len() as u32,
             sample_rate: 16000,
-            beam_size: self.config.beam_size,
+            beam_size,
         })
         .await?;
         sc.send_audio(audio).await?;
         match sc.read_response().await? {
-            SttResponse::Transcript { text, inference_ms, .. } => {
+            SttResponse::Transcript {
+                text, inference_ms, ..
+            } => {
                 tracing::info!("STT: {} ms → \"{}\"", inference_ms, text);
                 Ok(text)
             }
