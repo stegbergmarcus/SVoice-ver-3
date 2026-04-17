@@ -1,18 +1,6 @@
-pub const DUMMY_TEXT: &str = "Hej, det här är ett test med å, ä och ö.";
+// pub mod engine;  // added in Task A3
+// pub mod sidecar; // added in Task D1
+pub mod protocol;
 
-pub fn dummy_transcribe() -> String {
-    DUMMY_TEXT.to_string()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn dummy_text_contains_swedish_chars() {
-        let t = dummy_transcribe();
-        assert!(t.contains('å'));
-        assert!(t.contains('ä'));
-        assert!(t.contains('ö'));
-    }
-}
+// pub use engine::{PythonStt, Stt, SttError}; // added in Task A3
+pub use protocol::{SttRequest, SttResponse};

@@ -3664,6 +3664,14 @@ version = "0.1.0"
 [[package]]
 name = "svoice-stt"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+]
 
 [[package]]
 name = "svoice-stt-spike"
