@@ -3,15 +3,6 @@ use std::sync::{Arc, Mutex};
 
 use svoice_audio::vad::trim_silence;
 use svoice_audio::{AudioCapture, AudioRing, VolumeMeter};
-
-/// cpal::Stream är !Send på Windows (WASAPI). Vi håller capture enbart för
-/// Drop-semantiken (stoppar streamen). Det är säkert att drop:a cpal::Stream
-/// från en annan tråd på Windows — WASAPI-resursen frigörs korrekt.
-#[allow(dead_code)]
-struct SendCapture(AudioCapture);
-// SAFETY: cpal WASAPI-streams är safe att drop:a från vilken tråd som helst.
-// Vi delar aldrig den inre datan — wrappern håller bara ägandeskap.
-unsafe impl Send for SendCapture {}
 use svoice_hotkey::{install_rctrl_hook, LlCallback, LlKeyEvent, PttMachine, PttState};
 use svoice_inject::{inject, InjectMethod};
 use svoice_stt::{PythonStt, SttConfig};
@@ -72,26 +63,6 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            // Audio capture — persistent stream, lågt overhead.
-            // ring håller de senaste 30s audio @ 16 kHz mono.
-            let ring = Arc::new(AudioRing::new(16000 * 30));
-            let capture = AudioCapture::start(ring.clone())
-                .map_err(|e| {
-                    tracing::error!("kunde inte starta audio-capture: {e}");
-                    e
-                })?;
-            tracing::info!(
-                "audio-capture aktiv @ {} Hz, {} kanaler (resamplas → 16 kHz mono)",
-                capture.sample_rate,
-                capture.channels
-            );
-            // capture är !Send pga cpal::Stream på Windows (WASAPI). Vi kan
-            // inte app.manage() den och vi kan inte flytta AudioCapture direkt
-            // in i std::thread::spawn (kräver Send). Lösning: packa in i
-            // SendCapture-wrappern (unsafe impl Send) INNAN closure-capture,
-            // så att closure-typen blir Send.
-            let capture = SendCapture(capture);
-
             let stt = Arc::new(PythonStt::new(SttConfig::default()));
             let rt = Arc::new(tokio::runtime::Runtime::new().expect("tokio runtime"));
 
@@ -103,9 +74,23 @@ pub fn run() {
             std::thread::Builder::new()
                 .name("svoice-ptt-worker".into())
                 .spawn(move || {
-                    // _capture hålls i worker-tråden så att streamen lever hela
-                    // app-livslängden. Drop vid thread-exit = app-exit.
-                    let _capture = capture;
+                    // AudioCapture skapas INUTI worker-tråden eftersom cpal::Stream
+                    // är !Send på Windows (WASAPI). Skapas och drop:as på samma
+                    // tråd — inget unsafe behövs.
+                    let ring = Arc::new(AudioRing::new(16000 * 30));
+                    let capture = match AudioCapture::start(ring.clone()) {
+                        Ok(c) => c,
+                        Err(e) => {
+                            tracing::error!("kunde inte starta audio-capture: {e}");
+                            return;
+                        }
+                    };
+                    tracing::info!(
+                        "audio-capture aktiv @ {} Hz, {} kanaler (resamplas → 16 kHz mono)",
+                        capture.sample_rate,
+                        capture.channels
+                    );
+                    let _capture = capture; // hålls vid liv hela worker-tråden
                     ptt_worker_loop(rx, app_handle, ptt_worker, ring, stt, rt);
                 })
                 .expect("kunde inte starta PTT worker-thread");
