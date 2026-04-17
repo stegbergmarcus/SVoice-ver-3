@@ -248,6 +248,24 @@ pub fn run() {
             }
 
             let _ = app.get_webview_window("main");
+
+            // Positionera overlay: centrerat horisontellt, ~60 px ovan botten
+            // (ger space för taskbar + lite andrum). Använder primärskärmens
+            // size vid app-start — om user flyttar mellan skärmar behöver
+            // overlay manuellt positioneras om (iter 4).
+            if let Some(overlay) = app.get_webview_window("overlay") {
+                if let Ok(Some(monitor)) = overlay.primary_monitor() {
+                    let scr = monitor.size();
+                    // Overlay-storlek från tauri.conf.json (200 × 56).
+                    let ow: i32 = 200;
+                    let oh: i32 = 56;
+                    let x = (scr.width as i32 - ow) / 2;
+                    // ~60 px från botten (ovanför typisk Windows-taskbar 40-48 px).
+                    let y = scr.height as i32 - oh - 60;
+                    let _ = overlay.set_position(tauri::PhysicalPosition::new(x, y));
+                }
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -412,10 +430,16 @@ fn action_worker_loop(
                 // Rensa ring så vi bara fångar audio som kommer NU.
                 ring.clear();
                 tracing::debug!("action-PTT: recording");
+                emit_event(&app_handle, EV_PTT_STATE, PttState::Recording);
+                update_tray_for_state(&app_handle, PttState::Recording);
             }
             LlKeyEvent::Released => {
                 tracing::debug!("action-PTT: released, processing...");
-                if let Err(e) = handle_action_released(&app_handle, &ring, &stt, &rt, &llm, vad_threshold) {
+                emit_event(&app_handle, EV_PTT_STATE, PttState::Processing);
+                update_tray_for_state(&app_handle, PttState::Processing);
+                if let Err(e) =
+                    handle_action_released(&app_handle, &ring, &stt, &rt, &llm, vad_threshold)
+                {
                     tracing::error!("action-PTT fel: {e}");
                     emit_event(
                         &app_handle,
@@ -425,6 +449,11 @@ fn action_worker_loop(
                         },
                     );
                 }
+                // Overlay tillbaka till idle efter transkription + popup-open.
+                // (LLM-streaming fortsätter async men overlay-statet är
+                // frikopplat — processing-state visas bara under STT-delen.)
+                emit_event(&app_handle, EV_PTT_STATE, PttState::Idle);
+                update_tray_for_state(&app_handle, PttState::Idle);
             }
         }
     }

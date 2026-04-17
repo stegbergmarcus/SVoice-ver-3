@@ -4,7 +4,8 @@ import "./RecordingIndicator.css";
 
 type PttState = "idle" | "recording" | "processing";
 
-const BAR_COUNT = 28;
+const HISTORY_LEN = 14; // unika historik-värden per sida (speglas runt centrum)
+const BAR_COUNT = HISTORY_LEN * 2; // 28 renderade bars totalt
 
 /**
  * "Voice-oval" — SVoice's recording-indicator overlay.
@@ -19,8 +20,10 @@ const BAR_COUNT = 28;
  */
 export default function RecordingIndicator() {
   const [state, setState] = useState<PttState>("idle");
-  const [bars, setBars] = useState<number[]>(() => Array(BAR_COUNT).fill(0));
-  const barsRef = useRef<number[]>(Array(BAR_COUNT).fill(0));
+  // barsRef: 14 unika historik-värden, index 0 = senaste. Renderas symmetriskt
+  // runt centrum så waveform "andas ut" från mitten snarare än att flöda åt ett håll.
+  const [bars, setBars] = useState<number[]>(() => Array(HISTORY_LEN).fill(0));
+  const barsRef = useRef<number[]>(Array(HISTORY_LEN).fill(0));
   const rafRef = useRef<number | null>(null);
 
   // Lyssna på state + volume-events.
@@ -33,15 +36,16 @@ export default function RecordingIndicator() {
       }
     });
 
-    const unlistenVolume = listen<{ rms: number }>("ptt_volume", (ev) => {
-      // Shifta alla bars en plats vänsterut, injicera nyaste volym längst till höger.
-      // Ger klassisk "wandering waveform"-effekt där nya samples flödar in och gamla
-      // fade:ar ut till vänster.
+    // Lyssnar på mic_level (alltid-på RMS från audio-capture) i stället för
+    // ptt_volume (bara under dictation-VolumeMeter). Detta ger waveform-data
+    // även för action-PTT (Insert). Overlay:en syns fortfarande bara när
+    // state !== idle, så vi visar inte bars kontinuerligt.
+    const unlistenVolume = listen<{ rms: number }>("mic_level", (ev) => {
       const rms = ev.payload.rms;
-      // Kompander RMS till [0, 1] — mic-inputs är typiskt 0-0.3, logaritmisk skala
-      // ger snyggare respons än linjär.
       const amplitude = Math.min(1, Math.pow(rms * 3.2, 0.7));
-      const shifted = [...barsRef.current.slice(1), amplitude];
+      // Nyaste värdet in vid index 0, äldre skiftas utåt (högre index).
+      // Rendering speglar detta på båda sidor av mittlinjen.
+      const shifted = [amplitude, ...barsRef.current.slice(0, HISTORY_LEN - 1)];
       barsRef.current = shifted;
     });
 
@@ -58,8 +62,9 @@ export default function RecordingIndicator() {
     const tick = () => {
       // Subtle decay så bars inte stannar vid senaste värdet när mic blir tyst.
       barsRef.current = barsRef.current.map((v, i) => {
-        // De äldre (vänster) bars decay:ar snabbare än de nya (höger).
-        const ageFactor = 1 - i / BAR_COUNT;
+        // Äldre historik-positioner (högre index) decay:ar snabbare så
+        // gamla toppar fade:ar ut mot kanterna av spegelmönstret.
+        const ageFactor = 1 - i / HISTORY_LEN;
         return v * (0.92 + ageFactor * 0.06);
       });
       setBars([...barsRef.current]);
@@ -87,9 +92,19 @@ export default function RecordingIndicator() {
       ) : (
         <div className="voice-oval-meter">
           <div className="waveform" role="meter" aria-label="Mikrofonnivå">
+            {/* Symmetrisk rendering: vänster = historik i reverse, höger = historik.
+                Nyaste värdet (index 0) hamnar på båda sidor om mittlinjen så
+                waveform "andas ut" från centrum. */}
+            {[...bars].reverse().map((h, i) => (
+              <div
+                key={`l-${i}`}
+                className="waveform-bar"
+                style={{ height: `${Math.max(3, h * 36)}px` }}
+              />
+            ))}
             {bars.map((h, i) => (
               <div
-                key={i}
+                key={`r-${i}`}
                 className="waveform-bar"
                 style={{ height: `${Math.max(3, h * 36)}px` }}
               />

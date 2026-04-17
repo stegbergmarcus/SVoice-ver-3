@@ -1,4 +1,4 @@
-/* SVoice recording-indicator overlay.
+/* SVoice recording-indicator overlay — kompakt version.
  *
  * Oval med två zoner: SV-monogram till vänster (bärnsten), waveform/progress
  * till höger. Fade in/out baserat på state. Design-språket matchar Settings:
@@ -7,7 +7,7 @@
 
 :root {
   --bg-void:        #0b0b0d;
-  --bg-oval:        rgba(19, 19, 22, 0.88);
+  --bg-oval:        rgba(19, 19, 22, 0.92);
   --ink-primary:    #ece6d8;
   --ink-secondary:  #9b958a;
   --ink-tertiary:   #5c5850;
@@ -37,24 +37,24 @@ body {
 
 .voice-oval {
   position: fixed;
-  inset: 12px;
+  inset: 6px;
   display: grid;
-  grid-template-columns: 56px 1fr;
+  grid-template-columns: 34px 1fr;
   align-items: center;
-  gap: 14px;
-  padding: 0 16px 0 8px;
+  gap: 8px;
+  padding: 0 10px 0 5px;
   background: var(--bg-oval);
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 999px;
   box-shadow:
-    0 14px 40px rgba(0, 0, 0, 0.5),
+    0 10px 28px rgba(0, 0, 0, 0.5),
     0 1px 0 rgba(255, 255, 255, 0.04) inset;
-  backdrop-filter: blur(16px) saturate(1.2);
+  backdrop-filter: blur(14px) saturate(1.2);
   opacity: 0;
-  transform: translateY(-4px) scale(0.98);
+  transform: translateY(4px) scale(0.96);
   pointer-events: none;
-  transition: opacity 240ms var(--ease-out),
-              transform 340ms var(--ease-spring);
+  transition: opacity 220ms var(--ease-out),
+              transform 300ms var(--ease-spring);
   -webkit-app-region: drag;
 }
 
@@ -66,8 +66,8 @@ body {
 /* ===== SV monogram (logotyp) ===== */
 
 .voice-oval-logo {
-  width: 56px;
-  height: 56px;
+  width: 34px;
+  height: 34px;
   border-radius: 999px;
   background: radial-gradient(
     ellipse at 30% 30%,
@@ -80,19 +80,18 @@ body {
   font-family: var(--font-display);
   font-weight: 600;
   font-style: italic;
-  font-size: 22px;
+  font-size: 13px;
   letter-spacing: -0.04em;
   font-variation-settings: "opsz" 48;
   box-shadow:
-    0 4px 14px var(--accent-glow),
+    0 2px 8px var(--accent-glow),
     inset 0 1px 0 rgba(255, 255, 255, 0.35),
-    inset 0 -8px 16px rgba(166, 98, 22, 0.25);
+    inset 0 -4px 10px rgba(166, 98, 22, 0.25);
   position: relative;
   overflow: hidden;
 }
 
 .voice-oval-logo::after {
-  /* Subtil inner highlight som framhäver 3D-känslan. */
   content: "";
   position: absolute;
   inset: 0;
@@ -112,28 +111,28 @@ body {
 @keyframes logo-pulse {
   0%, 100% {
     box-shadow:
-      0 4px 14px var(--accent-glow),
+      0 2px 8px var(--accent-glow),
       0 0 0 0 rgba(230, 168, 92, 0),
       inset 0 1px 0 rgba(255, 255, 255, 0.35),
-      inset 0 -8px 16px rgba(166, 98, 22, 0.25);
+      inset 0 -4px 10px rgba(166, 98, 22, 0.25);
   }
   50% {
     box-shadow:
-      0 6px 20px var(--accent-glow),
-      0 0 0 6px rgba(230, 168, 92, 0.08),
+      0 3px 12px var(--accent-glow),
+      0 0 0 4px rgba(230, 168, 92, 0.08),
       inset 0 1px 0 rgba(255, 255, 255, 0.45),
-      inset 0 -8px 16px rgba(166, 98, 22, 0.25);
+      inset 0 -4px 10px rgba(166, 98, 22, 0.25);
   }
 }
 
 /* ===== Meter-area: waveform eller progress ===== */
 
 .voice-oval-meter {
-  height: 40px;
+  height: 24px;
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  gap: 2px;
+  justify-content: center;
+  gap: 1px;
   position: relative;
   -webkit-app-region: no-drag;
 }
@@ -141,15 +140,15 @@ body {
 .waveform {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  gap: 3px;
+  justify-content: center;
+  gap: 2px;
   height: 100%;
   width: 100%;
 }
 
 .waveform-bar {
-  width: 3px;
-  min-height: 3px;
+  width: 2px;
+  min-height: 2px;
   background: var(--ink-tertiary);
   border-radius: 2px;
   transition: height 80ms linear, background 200ms var(--ease-out);
@@ -162,14 +161,14 @@ body {
     var(--accent) 0%,
     var(--accent-hot) 100%
   );
-  box-shadow: 0 0 6px var(--accent-glow);
+  box-shadow: 0 0 4px var(--accent-glow);
 }
 
 /* ===== Progress state (transcribing) ===== */
 
 .progress-bar {
   width: 100%;
-  height: 3px;
+  height: 2px;
   background: rgba(255, 255, 255, 0.08);
   border-radius: 2px;
   overflow: hidden;
@@ -189,7 +188,7 @@ body {
     transparent 100%
   );
   border-radius: 2px;
-  box-shadow: 0 0 10px var(--accent-glow);
+  box-shadow: 0 0 8px var(--accent-glow);
   animation: progress-slide 1.4s var(--ease-out) infinite;
 }
 
@@ -200,38 +199,16 @@ body {
 }
 
 .progress-label {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--ink-secondary);
-  margin-top: 4px;
-  align-self: flex-start;
+  display: none; /* För liten overlay nu — dold i kompakt läge */
 }
 
 .voice-oval-meter--progress {
   flex-direction: column;
   align-items: stretch;
   justify-content: center;
-  gap: 3px;
+  gap: 0;
 }
 
-/* Status-text (liten, till höger ovanför waveform). Döljd i recording-state. */
 .status-label {
-  position: absolute;
-  right: 0;
-  top: -2px;
-  font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  color: var(--ink-tertiary);
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 240ms var(--ease-out);
-}
-
-.voice-oval.processing .status-label {
-  opacity: 0.8;
-  color: var(--accent);
+  display: none;
 }

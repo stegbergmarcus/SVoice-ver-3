@@ -21,35 +21,24 @@ export default function ActionPopup() {
   const [applying, setApplying] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
-  // Close popup-window and reset state.
+  // Close popup-window and reset state via backend (pålitligare än frontend).
   async function closeWindow() {
     setVisible(false);
-    // Vänta ut fade-animation före hide.
-    setTimeout(async () => {
-      try {
-        await getCurrentWebviewWindow().hide();
-      } catch (e) {
-        console.error("[action-popup] hide failed", e);
-      }
-    }, 220);
+    try {
+      await invoke("action_cancel");
+    } catch (e) {
+      console.error("[action-popup] cancel failed", e);
+    }
   }
 
-  // Skicka LLM-resultat till backend för clipboard-paste.
-  // VIKTIGT: popup-fönstret måste DÖLJAS FÖRST så att target-fönstret
-  // återfår focus — annars hamnar Ctrl+V i popupen själv. Efter hide
-  // väntar vi kort så Windows hinner restaure focus till tidigare target.
+  // Skicka LLM-resultat till backend. Backend orkestrerar hela flödet:
+  // hide popup → focus-restore till target → paste. Frontend sätter bara
+  // state och invokar — alla Win32-calls görs backend-sidan.
   async function applyResult() {
     if (applying || !response.trim()) return;
     setApplying(true);
     const resultToApply = response;
-    try {
-      await getCurrentWebviewWindow().hide();
-    } catch (e) {
-      console.error("[action-popup] hide failed", e);
-    }
     setVisible(false);
-    // Vänta på att Windows ger focus till target.
-    await new Promise((r) => setTimeout(r, 120));
     try {
       await invoke("action_apply", { result: resultToApply });
     } catch (e) {
@@ -68,8 +57,12 @@ export default function ActionPopup() {
       setResponse("");
       setError(null);
       setStreaming(true);
+      setApplying(false);
       setVisible(true);
-      // Ta fokus så Enter/Escape fungerar.
+      // Visa fönstret OCH ta fokus så Enter/Escape fungerar.
+      // Focus stjäls från target-appen, men target-HWND är redan sparat i
+      // backend (remember_foreground_target vid keydown) så SetForegroundWindow
+      // kan restore:a fokus vid paste.
       try {
         const win = getCurrentWebviewWindow();
         await win.show();
