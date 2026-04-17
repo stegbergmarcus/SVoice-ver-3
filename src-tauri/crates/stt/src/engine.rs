@@ -25,6 +25,7 @@ pub struct SttConfig {
     pub language: String,
     pub beam_size: u32,
     pub python_path: PathBuf,
+    pub python_args: Vec<String>,
     pub script_path: PathBuf,
 }
 
@@ -37,7 +38,11 @@ impl Default for SttConfig {
             language: "sv".into(),
             beam_size: 3,
             python_path: PathBuf::from("py"),
-            script_path: PathBuf::from("src-tauri/resources/python/stt_sidecar.py"),
+            // py-launcher: tvinga 3.11 så faster-whisper hittas (3.14 är default på maskinen).
+            python_args: vec!["-3.11".into()],
+            // Relativ till cwd som i dev är `src-tauri/`. Release-build sätter absolut
+            // path via tauri resource_dir (Task E2).
+            script_path: PathBuf::from("resources/python/stt_sidecar.py"),
         }
     }
 }
@@ -57,7 +62,12 @@ impl PythonStt {
         if guard.is_some() {
             return Ok(());
         }
-        let sc = Sidecar::spawn(&self.config.python_path, &self.config.script_path).await?;
+        let sc = Sidecar::spawn(
+            &self.config.python_path,
+            &self.config.python_args,
+            &self.config.script_path,
+        )
+        .await?;
         sc.send_request(&SttRequest::Load {
             model: self.config.model.clone(),
             device: self.config.device.clone(),

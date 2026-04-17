@@ -34,8 +34,13 @@ pub struct Sidecar {
 }
 
 impl Sidecar {
-    pub async fn spawn(python_path: &Path, script_path: &Path) -> Result<Self, SidecarError> {
+    pub async fn spawn(
+        python_path: &Path,
+        python_args: &[String],
+        script_path: &Path,
+    ) -> Result<Self, SidecarError> {
         let mut child = Command::new(python_path)
+            .args(python_args)
             .arg(script_path)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
