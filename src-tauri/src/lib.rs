@@ -142,19 +142,11 @@ pub fn run() {
 
             let stt = Arc::new(PythonStt::new(stt_config));
             let rt = Arc::new(tokio::runtime::Runtime::new().expect("tokio runtime"));
-            let vad_threshold = user_settings.vad_threshold;
 
-            // Anthropic-klient om API-nyckel är konfigurerad.
-            let anthropic: Option<Arc<dyn LlmProvider>> = user_settings
-                .anthropic_api_key
-                .as_ref()
-                .filter(|k| !k.is_empty())
-                .map(|key| {
-                    let client = AnthropicClient::new(key.clone())
-                        .with_model(user_settings.anthropic_model.clone());
-                    Arc::new(client) as Arc<dyn LlmProvider>
-                });
-            if anthropic.is_none() {
+            // Anthropic-klient och VAD-threshold hot-reloadas från disk
+            // vid varje PTT-trigger (se worker-looparna nedan) så användaren
+            // slipper restart för att byta modell, nyckel eller känslighet.
+            if user_settings.anthropic_api_key.is_none() {
                 tracing::info!(
                     "action-LLM ej konfigurerad — lägg till anthropic_api_key i settings"
                 );
@@ -201,15 +193,7 @@ pub fn run() {
             std::thread::Builder::new()
                 .name("svoice-ptt-worker".into())
                 .spawn(move || {
-                    ptt_worker_loop(
-                        ptt_rx,
-                        ptt_app,
-                        ptt_worker,
-                        ptt_ring,
-                        ptt_stt,
-                        ptt_rt,
-                        vad_threshold,
-                    );
+                    ptt_worker_loop(ptt_rx, ptt_app, ptt_worker, ptt_ring, ptt_stt, ptt_rt);
                 })
                 .expect("kunde inte starta PTT worker-thread");
 
@@ -229,19 +213,10 @@ pub fn run() {
             let action_ring = ring.clone();
             let action_stt = stt.clone();
             let action_rt = rt.clone();
-            let action_llm = anthropic.clone();
             std::thread::Builder::new()
                 .name("svoice-action-worker".into())
                 .spawn(move || {
-                    action_worker_loop(
-                        action_rx,
-                        action_app,
-                        action_ring,
-                        action_stt,
-                        action_rt,
-                        action_llm,
-                        vad_threshold,
-                    );
+                    action_worker_loop(action_rx, action_app, action_ring, action_stt, action_rt);
                 })
                 .expect("kunde inte starta action worker-thread");
 
@@ -324,7 +299,6 @@ fn ptt_worker_loop(
     ring: Arc<AudioRing>,
     stt: Arc<PythonStt>,
     rt: Arc<tokio::runtime::Runtime>,
-    vad_threshold: f32,
 ) {
     let mut meter: Option<VolumeMeter> = None;
 
@@ -342,7 +316,9 @@ fn ptt_worker_loop(
             meter = None;
             emit_event(&app_handle, EV_PTT_VOLUME, VolumeEvent { rms: 0.0 });
             std::thread::sleep(std::time::Duration::from_millis(50));
-            perform_transcribe_and_inject(&ring, &stt, &rt, vad_threshold);
+            // Hot-reload settings så VAD-ändringar träder i kraft utan restart.
+            let current = Settings::load();
+            perform_transcribe_and_inject(&ring, &stt, &rt, current.vad_threshold);
 
             let final_state = {
                 let mut m = ptt_lock(&ptt);
@@ -451,13 +427,10 @@ fn action_worker_loop(
     ring: Arc<AudioRing>,
     stt: Arc<PythonStt>,
     rt: Arc<tokio::runtime::Runtime>,
-    llm: Option<Arc<dyn LlmProvider>>,
-    vad_threshold: f32,
 ) {
     for ev in rx {
         match ev {
             LlKeyEvent::Pressed => {
-                // Rensa ring så vi bara fångar audio som kommer NU.
                 ring.clear();
                 tracing::debug!("action-PTT: recording");
                 emit_event(&app_handle, EV_PTT_STATE, PttState::Recording);
@@ -467,9 +440,29 @@ fn action_worker_loop(
                 tracing::debug!("action-PTT: released, processing...");
                 emit_event(&app_handle, EV_PTT_STATE, PttState::Processing);
                 update_tray_for_state(&app_handle, PttState::Processing);
-                if let Err(e) =
-                    handle_action_released(&app_handle, &ring, &stt, &rt, &llm, vad_threshold)
-                {
+
+                // Hot-reload settings: VAD + API-nyckel + modell tillämpas
+                // omedelbart, ingen app-restart krävs.
+                let current = Settings::load();
+                let llm: Option<Arc<dyn LlmProvider>> = current
+                    .anthropic_api_key
+                    .as_ref()
+                    .filter(|k| !k.is_empty())
+                    .map(|key| {
+                        Arc::new(
+                            AnthropicClient::new(key.clone())
+                                .with_model(current.anthropic_model.clone()),
+                        ) as Arc<dyn LlmProvider>
+                    });
+
+                if let Err(e) = handle_action_released(
+                    &app_handle,
+                    &ring,
+                    &stt,
+                    &rt,
+                    &llm,
+                    current.vad_threshold,
+                ) {
                     tracing::error!("action-PTT fel: {e}");
                     emit_event(
                         &app_handle,
@@ -479,9 +472,6 @@ fn action_worker_loop(
                         },
                     );
                 }
-                // Overlay tillbaka till idle efter transkription + popup-open.
-                // (LLM-streaming fortsätter async men overlay-statet är
-                // frikopplat — processing-state visas bara under STT-delen.)
                 emit_event(&app_handle, EV_PTT_STATE, PttState::Idle);
                 update_tray_for_state(&app_handle, PttState::Idle);
             }
