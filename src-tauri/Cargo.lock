@@ -1965,6 +1965,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "keyring"
+version = "3.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eebcc3aff044e5944a8fbaf69eb277d11986064cba30c468730e8b9909fb551c"
+dependencies = [
+ "log",
+ "zeroize",
+]
+
+[[package]]
 name = "kuchikiki"
 version = "0.8.8-speedreader"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3942,6 +3952,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "svoice-secrets"
+version = "0.1.0"
+dependencies = [
+ "keyring",
+ "thiserror 1.0.69",
+ "tracing",
+]
+
+[[package]]
 name = "svoice-settings"
 version = "0.1.0"
 dependencies = [
@@ -3982,6 +4001,7 @@ dependencies = [
  "svoice-inject",
  "svoice-ipc",
  "svoice-llm",
+ "svoice-secrets",
  "svoice-settings",
  "svoice-stt",
  "tauri",

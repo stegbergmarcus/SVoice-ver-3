@@ -29,6 +29,7 @@ svoice-stt = { path = "crates/stt" }
 svoice-ipc = { path = "crates/ipc" }
 svoice-settings = { path = "crates/settings" }
 svoice-llm = { path = "crates/llm" }
+svoice-secrets = { path = "crates/secrets" }
 futures-util = "0.3"
 
 [[bin]]
@@ -39,13 +40,14 @@ path = "src/main.rs"
 resolver = "2"
 members = [
     "crates/audio",
-    "crates/stt",
     "crates/hotkey",
     "crates/inject",
-    "crates/llm",
-    "crates/settings",
-    "crates/ipc",
     "crates/integrations",
+    "crates/ipc",
+    "crates/llm",
+    "crates/secrets",
+    "crates/settings",
+    "crates/stt",
     "bins/stt-spike",
 ]
 
