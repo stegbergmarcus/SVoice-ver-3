@@ -77,6 +77,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(move |app| {
             tracing::info!("svoice-v3 startar");
@@ -305,6 +306,9 @@ pub fn run() {
             svoice_ipc::check_hf_cached,
             svoice_ipc::clear_anthropic_key,
             svoice_ipc::get_settings,
+            svoice_ipc::google_connect,
+            svoice_ipc::google_connection_status,
+            svoice_ipc::google_disconnect,
             svoice_ipc::has_anthropic_key,
             svoice_ipc::list_mic_devices,
             svoice_ipc::list_ollama_models,

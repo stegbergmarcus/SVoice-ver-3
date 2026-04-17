@@ -5,6 +5,9 @@ import {
   checkHfCached,
   clearAnthropicKey,
   getSettings,
+  googleConnect,
+  googleConnectionStatus,
+  googleDisconnect,
   hasAnthropicKey,
   listMicDevices,
   listOllamaModels,
@@ -12,6 +15,7 @@ import {
   setAnthropicKey,
   setSettings,
   type ComputeMode,
+  type GoogleStatus,
   type HotKeyChoice,
   type LlmProviderChoice,
   type OllamaModelInfo,
@@ -124,6 +128,11 @@ export default function SettingsView() {
   const [sttCached, setSttCached] = useState<Record<string, boolean>>({});
   const [keyStored, setKeyStored] = useState(false);
   const [keyDraft, setKeyDraft] = useState<string | null>(null); // null=orört, ""=rensa, annars=ny nyckel
+  const [googleStatus, setGoogleStatus] = useState<GoogleStatus>({
+    connected: false,
+    client_id_configured: false,
+  });
+  const [googleBusy, setGoogleBusy] = useState(false);
 
   // Refresh Ollama-modell-listan (t.ex. efter lyckad pull).
   async function refreshOllama() {
@@ -151,6 +160,11 @@ export default function SettingsView() {
     hasAnthropicKey()
       .then(setKeyStored)
       .catch(() => setKeyStored(false));
+    googleConnectionStatus()
+      .then(setGoogleStatus)
+      .catch(() =>
+        setGoogleStatus({ connected: false, client_id_configured: false }),
+      );
     // Kolla HF-cache-status för alla listade STT-modeller i bakgrunden.
     Promise.all(
       MODELS.map(async (m) => ({
@@ -240,6 +254,34 @@ export default function SettingsView() {
   function handleReset() {
     if (loaded) setDraft(loaded);
     setKeyDraft(null);
+  }
+
+  async function handleGoogleConnect() {
+    setGoogleBusy(true);
+    setError(null);
+    try {
+      await googleConnect();
+      const status = await googleConnectionStatus();
+      setGoogleStatus(status);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setGoogleBusy(false);
+    }
+  }
+
+  async function handleGoogleDisconnect() {
+    setGoogleBusy(true);
+    setError(null);
+    try {
+      await googleDisconnect();
+      const status = await googleConnectionStatus();
+      setGoogleStatus(status);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setGoogleBusy(false);
+    }
   }
 
   if (!draft) {
@@ -672,6 +714,119 @@ export default function SettingsView() {
               style={{ marginTop: 8, fontStyle: "italic", opacity: 0.8 }}
             >
               ⚠ Kräver omstart för att träda i kraft.
+            </div>
+          </div>
+        </article>
+
+        {/* Integrationer */}
+        <article className="settings-section">
+          <div className="settings-section-label">
+            <h2>Integrationer</h2>
+            <p>
+              Koppla externa tjänster för agentic action-LLM (lägg till
+              möten, sök mail via språk-kommandon).
+            </p>
+          </div>
+          <div className="settings-section-body">
+            <div className="field">
+              <label className="field-label" htmlFor="google-client-id">
+                Google OAuth client-ID
+              </label>
+              <input
+                id="google-client-id"
+                className="input"
+                type="text"
+                placeholder="1234-xxx.apps.googleusercontent.com"
+                value={draft.google_oauth_client_id ?? ""}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    google_oauth_client_id:
+                      e.target.value.trim() === "" ? null : e.target.value.trim(),
+                  })
+                }
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <div className="field-help">
+                Skapa en OAuth-client i{" "}
+                <a
+                  href="https://console.cloud.google.com/apis/credentials"
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ color: "var(--color-amber, #d4a955)" }}
+                >
+                  Google Cloud Console
+                </a>{" "}
+                som typ <em>Desktop app</em>. Ingen client-secret behövs (PKCE).
+                Lägg till <code>http://127.0.0.1/callback</code> som redirect-URI
+                (porten är ephemeral, men domän + path måste matcha).
+              </div>
+            </div>
+
+            <div
+              className="field"
+              style={{
+                marginTop: 4,
+                padding: "14px 16px",
+                background: "rgba(212, 169, 85, 0.06)",
+                border: "1px solid rgba(212, 169, 85, 0.18)",
+                borderRadius: 10,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span
+                  aria-hidden
+                  style={{
+                    width: 10,
+                    height: 10,
+                    borderRadius: 5,
+                    background: googleStatus.connected
+                      ? "#7bd37e"
+                      : googleStatus.client_id_configured
+                        ? "#d4a955"
+                        : "rgba(243, 237, 227, 0.3)",
+                  }}
+                />
+                <div style={{ fontWeight: 500 }}>
+                  Google ·{" "}
+                  {googleStatus.connected
+                    ? "ansluten"
+                    : googleStatus.client_id_configured
+                      ? "redo att anslutas"
+                      : "client-ID saknas"}
+                </div>
+                <div style={{ flex: 1 }} />
+                {googleStatus.connected ? (
+                  <button
+                    type="button"
+                    className="button button-ghost"
+                    onClick={handleGoogleDisconnect}
+                    disabled={googleBusy}
+                  >
+                    {googleBusy ? "Kopplar från…" : "Koppla från"}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="button"
+                    onClick={handleGoogleConnect}
+                    disabled={googleBusy || !googleStatus.client_id_configured}
+                  >
+                    {googleBusy ? "Ansluter…" : "Anslut Google-konto"}
+                  </button>
+                )}
+              </div>
+              <div
+                className="field-help"
+                style={{ marginTop: 8, marginBottom: 0 }}
+              >
+                {googleStatus.connected
+                  ? "Refresh-token sparad i Windows Credential Manager. Frånkoppling raderar den lokalt."
+                  : googleStatus.client_id_configured
+                    ? "Klick öppnar browser för godkännande. Scopes: Calendar (läs/skriv) + Gmail (läs)."
+                    : "Fyll i client-ID ovan och spara inställningarna, sedan kan du ansluta."}
+              </div>
             </div>
           </div>
         </article>

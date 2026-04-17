@@ -27,6 +27,12 @@ export interface Settings {
   ollama_url: string;
   dictation_hotkey: HotKeyChoice;
   action_hotkey: HotKeyChoice;
+  google_oauth_client_id: string | null;
+}
+
+export interface GoogleStatus {
+  connected: boolean;
+  client_id_configured: boolean;
 }
 
 export interface OllamaModelInfo {
@@ -76,4 +82,16 @@ export async function setAnthropicKey(key: string): Promise<void> {
 
 export async function clearAnthropicKey(): Promise<void> {
   await invoke<void>("clear_anthropic_key");
+}
+
+export async function googleConnectionStatus(): Promise<GoogleStatus> {
+  return invoke<GoogleStatus>("google_connection_status");
+}
+
+export async function googleConnect(): Promise<void> {
+  await invoke<void>("google_connect");
+}
+
+export async function googleDisconnect(): Promise<void> {
+  await invoke<void>("google_disconnect");
 }

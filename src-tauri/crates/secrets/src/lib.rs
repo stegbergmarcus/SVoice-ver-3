@@ -12,6 +12,7 @@ pub const SERVICE: &str = "svoice-v3";
 #[cfg(test)]
 pub const SERVICE: &str = "svoice-v3-test";
 const USERNAME_ANTHROPIC: &str = "anthropic_api_key";
+const USERNAME_GOOGLE_REFRESH: &str = "google_refresh_token";
 
 #[derive(Error, Debug)]
 pub enum SecretsError {
@@ -23,34 +24,64 @@ fn entry(username: &str) -> Result<Entry, SecretsError> {
     Ok(Entry::new(SERVICE, username)?)
 }
 
-/// Hämta Anthropic API-nyckeln från keyring.
-/// Returnerar `Ok(None)` när entry saknas (first-run); `Err` vid backend-fel.
-pub fn get_anthropic_key() -> Result<Option<String>, SecretsError> {
-    match entry(USERNAME_ANTHROPIC)?.get_password() {
+/// Generisk secret-getter. Returnerar `Ok(None)` när entry saknas.
+fn get_secret(username: &str) -> Result<Option<String>, SecretsError> {
+    match entry(username)?.get_password() {
         Ok(pw) => Ok(Some(pw)),
         Err(keyring::Error::NoEntry) => Ok(None),
         Err(e) => Err(SecretsError::Backend(e)),
     }
 }
 
-/// Skriv (eller ersätt) Anthropic API-nyckeln i keyring.
-pub fn set_anthropic_key(key: &str) -> Result<(), SecretsError> {
-    entry(USERNAME_ANTHROPIC)?.set_password(key)?;
+/// Generisk secret-setter. Ersätter existerande värde.
+fn set_secret(username: &str, value: &str) -> Result<(), SecretsError> {
+    entry(username)?.set_password(value)?;
     Ok(())
 }
 
-/// Radera Anthropic API-nyckeln från keyring. No-op om den inte finns.
-pub fn delete_anthropic_key() -> Result<(), SecretsError> {
-    match entry(USERNAME_ANTHROPIC)?.delete_credential() {
+/// Generisk secret-radering. No-op om entry saknas.
+fn delete_secret(username: &str) -> Result<(), SecretsError> {
+    match entry(username)?.delete_credential() {
         Ok(()) => Ok(()),
         Err(keyring::Error::NoEntry) => Ok(()),
         Err(e) => Err(SecretsError::Backend(e)),
     }
 }
 
-/// Convenience för frontend — returnerar alltid bool, sväljer backend-fel.
+// ───────── Anthropic API-nyckel ─────────
+
+pub fn get_anthropic_key() -> Result<Option<String>, SecretsError> {
+    get_secret(USERNAME_ANTHROPIC)
+}
+
+pub fn set_anthropic_key(key: &str) -> Result<(), SecretsError> {
+    set_secret(USERNAME_ANTHROPIC, key)
+}
+
+pub fn delete_anthropic_key() -> Result<(), SecretsError> {
+    delete_secret(USERNAME_ANTHROPIC)
+}
+
 pub fn has_anthropic_key() -> bool {
     matches!(get_anthropic_key(), Ok(Some(_)))
+}
+
+// ───────── Google OAuth refresh-token ─────────
+
+pub fn get_google_refresh_token() -> Result<Option<String>, SecretsError> {
+    get_secret(USERNAME_GOOGLE_REFRESH)
+}
+
+pub fn set_google_refresh_token(token: &str) -> Result<(), SecretsError> {
+    set_secret(USERNAME_GOOGLE_REFRESH, token)
+}
+
+pub fn delete_google_refresh_token() -> Result<(), SecretsError> {
+    delete_secret(USERNAME_GOOGLE_REFRESH)
+}
+
+pub fn has_google_refresh_token() -> bool {
+    matches!(get_google_refresh_token(), Ok(Some(_)))
 }
 
 #[cfg(test)]
@@ -62,6 +93,7 @@ mod tests {
     /// --test-threads=1.
     fn cleanup() {
         let _ = delete_anthropic_key();
+        let _ = delete_google_refresh_token();
     }
 
     #[test]
@@ -100,5 +132,32 @@ mod tests {
         assert!(has_anthropic_key());
         delete_anthropic_key().unwrap();
         assert!(!has_anthropic_key());
+    }
+
+    #[test]
+    fn google_refresh_token_roundtrips() {
+        cleanup();
+        assert!(!has_google_refresh_token());
+        set_google_refresh_token("1//abc_refresh").unwrap();
+        assert_eq!(
+            get_google_refresh_token().unwrap().as_deref(),
+            Some("1//abc_refresh")
+        );
+        assert!(has_google_refresh_token());
+        delete_google_refresh_token().unwrap();
+        assert!(!has_google_refresh_token());
+    }
+
+    #[test]
+    fn secrets_are_isolated_by_username() {
+        cleanup();
+        set_anthropic_key("sk-ant-A").unwrap();
+        set_google_refresh_token("goog-B").unwrap();
+        assert_eq!(get_anthropic_key().unwrap().as_deref(), Some("sk-ant-A"));
+        assert_eq!(
+            get_google_refresh_token().unwrap().as_deref(),
+            Some("goog-B")
+        );
+        cleanup();
     }
 }
