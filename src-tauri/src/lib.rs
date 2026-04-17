@@ -69,17 +69,32 @@ pub fn run() {
         .setup(move |app| {
             tracing::info!("svoice-v3 startar");
 
-            // Tray
+            // Tray — main-fönstret är dolt by default, öppnas via meny eller
+            // vänsterklick på tray-ikonen.
+            let open_item =
+                MenuItem::with_id(app, "open", "Visa inställningar", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Avsluta", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&quit_item])?;
+            let menu = Menu::with_items(app, &[&open_item, &quit_item])?;
             let idle_img = Image::from_bytes(TRAY_IDLE_BYTES)?;
             let _tray = TrayIconBuilder::with_id("main-tray")
                 .icon(idle_img)
                 .menu(&menu)
-                .tooltip("SVoice 3 — idle")
-                .on_menu_event(|app, ev| {
-                    if ev.id.as_ref() == "quit" {
-                        app.exit(0);
+                .show_menu_on_left_click(false)
+                .tooltip("SVoice 3 — vänsterklicka för inställningar")
+                .on_menu_event(|app, ev| match ev.id.as_ref() {
+                    "open" => show_main_window(app),
+                    "quit" => app.exit(0),
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, ev| {
+                    use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = ev
+                    {
+                        show_main_window(tray.app_handle());
                     }
                 })
                 .build(app)?;
@@ -286,6 +301,16 @@ pub fn run() {
 fn emit_event<T: serde::Serialize + Clone>(app: &AppHandle, event: &str, payload: T) {
     if let Err(e) = app.emit(event, payload) {
         tracing::debug!("emit '{event}' misslyckades: {e}");
+    }
+}
+
+/// Visa main-fönstret (Settings) och ge det fokus. Anropas från tray-menyn
+/// eller vid vänsterklick på tray-ikonen.
+fn show_main_window(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.show();
+        let _ = win.unminimize();
+        let _ = win.set_focus();
     }
 }
 
