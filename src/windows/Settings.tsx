@@ -3,10 +3,13 @@ import { listen } from "@tauri-apps/api/event";
 import SVoiceLogo from "../components/SVoiceLogo";
 import {
   checkHfCached,
+  clearAnthropicKey,
   getSettings,
+  hasAnthropicKey,
   listMicDevices,
   listOllamaModels,
   pullOllamaModel,
+  setAnthropicKey,
   setSettings,
   type ComputeMode,
   type LlmProviderChoice,
@@ -95,6 +98,8 @@ export default function SettingsView() {
   const [ollamaOnline, setOllamaOnline] = useState(false);
   const [pullState, setPullState] = useState<PullProgress | null>(null);
   const [sttCached, setSttCached] = useState<Record<string, boolean>>({});
+  const [keyStored, setKeyStored] = useState(false);
+  const [keyDraft, setKeyDraft] = useState<string | null>(null); // null=orört, ""=rensa, annars=ny nyckel
 
   // Refresh Ollama-modell-listan (t.ex. efter lyckad pull).
   async function refreshOllama() {
@@ -119,6 +124,9 @@ export default function SettingsView() {
       .then(setMicDevices)
       .catch((e) => console.error("[settings] list_mic_devices failed:", e));
     refreshOllama();
+    hasAnthropicKey()
+      .then(setKeyStored)
+      .catch(() => setKeyStored(false));
     // Kolla HF-cache-status för alla listade STT-modeller i bakgrunden.
     Promise.all(
       MODELS.map(async (m) => ({
@@ -185,6 +193,16 @@ export default function SettingsView() {
     setSaving(true);
     setError(null);
     try {
+      if (keyDraft !== null) {
+        if (keyDraft.trim() === "") {
+          await clearAnthropicKey();
+          setKeyStored(false);
+        } else {
+          await setAnthropicKey(keyDraft.trim());
+          setKeyStored(true);
+        }
+        setKeyDraft(null);
+      }
       await setSettings(draft);
       setLoaded(draft);
       setSavedTick((t) => t + 1);
@@ -512,22 +530,26 @@ export default function SettingsView() {
                 id="api-key"
                 className="input"
                 type="password"
-                placeholder="sk-ant-…"
-                value={draft.anthropic_api_key ?? ""}
-                onChange={(e) =>
-                  setDraft({
-                    ...draft,
-                    anthropic_api_key:
-                      e.target.value.trim() === "" ? null : e.target.value,
-                  })
-                }
+                placeholder={keyStored && keyDraft === null ? "••••••••" : "sk-ant-…"}
+                value={keyDraft ?? ""}
+                onChange={(e) => setKeyDraft(e.target.value)}
                 autoComplete="off"
                 spellCheck={false}
               />
               <div className="field-help">
-                Används när provider är Claude eller Auto (fallback).
-                Sparas i klartext — keyring kommer i nästa iter.
+                {keyDraft === ""
+                  ? "Nyckeln raderas när du sparar."
+                  : "Sparas säkert i Windows Credential Manager."}
               </div>
+              {keyStored && keyDraft === null && (
+                <button
+                  type="button"
+                  className="link-button"
+                  onClick={() => setKeyDraft("")}
+                >
+                  Rensa nyckel
+                </button>
+              )}
             </div>
 
             <div className="field">
