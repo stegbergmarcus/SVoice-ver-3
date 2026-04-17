@@ -7,6 +7,8 @@ export interface Settings {
   stt_model: string;
   stt_compute_mode: ComputeMode;
   vad_threshold: number;
+  anthropic_api_key: string | null;
+  anthropic_model: string;
 }
 
 export async function getSettings(): Promise<Settings> {

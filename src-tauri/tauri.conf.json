@@ -37,6 +37,21 @@
         "shadow": false,
         "focus": false,
         "visible": true
+      },
+      {
+        "label": "action-popup",
+        "url": "src/overlays/action-popup.html",
+        "width": 620,
+        "height": 420,
+        "center": true,
+        "decorations": false,
+        "resizable": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "transparent": true,
+        "shadow": false,
+        "focus": false,
+        "visible": false
       }
     ],
     "security": {
