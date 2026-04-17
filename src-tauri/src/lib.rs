@@ -1,5 +1,14 @@
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
+
+/// Förhindrar att båda PTT-flöden (diktering RCtrl och action Insert) kör
+/// samtidigt — de delar AudioRing och skulle tömma varandras data.
+/// Första Pressed vinner, andra ignoreras tills första releases.
+const OWNER_NONE: u8 = 0;
+const OWNER_DICTATION: u8 = 1;
+const OWNER_ACTION: u8 = 2;
+static PTT_OWNER: AtomicU8 = AtomicU8::new(OWNER_NONE);
 
 use futures_util::StreamExt;
 use svoice_audio::vad::trim_silence;
@@ -304,6 +313,20 @@ fn ptt_worker_loop(
     let mut meter: Option<VolumeMeter> = None;
 
     for ev in rx {
+        // Simultan-PTT-lockout: ignorera dictation Pressed om action redan äger.
+        if ev == LlKeyEvent::Pressed
+            && PTT_OWNER
+                .compare_exchange(OWNER_NONE, OWNER_DICTATION, Ordering::SeqCst, Ordering::SeqCst)
+                .is_err()
+        {
+            tracing::debug!("dictation-PTT: skippas — action-PTT äger just nu");
+            continue;
+        }
+        // Bara hantera Released om vi faktiskt äger låset.
+        if ev == LlKeyEvent::Released && PTT_OWNER.load(Ordering::SeqCst) != OWNER_DICTATION {
+            continue;
+        }
+
         let state_after = apply_event(&ptt, ev);
         emit_event(&app_handle, EV_PTT_STATE, state_after);
         update_tray_for_state(&app_handle, state_after);
@@ -328,6 +351,8 @@ fn ptt_worker_loop(
             };
             emit_event(&app_handle, EV_PTT_STATE, final_state);
             update_tray_for_state(&app_handle, final_state);
+            // Släpp låset.
+            PTT_OWNER.store(OWNER_NONE, Ordering::SeqCst);
         }
     }
 }
@@ -432,15 +457,49 @@ fn action_worker_loop(
     for ev in rx {
         match ev {
             LlKeyEvent::Pressed => {
+                // Simultan-PTT-lockout: skippa om dictation äger just nu.
+                if PTT_OWNER
+                    .compare_exchange(
+                        OWNER_NONE,
+                        OWNER_ACTION,
+                        Ordering::SeqCst,
+                        Ordering::SeqCst,
+                    )
+                    .is_err()
+                {
+                    tracing::debug!("action-PTT: skippas — dictation-PTT äger just nu");
+                    continue;
+                }
                 ring.clear();
                 tracing::debug!("action-PTT: recording");
                 emit_event(&app_handle, EV_PTT_STATE, PttState::Recording);
                 update_tray_for_state(&app_handle, PttState::Recording);
             }
             LlKeyEvent::Released => {
+                // Bara hantera Released om vi är ägare.
+                if PTT_OWNER.load(Ordering::SeqCst) != OWNER_ACTION {
+                    continue;
+                }
                 tracing::debug!("action-PTT: released, processing...");
                 emit_event(&app_handle, EV_PTT_STATE, PttState::Processing);
                 update_tray_for_state(&app_handle, PttState::Processing);
+
+                // Öppna popup-fönstret tidigt så error-states syns även om
+                // STT eller LLM failar innan popupen fick sitt vanliga
+                // `action_popup_open`-event.
+                if let Some(win) = app_handle.get_webview_window("action-popup") {
+                    let _ = win.show();
+                    let _ = win.set_focus();
+                }
+                emit_event(
+                    &app_handle,
+                    EV_ACTION_POPUP_OPEN,
+                    ActionPopupOpen {
+                        selection: None,
+                        command: "lyssnar…".into(),
+                        mode: "query",
+                    },
+                );
 
                 // Hot-reload settings: VAD + API-nyckel + modell tillämpas
                 // omedelbart, ingen app-restart krävs.
@@ -475,6 +534,8 @@ fn action_worker_loop(
                 }
                 emit_event(&app_handle, EV_PTT_STATE, PttState::Idle);
                 update_tray_for_state(&app_handle, PttState::Idle);
+                // Släpp låset.
+                PTT_OWNER.store(OWNER_NONE, Ordering::SeqCst);
             }
         }
     }
