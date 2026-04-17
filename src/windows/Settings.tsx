@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import SVoiceLogo from "../components/SVoiceLogo";
 import {
   getSettings,
+  listMicDevices,
   setSettings,
   type ComputeMode,
   type Settings,
@@ -28,6 +29,7 @@ export default function SettingsView() {
   const [savedTick, setSavedTick] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [micLevel, setMicLevel] = useState(0);
+  const [micDevices, setMicDevices] = useState<string[]>([]);
 
   useEffect(() => {
     getSettings()
@@ -36,6 +38,9 @@ export default function SettingsView() {
         setLoaded(s);
       })
       .catch((e) => setError(String(e)));
+    listMicDevices()
+      .then(setMicDevices)
+      .catch((e) => console.error("[settings] list_mic_devices failed:", e));
   }, []);
 
   useEffect(() => {
@@ -132,21 +137,27 @@ export default function SettingsView() {
               <label className="field-label" htmlFor="mic">
                 Mikrofon
               </label>
-              <input
+              <select
                 id="mic"
-                className="input"
-                type="text"
-                placeholder="Systemets standard-mic"
+                className="select"
                 value={draft.mic_device ?? ""}
                 onChange={(e) =>
                   setDraft({
                     ...draft,
-                    mic_device: e.target.value.trim() === "" ? null : e.target.value,
+                    mic_device: e.target.value === "" ? null : e.target.value,
                   })
                 }
-              />
+              >
+                <option value="">Systemets standard-mic</option>
+                {micDevices.map((d) => (
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
+                ))}
+              </select>
               <div className="field-help">
-                Iter 3 kommer lista tillgängliga enheter. Just nu används default-mic automatiskt.
+                {micDevices.length} enheter upptäckta. Default-mic används om inget
+                explicit val görs. Val av specifik enhet aktiveras i iter 4.
               </div>
             </div>
           </div>

@@ -268,6 +268,7 @@ pub fn run() {
             svoice_ipc::set_settings,
             svoice_ipc::action_apply,
             svoice_ipc::action_cancel,
+            svoice_ipc::list_mic_devices,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

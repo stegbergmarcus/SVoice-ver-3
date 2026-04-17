@@ -18,3 +18,7 @@ export async function getSettings(): Promise<Settings> {
 export async function setSettings(settings: Settings): Promise<void> {
   await invoke<void>("set_settings", { settings });
 }
+
+export async function listMicDevices(): Promise<string[]> {
+  return invoke<string[]>("list_mic_devices");
+}

@@ -3914,6 +3914,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "svoice-audio",
  "svoice-hotkey",
  "svoice-inject",
  "svoice-settings",

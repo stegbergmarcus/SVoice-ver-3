@@ -1,4 +1,5 @@
 use serde::Serialize;
+use svoice_audio::list_input_devices;
 use svoice_hotkey::PttState;
 use svoice_inject::paste_and_restore;
 use svoice_settings::Settings;
@@ -69,4 +70,11 @@ pub fn action_cancel(app: tauri::AppHandle) {
         let _ = win.hide();
     }
     tracing::debug!("action-popup: cancelled by user");
+}
+
+/// Lista alla tillgängliga mic-enheter (default-enheten listas först).
+/// Används av Settings-UI:ets mikrofon-dropdown.
+#[tauri::command]
+pub fn list_mic_devices() -> Vec<String> {
+    list_input_devices()
 }

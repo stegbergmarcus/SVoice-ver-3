@@ -13,6 +13,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+svoice-audio = { path = "../audio" }
 svoice-hotkey = { path = "../hotkey" }
 svoice-inject = { path = "../inject" }
 svoice-settings = { path = "../settings" }
