@@ -1,10 +1,20 @@
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 
-use svoice_audio::VolumeMeter;
+use svoice_audio::vad::trim_silence;
+use svoice_audio::{AudioCapture, AudioRing, VolumeMeter};
+
+/// cpal::Stream är !Send på Windows (WASAPI). Vi håller capture enbart för
+/// Drop-semantiken (stoppar streamen). Det är säkert att drop:a cpal::Stream
+/// från en annan tråd på Windows — WASAPI-resursen frigörs korrekt.
+#[allow(dead_code)]
+struct SendCapture(AudioCapture);
+// SAFETY: cpal WASAPI-streams är safe att drop:a från vilken tråd som helst.
+// Vi delar aldrig den inre datan — wrappern håller bara ägandeskap.
+unsafe impl Send for SendCapture {}
 use svoice_hotkey::{install_rctrl_hook, LlCallback, LlKeyEvent, PttMachine, PttState};
 use svoice_inject::{inject, InjectMethod};
-use svoice_stt::dummy_transcribe;
+use svoice_stt::{PythonStt, SttConfig};
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -62,6 +72,29 @@ pub fn run() {
                 })
                 .build(app)?;
 
+            // Audio capture — persistent stream, lågt overhead.
+            // ring håller de senaste 30s audio @ 16 kHz mono.
+            let ring = Arc::new(AudioRing::new(16000 * 30));
+            let capture = AudioCapture::start(ring.clone())
+                .map_err(|e| {
+                    tracing::error!("kunde inte starta audio-capture: {e}");
+                    e
+                })?;
+            tracing::info!(
+                "audio-capture aktiv @ {} Hz, {} kanaler (resamplas → 16 kHz mono)",
+                capture.sample_rate,
+                capture.channels
+            );
+            // capture är !Send pga cpal::Stream på Windows (WASAPI). Vi kan
+            // inte app.manage() den och vi kan inte flytta AudioCapture direkt
+            // in i std::thread::spawn (kräver Send). Lösning: packa in i
+            // SendCapture-wrappern (unsafe impl Send) INNAN closure-capture,
+            // så att closure-typen blir Send.
+            let capture = SendCapture(capture);
+
+            let stt = Arc::new(PythonStt::new(SttConfig::default()));
+            let rt = Arc::new(tokio::runtime::Runtime::new().expect("tokio runtime"));
+
             // PTT worker
             let app_handle = app.handle().clone();
             let ptt_worker = ptt.clone();
@@ -70,7 +103,10 @@ pub fn run() {
             std::thread::Builder::new()
                 .name("svoice-ptt-worker".into())
                 .spawn(move || {
-                    ptt_worker_loop(rx, app_handle, ptt_worker);
+                    // _capture hålls i worker-tråden så att streamen lever hela
+                    // app-livslängden. Drop vid thread-exit = app-exit.
+                    let _capture = capture;
+                    ptt_worker_loop(rx, app_handle, ptt_worker, ring, stt, rt);
                 })
                 .expect("kunde inte starta PTT worker-thread");
 
@@ -88,7 +124,7 @@ pub fn run() {
             let _ = app.get_webview_window("main");
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![svoice_ipc::run_dummy_inject])
+        .invoke_handler(tauri::generate_handler![])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
@@ -108,6 +144,9 @@ fn ptt_worker_loop(
     rx: mpsc::Receiver<LlKeyEvent>,
     app_handle: AppHandle,
     ptt: Arc<Mutex<PttMachine>>,
+    ring: Arc<AudioRing>,
+    stt: Arc<PythonStt>,
+    rt: Arc<tokio::runtime::Runtime>,
 ) {
     let mut meter: Option<VolumeMeter> = None;
 
@@ -118,6 +157,7 @@ fn ptt_worker_loop(
         update_tray_for_state(&app_handle, state_after);
 
         if ev == LlKeyEvent::Pressed && state_after == PttState::Recording {
+            ring.clear();
             meter = start_volume_meter(&app_handle);
         }
 
@@ -131,7 +171,7 @@ fn ptt_worker_loop(
             // nedtryckt när de tar emot Unicode-tecknen.
             std::thread::sleep(std::time::Duration::from_millis(50));
 
-            perform_inject();
+            perform_transcribe_and_inject(&ring, &stt, &rt);
 
             let final_state = {
                 let mut m = ptt_lock(&ptt);
@@ -178,17 +218,36 @@ fn start_volume_meter(app_handle: &AppHandle) -> Option<VolumeMeter> {
     }
 }
 
-fn perform_inject() {
-    let text = dummy_transcribe();
-    match inject(&text) {
-        Ok(method) => {
-            let method_str = match method {
-                InjectMethod::SendInput => "send_input",
-                InjectMethod::Clipboard => "clipboard",
-            };
-            tracing::info!("inject OK via {method_str}");
+fn perform_transcribe_and_inject(
+    ring: &AudioRing,
+    stt: &PythonStt,
+    rt: &tokio::runtime::Runtime,
+) {
+    let audio = ring.drain();
+    let (start, end) = trim_silence(&audio, 16000, 0.005);
+    let segment = &audio[start..end];
+    if segment.is_empty() {
+        tracing::warn!("inget tal detekterat (VAD trimmade allt)");
+        return;
+    }
+    match rt.block_on(stt.transcribe(segment)) {
+        Ok(text) => {
+            if text.is_empty() {
+                tracing::warn!("STT returnerade tom text");
+                return;
+            }
+            match inject(&text) {
+                Ok(method) => {
+                    let method_str = match method {
+                        InjectMethod::SendInput => "send_input",
+                        InjectMethod::Clipboard => "clipboard",
+                    };
+                    tracing::info!("inject OK via {method_str}: \"{}\"", text);
+                }
+                Err(e) => tracing::error!("inject FAIL: {e}"),
+            }
         }
-        Err(e) => tracing::error!("inject FAIL: {e}"),
+        Err(e) => tracing::error!("STT-fel: {e}"),
     }
 }
 
