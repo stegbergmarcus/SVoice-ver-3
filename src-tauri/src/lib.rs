@@ -283,6 +283,7 @@ pub fn run() {
             svoice_ipc::list_mic_devices,
             svoice_ipc::list_ollama_models,
             svoice_ipc::pull_ollama_model,
+            svoice_ipc::check_hf_cached,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

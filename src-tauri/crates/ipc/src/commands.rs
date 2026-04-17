@@ -116,6 +116,40 @@ pub fn list_mic_devices() -> Vec<String> {
     list_input_devices()
 }
 
+/// Kolla om en HuggingFace-modell finns i lokal cache. Cache-path är
+/// ~/.cache/huggingface/hub/models--<org>--<name>/snapshots/. Om den
+/// finns + har innehåll: modellen är nedladdad och första-transcribe
+/// blir snabbt (ingen 1-3 min väntan).
+#[tauri::command]
+pub fn check_hf_cached(model: String) -> bool {
+    // Tauri skickar "KBLab/kb-whisper-large" -> "models--KBLab--kb-whisper-large"
+    let slug = format!("models--{}", model.replace('/', "--"));
+    let home = match std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")) {
+        Ok(h) => h,
+        Err(_) => return false,
+    };
+    let cache_path = std::path::PathBuf::from(home)
+        .join(".cache")
+        .join("huggingface")
+        .join("hub")
+        .join(&slug)
+        .join("snapshots");
+    if !cache_path.exists() {
+        return false;
+    }
+    // Kolla att någon snapshot finns och att den inte är tom.
+    std::fs::read_dir(&cache_path)
+        .map(|entries| {
+            entries.flatten().any(|e| {
+                e.file_type().map(|t| t.is_dir()).unwrap_or(false)
+                    && std::fs::read_dir(e.path())
+                        .map(|mut d| d.next().is_some())
+                        .unwrap_or(false)
+            })
+        })
+        .unwrap_or(false)
+}
+
 /// Lista modeller installerade i lokalt Ollama-service. Används för att
 /// visa ✓/↓-status i Settings-UI och avgöra om download behövs.
 #[tauri::command]

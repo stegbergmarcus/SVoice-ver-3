@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import SVoiceLogo from "../components/SVoiceLogo";
 import {
+  checkHfCached,
   getSettings,
   listMicDevices,
   listOllamaModels,
@@ -93,6 +94,7 @@ export default function SettingsView() {
   const [ollamaModels, setOllamaModels] = useState<OllamaModelInfo[]>([]);
   const [ollamaOnline, setOllamaOnline] = useState(false);
   const [pullState, setPullState] = useState<PullProgress | null>(null);
+  const [sttCached, setSttCached] = useState<Record<string, boolean>>({});
 
   // Refresh Ollama-modell-listan (t.ex. efter lyckad pull).
   async function refreshOllama() {
@@ -117,6 +119,17 @@ export default function SettingsView() {
       .then(setMicDevices)
       .catch((e) => console.error("[settings] list_mic_devices failed:", e));
     refreshOllama();
+    // Kolla HF-cache-status för alla listade STT-modeller i bakgrunden.
+    Promise.all(
+      MODELS.map(async (m) => ({
+        id: m.id,
+        cached: await checkHfCached(m.id).catch(() => false),
+      })),
+    ).then((results) => {
+      const out: Record<string, boolean> = {};
+      for (const r of results) out[r.id] = r.cached;
+      setSttCached(out);
+    });
   }, []);
 
   // Lyssna på Ollama pull-progress events.
@@ -329,12 +342,27 @@ export default function SettingsView() {
                 value={draft.stt_model}
                 onChange={(e) => setDraft({ ...draft, stt_model: e.target.value })}
               >
-                {MODELS.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.label} — {m.note}
-                  </option>
-                ))}
+                {MODELS.map((m) => {
+                  const cached = sttCached[m.id];
+                  const prefix = cached === undefined ? "…" : cached ? "✓" : "↓";
+                  return (
+                    <option key={m.id} value={m.id}>
+                      {prefix} {m.label} — {m.note}
+                    </option>
+                  );
+                })}
               </select>
+              {sttCached[draft.stt_model] === false && (
+                <div className="field-help" style={{ color: "var(--accent)" }}>
+                  Inte cachad — första PTT efter spara laddar ner modellen (~
+                  {draft.stt_model.includes("large")
+                    ? "3 GB"
+                    : draft.stt_model.includes("medium")
+                      ? "1.5 GB"
+                      : "150 MB"}
+                  , tar 1-3 min).
+                </div>
+              )}
             </div>
 
             <div className="field">

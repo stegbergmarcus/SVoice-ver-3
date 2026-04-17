@@ -50,3 +50,7 @@ export async function listOllamaModels(): Promise<OllamaModelInfo[]> {
 export async function pullOllamaModel(model: string): Promise<void> {
   await invoke<void>("pull_ollama_model", { model });
 }
+
+export async function checkHfCached(model: string): Promise<boolean> {
+  return invoke<boolean>("check_hf_cached", { model });
+}
