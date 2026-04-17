@@ -15,7 +15,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
-use windows::Win32::UI::Input::KeyboardAndMouse::{VK_INSERT, VK_RCONTROL};
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    VK_CAPITAL, VK_END, VK_F12, VK_HOME, VK_INSERT, VK_PAUSE, VK_RCONTROL, VK_RMENU, VK_SCROLL,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, SetWindowsHookExW, UnhookWindowsHookEx, HC_ACTION, HHOOK, KBDLLHOOKSTRUCT,
     WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
@@ -30,21 +32,41 @@ pub enum LlKeyEvent {
 }
 
 /// Vilken target-tangent ett callback ska lyssna på.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum HotKey {
-    /// Höger Ctrl — diktering (iter 2).
+    /// Höger Ctrl — diktering (default).
     RightCtrl,
-    /// Insert — action-LLM popup (iter 3). Använder en ensam tangent istället
-    /// för höger Alt (Alt är reserverat av Windows för menu-accelerators och
-    /// stör Alt+Tab / Alt+F4). Insert används sällan i modern UX.
+    /// Insert — action-LLM popup (default).
     Insert,
+    /// Höger Alt.
+    RightAlt,
+    /// F12.
+    F12,
+    /// Pause/Break.
+    Pause,
+    /// Scroll Lock.
+    ScrollLock,
+    /// Caps Lock.
+    CapsLock,
+    /// Home.
+    Home,
+    /// End.
+    End,
 }
 
 impl HotKey {
-    fn vk_code(self) -> u32 {
+    pub fn vk_code(self) -> u32 {
         match self {
             HotKey::RightCtrl => VK_RCONTROL.0 as u32,
             HotKey::Insert => VK_INSERT.0 as u32,
+            HotKey::RightAlt => VK_RMENU.0 as u32,
+            HotKey::F12 => VK_F12.0 as u32,
+            HotKey::Pause => VK_PAUSE.0 as u32,
+            HotKey::ScrollLock => VK_SCROLL.0 as u32,
+            HotKey::CapsLock => VK_CAPITAL.0 as u32,
+            HotKey::Home => VK_HOME.0 as u32,
+            HotKey::End => VK_END.0 as u32,
         }
     }
 }

@@ -2,6 +2,16 @@ import { invoke } from "@tauri-apps/api/core";
 
 export type ComputeMode = "auto" | "cpu" | "gpu";
 export type LlmProviderChoice = "auto" | "claude" | "ollama";
+export type HotKeyChoice =
+  | "right_ctrl"
+  | "insert"
+  | "right_alt"
+  | "f12"
+  | "pause"
+  | "scroll_lock"
+  | "caps_lock"
+  | "home"
+  | "end";
 
 export interface Settings {
   mic_device: string | null;
@@ -15,6 +25,8 @@ export interface Settings {
   anthropic_model: string;
   ollama_model: string;
   ollama_url: string;
+  dictation_hotkey: HotKeyChoice;
+  action_hotkey: HotKeyChoice;
 }
 
 export interface OllamaModelInfo {
