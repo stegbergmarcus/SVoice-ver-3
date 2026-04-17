@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import SVoiceLogo from "../components/SVoiceLogo";
 import "./ActionPopup.css";
 
 type PopupOpenPayload = {
@@ -116,7 +117,7 @@ export default function ActionPopup() {
     <div ref={rootRef} className={`action-popup-root${visible ? " visible" : ""}`}>
       <header className="action-popup-header">
         <div className="action-popup-logo" aria-hidden>
-          SV
+          <SVoiceLogo size={40} recording={streaming} />
         </div>
         <div className="action-popup-command">
           <div className="action-popup-command-eyebrow">du sa</div>

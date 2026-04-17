@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import SVoiceLogo from "../components/SVoiceLogo";
 import {
   getSettings,
   setSettings,
@@ -81,7 +82,7 @@ export default function SettingsView() {
       <aside className="settings-wordmark">
         <div>
           <div className="settings-monogram" aria-hidden>
-            SV
+            <SVoiceLogo size={56} />
           </div>
           <h1 className="settings-wordmark-title">
             SVoice

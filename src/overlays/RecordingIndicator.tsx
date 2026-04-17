@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import SVoiceLogo from "../components/SVoiceLogo";
 import "./RecordingIndicator.css";
 
 type PttState = "idle" | "recording" | "processing";
@@ -81,7 +82,7 @@ export default function RecordingIndicator() {
   return (
     <div className={containerClass}>
       <div className="voice-oval-logo" aria-hidden>
-        SV
+        <SVoiceLogo size={34} recording={state === "recording"} />
       </div>
 
       {state === "processing" ? (
