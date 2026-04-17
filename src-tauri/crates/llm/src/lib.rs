@@ -7,7 +7,9 @@
 //! async stream av text-chunks så UI kan visa tokens live i action-popup.
 
 pub mod anthropic;
+pub mod ollama;
 pub mod provider;
 
 pub use anthropic::AnthropicClient;
+pub use ollama::OllamaClient;
 pub use provider::{LlmError, LlmProvider, LlmRequest, LlmStream, Role, TurnContent};

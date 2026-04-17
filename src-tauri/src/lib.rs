@@ -17,8 +17,8 @@ use svoice_hotkey::{
     install_rctrl_hook, register_hotkey, HotKey, LlCallback, LlKeyEvent, PttMachine, PttState,
 };
 use svoice_inject::{capture_selection, inject, remember_foreground_target, InjectMethod};
-use svoice_llm::{AnthropicClient, LlmProvider, LlmRequest, Role, TurnContent};
-use svoice_settings::{ComputeMode, Settings};
+use svoice_llm::{AnthropicClient, LlmProvider, LlmRequest, OllamaClient, Role, TurnContent};
+use svoice_settings::{ComputeMode, LlmProvider as ProviderChoice, Settings};
 use svoice_stt::{PythonStt, SttConfig};
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem};
@@ -501,19 +501,10 @@ fn action_worker_loop(
                     },
                 );
 
-                // Hot-reload settings: VAD + API-nyckel + modell tillämpas
-                // omedelbart, ingen app-restart krävs.
+                // Hot-reload settings: VAD + API-nyckel + modell + provider
+                // tillämpas omedelbart, ingen app-restart krävs.
                 let current = Settings::load();
-                let llm: Option<Arc<dyn LlmProvider>> = current
-                    .anthropic_api_key
-                    .as_ref()
-                    .filter(|k| !k.is_empty())
-                    .map(|key| {
-                        Arc::new(
-                            AnthropicClient::new(key.clone())
-                                .with_model(current.anthropic_model.clone()),
-                        ) as Arc<dyn LlmProvider>
-                    });
+                let llm = rt.block_on(select_llm_provider(&current));
 
                 if let Err(e) = handle_action_released(
                     &app_handle,
@@ -654,6 +645,46 @@ fn handle_action_released(
     });
 
     Ok(())
+}
+
+/// Väljer LLM-provider baserat på settings. Auto prövar Ollama först (snabb
+/// health-check mot localhost:11434) och fallback till Anthropic om det
+/// misslyckas. Uttryckligt val (Claude/Ollama) gör ingen fallback.
+async fn select_llm_provider(settings: &Settings) -> Option<Arc<dyn LlmProvider>> {
+    let build_anthropic = || -> Option<Arc<dyn LlmProvider>> {
+        settings
+            .anthropic_api_key
+            .as_ref()
+            .filter(|k| !k.is_empty())
+            .map(|key| {
+                Arc::new(
+                    AnthropicClient::new(key.clone())
+                        .with_model(settings.anthropic_model.clone()),
+                ) as Arc<dyn LlmProvider>
+            })
+    };
+    let build_ollama = || -> Arc<dyn LlmProvider> {
+        Arc::new(
+            OllamaClient::new(settings.ollama_model.clone())
+                .with_base_url(settings.ollama_url.clone()),
+        )
+    };
+
+    match settings.llm_provider {
+        ProviderChoice::Claude => build_anthropic(),
+        ProviderChoice::Ollama => Some(build_ollama()),
+        ProviderChoice::Auto => {
+            let ollama = OllamaClient::new(settings.ollama_model.clone())
+                .with_base_url(settings.ollama_url.clone());
+            if ollama.is_healthy().await {
+                tracing::info!("action-LLM: använder lokal Ollama ({})", settings.ollama_model);
+                Some(Arc::new(ollama))
+            } else {
+                tracing::info!("action-LLM: Ollama otillgänglig, faller tillbaka till Anthropic");
+                build_anthropic()
+            }
+        }
+    }
 }
 
 fn build_llm_request(mode: &str, selection: Option<&str>, command: &str) -> LlmRequest {

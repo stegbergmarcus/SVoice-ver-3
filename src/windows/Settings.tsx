@@ -6,6 +6,7 @@ import {
   listMicDevices,
   setSettings,
   type ComputeMode,
+  type LlmProviderChoice,
   type Settings,
 } from "../lib/settings-api";
 import "./Settings.css";
@@ -21,6 +22,23 @@ const COMPUTE_LABELS: Record<ComputeMode, string> = {
   cpu: "CPU",
   gpu: "GPU",
 };
+
+const PROVIDER_LABELS: Record<LlmProviderChoice, string> = {
+  auto: "Auto (lokal först)",
+  ollama: "Lokal (Ollama)",
+  claude: "Claude API",
+};
+
+// Rekommenderade Ollama-modeller för RTX 5080 (16 GB VRAM).
+// Användaren måste själv köra `ollama pull <modell>` innan första användning.
+const OLLAMA_MODELS: Array<{ id: string; label: string; note: string }> = [
+  { id: "qwen2.5:14b", label: "Qwen 2.5 14B", note: "balans · ~9 GB VRAM · stark svenska" },
+  { id: "gpt-oss:20b", label: "GPT-OSS 20B", note: "OpenAI öppen · ~13 GB · toppresonemang" },
+  { id: "qwen2.5:32b", label: "Qwen 2.5 32B", note: "högsta lokal kvalitet · ~20 GB (tight)" },
+  { id: "llama3.1:8b", label: "Llama 3.1 8B", note: "snabbast · ~5 GB · allround" },
+  { id: "mistral-small:24b", label: "Mistral Small 24B", note: "~14 GB · stark på EU-språk" },
+  { id: "gemma2:27b", label: "Gemma 2 27B", note: "~16 GB · Googles öppna flaggskepp" },
+];
 
 export default function SettingsView() {
   const [draft, setDraft] = useState<Settings | null>(null);
@@ -219,11 +237,58 @@ export default function SettingsView() {
           <div className="settings-section-label">
             <h2>Action-LLM</h2>
             <p>
-              Håll <strong>höger Alt</strong> och ge ett kommando för att öppna
+              Håll <strong>Insert</strong> och ge ett kommando för att öppna
               LLM-popup. Markerad text transformeras, tomt fält blir Q&amp;A.
             </p>
           </div>
           <div className="settings-section-body">
+            <div className="field">
+              <label className="field-label">Provider</label>
+              <div className="segmented" role="tablist">
+                {(Object.keys(PROVIDER_LABELS) as LlmProviderChoice[]).map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    role="tab"
+                    aria-selected={draft.llm_provider === p}
+                    className={draft.llm_provider === p ? "active" : ""}
+                    onClick={() => setDraft({ ...draft, llm_provider: p })}
+                  >
+                    {PROVIDER_LABELS[p]}
+                  </button>
+                ))}
+              </div>
+              <div className="field-help">
+                Auto försöker lokal Ollama först, fallback till Claude API om
+                den inte svarar på localhost:11434.
+              </div>
+            </div>
+
+            <div className="field">
+              <label className="field-label" htmlFor="ollama-model">
+                Ollama-modell
+              </label>
+              <select
+                id="ollama-model"
+                className="select"
+                value={draft.ollama_model}
+                onChange={(e) =>
+                  setDraft({ ...draft, ollama_model: e.target.value })
+                }
+              >
+                {OLLAMA_MODELS.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label} — {m.note}
+                  </option>
+                ))}
+              </select>
+              <div className="field-help">
+                Kräver <code>ollama pull {draft.ollama_model}</code> i terminal
+                innan första användning. Default <strong>Qwen 2.5 14B</strong>{" "}
+                ger bra balans mellan kvalitet och snabbhet på RTX 5080.
+              </div>
+            </div>
+
             <div className="field">
               <label className="field-label" htmlFor="api-key">
                 Anthropic API-nyckel
@@ -245,14 +310,14 @@ export default function SettingsView() {
                 spellCheck={false}
               />
               <div className="field-help">
-                Sparas i klartext i settings.json i denna iter. Flyttas till
-                Windows Credential Manager i iter 4.
+                Används när provider är Claude eller Auto (fallback).
+                Sparas i klartext — keyring kommer i nästa iter.
               </div>
             </div>
 
             <div className="field">
               <label className="field-label" htmlFor="anthropic-model">
-                Modell
+                Anthropic-modell
               </label>
               <select
                 id="anthropic-model"
