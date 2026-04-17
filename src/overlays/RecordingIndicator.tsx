@@ -18,9 +18,10 @@ export default function RecordingIndicator() {
       setStateEventCount((c) => c + 1);
       if (ev.payload !== "recording") setVolume(0);
     });
-    const unlistenVolume = listen<number>("ptt_volume", (ev) => {
+    const unlistenVolume = listen<{ rms: number }>("ptt_volume", (ev) => {
+      console.log("[overlay] ptt_volume:", ev.payload);
       setVolumeEventCount((c) => c + 1);
-      setVolume((prev) => Math.max(ev.payload, prev * 0.85));
+      setVolume((prev) => Math.max(ev.payload.rms, prev * 0.85));
     });
     return () => {
       unlistenState.then((fn) => fn());

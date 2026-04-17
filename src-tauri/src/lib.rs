@@ -16,6 +16,14 @@ const TRAY_REC_BYTES: &[u8] = include_bytes!("../icons/tray-recording.png");
 const EV_PTT_STATE: &str = "ptt_state";
 const EV_PTT_VOLUME: &str = "ptt_volume";
 
+/// Wrapping för volume-events. Tauri 2 emit:ar scalars via JSON och en del
+/// scalar-types tas inte emot pålitligt av webview-listeners. Object-payload
+/// fungerar alltid.
+#[derive(serde::Serialize, Clone, Copy)]
+struct VolumeEvent {
+    rms: f32,
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tracing_subscriber::fmt()
@@ -116,7 +124,7 @@ fn ptt_worker_loop(
         if ev == LlKeyEvent::Released && state_after == PttState::Processing {
             // Stäng volym-streamen före inject (inject tar ~40ms).
             meter = None;
-            emit_event(&app_handle, EV_PTT_VOLUME, 0.0f32);
+            emit_event(&app_handle, EV_PTT_VOLUME, VolumeEvent { rms: 0.0 });
 
             // Låt Windows helt registrera RightCtrl-release innan vi inject:ar.
             // Utan denna paus hinner vissa target-fönster fortfarande se Ctrl
@@ -160,7 +168,7 @@ fn ptt_lock(ptt: &Mutex<PttMachine>) -> std::sync::MutexGuard<'_, PttMachine> {
 fn start_volume_meter(app_handle: &AppHandle) -> Option<VolumeMeter> {
     let app_h = app_handle.clone();
     match VolumeMeter::start(move |rms| {
-        emit_event(&app_h, EV_PTT_VOLUME, rms);
+        emit_event(&app_h, EV_PTT_VOLUME, VolumeEvent { rms });
     }) {
         Ok(m) => Some(m),
         Err(e) => {
