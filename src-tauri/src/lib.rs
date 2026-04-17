@@ -235,9 +235,9 @@ pub fn run() {
                     tracing::warn!("action worker-channel stängd; tappar event {:?}", ev);
                 }
             });
-            match register_hotkey(HotKey::RightAlt, action_cb) {
-                Ok(()) => tracing::info!("Action-PTT aktiv: håll höger Alt för LLM-popup"),
-                Err(e) => tracing::error!("kunde inte registrera RightAlt-hook: {e}"),
+            match register_hotkey(HotKey::Insert, action_cb) {
+                Ok(()) => tracing::info!("Action-PTT aktiv: håll Insert för LLM-popup"),
+                Err(e) => tracing::error!("kunde inte registrera Insert-hook: {e}"),
             }
 
             let _ = app.get_webview_window("main");

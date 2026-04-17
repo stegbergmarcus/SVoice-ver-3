@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
-use windows::Win32::UI::Input::KeyboardAndMouse::{VK_RCONTROL, VK_RMENU};
+use windows::Win32::UI::Input::KeyboardAndMouse::{VK_INSERT, VK_RCONTROL};
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, SetWindowsHookExW, UnhookWindowsHookEx, HC_ACTION, HHOOK, KBDLLHOOKSTRUCT,
     WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
@@ -34,15 +34,17 @@ pub enum LlKeyEvent {
 pub enum HotKey {
     /// Höger Ctrl — diktering (iter 2).
     RightCtrl,
-    /// Höger Alt — action-LLM popup (iter 3).
-    RightAlt,
+    /// Insert — action-LLM popup (iter 3). Använder en ensam tangent istället
+    /// för höger Alt (Alt är reserverat av Windows för menu-accelerators och
+    /// stör Alt+Tab / Alt+F4). Insert används sällan i modern UX.
+    Insert,
 }
 
 impl HotKey {
     fn vk_code(self) -> u32 {
         match self {
             HotKey::RightCtrl => VK_RCONTROL.0 as u32,
-            HotKey::RightAlt => VK_RMENU.0 as u32,
+            HotKey::Insert => VK_INSERT.0 as u32,
         }
     }
 }

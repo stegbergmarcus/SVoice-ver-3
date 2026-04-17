@@ -18,6 +18,7 @@ export default function ActionPopup() {
   const [response, setResponse] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [applying, setApplying] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
   // Close popup-window and reset state.
@@ -34,14 +35,28 @@ export default function ActionPopup() {
   }
 
   // Skicka LLM-resultat till backend för clipboard-paste.
+  // VIKTIGT: popup-fönstret måste DÖLJAS FÖRST så att target-fönstret
+  // återfår focus — annars hamnar Ctrl+V i popupen själv. Efter hide
+  // väntar vi kort så Windows hinner restaure focus till tidigare target.
   async function applyResult() {
-    if (!response.trim()) return;
+    if (applying || !response.trim()) return;
+    setApplying(true);
+    const resultToApply = response;
     try {
-      await invoke("action_apply", { result: response });
+      await getCurrentWebviewWindow().hide();
+    } catch (e) {
+      console.error("[action-popup] hide failed", e);
+    }
+    setVisible(false);
+    // Vänta på att Windows ger focus till target.
+    await new Promise((r) => setTimeout(r, 120));
+    try {
+      await invoke("action_apply", { result: resultToApply });
     } catch (e) {
       console.error("[action-popup] apply failed", e);
+    } finally {
+      setApplying(false);
     }
-    await closeWindow();
   }
 
   // Lyssna på open/token/done/error-events från backend.
@@ -87,7 +102,7 @@ export default function ActionPopup() {
 
   // Global keybinds när popup är synlig.
   useEffect(() => {
-    if (!visible) return;
+    if (!visible || applying) return;
     const handler = async (ev: KeyboardEvent) => {
       if (ev.key === "Escape") {
         ev.preventDefault();
@@ -95,14 +110,14 @@ export default function ActionPopup() {
           await invoke("action_cancel");
         } catch {}
         await closeWindow();
-      } else if (ev.key === "Enter" && !ev.shiftKey && !streaming) {
+      } else if (ev.key === "Enter" && !ev.shiftKey && !streaming && !applying) {
         ev.preventDefault();
         await applyResult();
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [visible, streaming, response]);
+  }, [visible, streaming, applying, response]);
 
   return (
     <div ref={rootRef} className={`action-popup-root${visible ? " visible" : ""}`}>
