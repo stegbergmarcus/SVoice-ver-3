@@ -1,11 +1,14 @@
 use std::mem::size_of;
+use std::sync::atomic::{AtomicIsize, Ordering};
 use std::thread::sleep;
 use std::time::Duration;
 
+use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
     VIRTUAL_KEY, VK_C, VK_CONTROL, VK_V,
 };
+use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, SetForegroundWindow};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ClipboardError {
@@ -13,6 +16,28 @@ pub enum ClipboardError {
     Access(String),
     #[error("synthesiserad Ctrl+V misslyckades (sent={sent}, total={total})")]
     PasteFailed { sent: u32, total: u32 },
+}
+
+// Global slot för senast sparade target-HWND (action-popup-flöde).
+// HWND är en pointer-wrapper; lagras som isize för Send-safety.
+static TARGET_HWND: AtomicIsize = AtomicIsize::new(0);
+
+/// Spara aktuellt foreground window som "target". Anropas vid action-PTT
+/// keydown, innan popupen tar fokus. Senare restore:s via [`restore_target_focus`].
+pub fn remember_foreground_target() {
+    let hwnd = unsafe { GetForegroundWindow() };
+    TARGET_HWND.store(hwnd.0 as isize, Ordering::SeqCst);
+}
+
+/// Återställ fokus till target-fönstret (om sparat). Returnerar true om
+/// SetForegroundWindow lyckades. Används före paste_and_restore i action_apply.
+pub fn restore_target_focus() -> bool {
+    let raw = TARGET_HWND.load(Ordering::SeqCst);
+    if raw == 0 {
+        return false;
+    }
+    let hwnd = HWND(raw as *mut core::ffi::c_void);
+    unsafe { SetForegroundWindow(hwnd).as_bool() }
 }
 
 /// Lägger texten på clipboard och skickar Ctrl+V till aktivt fönster.
@@ -96,7 +121,19 @@ pub fn capture_selection() -> Result<Option<String>, ClipboardError> {
 /// Klistrar in `new_text` i aktivt fönster via Ctrl+V och återställer sedan
 /// det ursprungliga clipboard-innehållet. Används av action-popup Enter:
 /// vi vill inte permanent läcka LLM-resultat i clipboarden.
+///
+/// Om ett target-HWND har sparats via [`remember_foreground_target`] så
+/// restore:as fokus till det först — kritiskt för att Ctrl+V ska hamna i
+/// rätt fönster när popupen har tagit fokus.
 pub fn paste_and_restore(new_text: &str) -> Result<(), ClipboardError> {
+    // Restaurera fokus till target INNAN vi skickar Ctrl+V. Utan detta
+    // hamnar key-events i popup-webviewen och Ctrl-state kan bli "fast"
+    // i Windows pga att webviewen sväljer eventen utan att propagera.
+    let restored = restore_target_focus();
+    tracing::debug!("paste_and_restore: focus-restore lyckades: {restored}");
+    // Låt Windows processa focus-bytet innan SendInput.
+    sleep(Duration::from_millis(60));
+
     let mut cb = arboard::Clipboard::new().map_err(|e| ClipboardError::Access(e.to_string()))?;
     let original = cb.get_text().ok();
 

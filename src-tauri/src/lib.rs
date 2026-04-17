@@ -4,8 +4,10 @@ use std::sync::{Arc, Mutex};
 use futures_util::StreamExt;
 use svoice_audio::vad::trim_silence;
 use svoice_audio::{AudioCapture, AudioRing, VolumeMeter};
-use svoice_hotkey::{install_rctrl_hook, LlCallback, LlKeyEvent, PttMachine, PttState};
-use svoice_inject::{capture_selection, inject, InjectMethod};
+use svoice_hotkey::{
+    install_rctrl_hook, register_hotkey, HotKey, LlCallback, LlKeyEvent, PttMachine, PttState,
+};
+use svoice_inject::{capture_selection, inject, remember_foreground_target, InjectMethod};
 use svoice_llm::{AnthropicClient, LlmProvider, LlmRequest, Role, TurnContent};
 use svoice_settings::{ComputeMode, Settings};
 use svoice_stt::{PythonStt, SttConfig};
@@ -228,20 +230,22 @@ pub fn run() {
                 })
                 .expect("kunde inte starta action worker-thread");
 
-            // Action-PTT är DISABLAD i huvudbranchen efter test avslöjade att
-            // kombinationen av LowLevelKeyboardHook-konsumering + popup-fönster-
-            // focus + Ctrl+V-SendInput lämnar Windows i ett tillstånd där
-            // modifier-keys blir "fast" (kräver lock/unlock för reset).
-            // Kod kvar för iter 3.5-refactor; registrering tas bort så Insert
-            // aldrig konsumeras av vår hook.
-            let _action_cb_unused: LlCallback = Arc::new(move |ev: LlKeyEvent| {
+            // Action-PTT: spara target-HWND vid keydown INNAN popupen öppnas
+            // så paste_and_restore kan SetForegroundWindow tillbaka efter hide.
+            // Utan detta hamnade Ctrl+V i popup-webviewen och Ctrl-state blev
+            // "fast" i Windows-session.
+            let action_cb: LlCallback = Arc::new(move |ev: LlKeyEvent| {
+                if ev == LlKeyEvent::Pressed {
+                    remember_foreground_target();
+                }
                 if action_tx.send(ev).is_err() {
                     tracing::warn!("action worker-channel stängd; tappar event {:?}", ev);
                 }
             });
-            tracing::warn!(
-                "Action-PTT DISABLAD i denna build (se iter 3.5-plan för robust fix)"
-            );
+            match register_hotkey(HotKey::Insert, action_cb) {
+                Ok(()) => tracing::info!("Action-PTT aktiv: håll Insert för LLM-popup"),
+                Err(e) => tracing::error!("kunde inte registrera Insert-hook: {e}"),
+            }
 
             let _ = app.get_webview_window("main");
             Ok(())
