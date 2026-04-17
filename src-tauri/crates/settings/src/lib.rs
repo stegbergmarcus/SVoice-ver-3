@@ -5,15 +5,27 @@ use std::path::PathBuf;
 #[serde(default)]
 pub struct Settings {
     pub mic_device: Option<String>,
+
+    /// Om false: höger Ctrl-PTT triggar inte STT. Sparar VRAM — sidecar
+    /// spawnar aldrig om user bara vill använda action-LLM.
+    pub stt_enabled: bool,
     pub stt_model: String,
     pub stt_compute_mode: ComputeMode,
     pub vad_threshold: f32,
 
-    /// Vilken LLM-provider som action-popup ska använda.
+    /// Om false: Insert-PTT triggar inte action-popup. Sparar resurser om
+    /// user bara vill ha ren diktering utan LLM alls.
+    pub action_llm_enabled: bool,
+
+    /// Om true: efter STT-transkribering skickas texten till LLM för
+    /// grammatik/stavning-polering INNAN inject. Långsammare men vassare.
+    pub llm_polish_dictation: bool,
+
+    /// Vilken LLM-provider som action-popup + polering ska använda.
     /// Auto = försök lokal först, fallback till API om inte tillgänglig.
     pub llm_provider: LlmProvider,
 
-    /// Anthropic Claude API-nyckel för action-popup (klartext i JSON — keyring iter 4+).
+    /// Anthropic Claude API-nyckel (klartext i JSON — keyring iter 4+).
     pub anthropic_api_key: Option<String>,
     /// Anthropic-modell. Default claude-sonnet-4-5.
     pub anthropic_model: String,
@@ -40,9 +52,12 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             mic_device: None,
+            stt_enabled: true,
             stt_model: "KBLab/kb-whisper-large".into(),
             stt_compute_mode: ComputeMode::Auto,
             vad_threshold: 0.005,
+            action_llm_enabled: true,
+            llm_polish_dictation: false,
             llm_provider: LlmProvider::Auto,
             anthropic_api_key: None,
             anthropic_model: "claude-sonnet-4-5".into(),
@@ -103,9 +118,12 @@ mod tests {
     fn roundtrip_via_json() {
         let original = Settings {
             mic_device: Some("Yeti Classic".into()),
+            stt_enabled: true,
             stt_model: "kb-whisper-large".into(),
             stt_compute_mode: ComputeMode::Gpu,
             vad_threshold: 0.01,
+            action_llm_enabled: true,
+            llm_polish_dictation: true,
             llm_provider: LlmProvider::Ollama,
             anthropic_api_key: Some("sk-ant-test".into()),
             anthropic_model: "claude-opus-4-7".into(),

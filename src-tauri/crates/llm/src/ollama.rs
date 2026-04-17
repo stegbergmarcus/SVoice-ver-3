@@ -96,6 +96,139 @@ struct ChatStreamDelta {
     content: String,
 }
 
+/// Information om en installerad Ollama-modell.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct OllamaModelInfo {
+    pub name: String,
+    pub size: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct TagsResponse {
+    models: Vec<TagsModel>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TagsModel {
+    name: String,
+    size: u64,
+}
+
+/// Progress-event vid `ollama pull`. Skickas ut ~sekund.
+#[derive(Debug, Serialize, Clone)]
+pub struct PullProgress {
+    pub model: String,
+    pub status: String,
+    pub total: Option<u64>,
+    pub completed: Option<u64>,
+    pub done: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct PullStreamEvent {
+    status: String,
+    #[serde(default)]
+    total: Option<u64>,
+    #[serde(default)]
+    completed: Option<u64>,
+    #[serde(default)]
+    error: Option<String>,
+}
+
+impl OllamaClient {
+    /// Lista alla lokalt installerade modeller.
+    pub async fn list_models(&self) -> Result<Vec<OllamaModelInfo>, LlmError> {
+        let resp = self
+            .client
+            .get(format!("{}/api/tags", self.base_url))
+            .timeout(HEALTH_TIMEOUT * 2)
+            .send()
+            .await
+            .map_err(|e| LlmError::Http(e.to_string()))?;
+        if !resp.status().is_success() {
+            return Err(LlmError::Api {
+                status: resp.status().as_u16(),
+                body: resp.text().await.unwrap_or_default(),
+            });
+        }
+        let body: TagsResponse = resp
+            .json()
+            .await
+            .map_err(|e| LlmError::Protocol(e.to_string()))?;
+        Ok(body
+            .models
+            .into_iter()
+            .map(|m| OllamaModelInfo {
+                name: m.name,
+                size: m.size,
+            })
+            .collect())
+    }
+
+    /// Starta nedladdning av en modell. `on_progress` anropas för varje
+    /// status-rad från /api/pull. Returnerar Ok(()) när pull är klar.
+    pub async fn pull_model<F>(&self, model_name: &str, mut on_progress: F) -> Result<(), LlmError>
+    where
+        F: FnMut(PullProgress),
+    {
+        let body = serde_json::json!({
+            "model": model_name,
+            "stream": true,
+        });
+        let resp = self
+            .client
+            .post(format!("{}/api/pull", self.base_url))
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| LlmError::Http(e.to_string()))?;
+        if !resp.status().is_success() {
+            return Err(LlmError::Api {
+                status: resp.status().as_u16(),
+                body: resp.text().await.unwrap_or_default(),
+            });
+        }
+        let mut stream = resp.bytes_stream();
+        let mut buf = String::new();
+        while let Some(chunk) = stream.next().await {
+            let bytes = chunk.map_err(|e| LlmError::Http(e.to_string()))?;
+            buf.push_str(&String::from_utf8_lossy(&bytes));
+            while let Some(idx) = buf.find('\n') {
+                let line = buf[..idx].to_string();
+                buf.drain(..idx + 1);
+                if line.trim().is_empty() {
+                    continue;
+                }
+                match serde_json::from_str::<PullStreamEvent>(&line) {
+                    Ok(ev) => {
+                        if let Some(err) = ev.error {
+                            return Err(LlmError::Api {
+                                status: 0,
+                                body: err,
+                            });
+                        }
+                        let done = ev.status == "success";
+                        on_progress(PullProgress {
+                            model: model_name.to_string(),
+                            status: ev.status,
+                            total: ev.total,
+                            completed: ev.completed,
+                            done,
+                        });
+                        if done {
+                            return Ok(());
+                        }
+                    }
+                    Err(e) => {
+                        tracing::debug!("ollama pull parse miss: {e} — payload: {line}");
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 #[async_trait]
 impl LlmProvider for OllamaClient {
     fn name(&self) -> &'static str {

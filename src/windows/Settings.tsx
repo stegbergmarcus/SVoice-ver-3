@@ -4,9 +4,13 @@ import SVoiceLogo from "../components/SVoiceLogo";
 import {
   getSettings,
   listMicDevices,
+  listOllamaModels,
+  pullOllamaModel,
   setSettings,
   type ComputeMode,
   type LlmProviderChoice,
+  type OllamaModelInfo,
+  type PullProgress,
   type Settings,
 } from "../lib/settings-api";
 import "./Settings.css";
@@ -40,6 +44,44 @@ const OLLAMA_MODELS: Array<{ id: string; label: string; note: string }> = [
   { id: "gemma2:27b", label: "Gemma 2 27B", note: "~16 GB · Googles öppna flaggskepp" },
 ];
 
+function ToggleRow({
+  label,
+  help,
+  value,
+  onChange,
+}: {
+  label: string;
+  help: string;
+  value: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <div className="toggle-row">
+      <div className="toggle-row-text">
+        <div className="toggle-row-label">{label}</div>
+        <div className="toggle-row-help">{help}</div>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={value}
+        aria-label={label}
+        className={`toggle-switch${value ? " on" : ""}`}
+        onClick={() => onChange(!value)}
+      >
+        <span className="toggle-thumb" />
+      </button>
+    </div>
+  );
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+
 export default function SettingsView() {
   const [draft, setDraft] = useState<Settings | null>(null);
   const [loaded, setLoaded] = useState<Settings | null>(null);
@@ -48,6 +90,21 @@ export default function SettingsView() {
   const [error, setError] = useState<string | null>(null);
   const [micLevel, setMicLevel] = useState(0);
   const [micDevices, setMicDevices] = useState<string[]>([]);
+  const [ollamaModels, setOllamaModels] = useState<OllamaModelInfo[]>([]);
+  const [ollamaOnline, setOllamaOnline] = useState(false);
+  const [pullState, setPullState] = useState<PullProgress | null>(null);
+
+  // Refresh Ollama-modell-listan (t.ex. efter lyckad pull).
+  async function refreshOllama() {
+    try {
+      const models = await listOllamaModels();
+      setOllamaModels(models);
+      setOllamaOnline(true);
+    } catch {
+      setOllamaModels([]);
+      setOllamaOnline(false);
+    }
+  }
 
   useEffect(() => {
     getSettings()
@@ -59,7 +116,47 @@ export default function SettingsView() {
     listMicDevices()
       .then(setMicDevices)
       .catch((e) => console.error("[settings] list_mic_devices failed:", e));
+    refreshOllama();
   }, []);
+
+  // Lyssna på Ollama pull-progress events.
+  useEffect(() => {
+    const unProgress = listen<PullProgress>("ollama_pull_progress", (ev) => {
+      setPullState(ev.payload);
+    });
+    const unDone = listen<{ model: string }>("ollama_pull_done", (ev) => {
+      setPullState({
+        model: ev.payload.model,
+        status: "klar",
+        total: null,
+        completed: null,
+        done: true,
+      });
+      setTimeout(() => setPullState(null), 2500);
+      refreshOllama();
+    });
+    return () => {
+      unProgress.then((fn) => fn());
+      unDone.then((fn) => fn());
+    };
+  }, []);
+
+  async function handlePullOllama() {
+    if (!draft) return;
+    setPullState({
+      model: draft.ollama_model,
+      status: "startar…",
+      total: null,
+      completed: null,
+      done: false,
+    });
+    try {
+      await pullOllamaModel(draft.ollama_model);
+    } catch (e) {
+      setPullState(null);
+      setError(`pull misslyckades: ${e}`);
+    }
+  }
 
   useEffect(() => {
     const unlisten = listen<{ rms: number }>("mic_level", (ev) => {
@@ -143,6 +240,37 @@ export default function SettingsView() {
             %APPDATA%/svoice-v3/settings.json
           </div>
         </header>
+
+        {/* Moduler — av/på-togglar */}
+        <article className="settings-section">
+          <div className="settings-section-label">
+            <h2>Moduler</h2>
+            <p>
+              Slå av delar du inte använder för att spara VRAM och CPU. STT
+              kräver modell-sidecar; Action-LLM kräver Ollama eller API-nyckel.
+            </p>
+          </div>
+          <div className="settings-section-body">
+            <ToggleRow
+              label="Diktering (STT)"
+              help="Höger Ctrl → tal-till-text → injection. Sidecar spawnar bara när aktiverat."
+              value={draft.stt_enabled}
+              onChange={(v) => setDraft({ ...draft, stt_enabled: v })}
+            />
+            <ToggleRow
+              label="Action-LLM popup"
+              help="Insert → kontextmedveten LLM-popup med selection-transform eller Q&A."
+              value={draft.action_llm_enabled}
+              onChange={(v) => setDraft({ ...draft, action_llm_enabled: v })}
+            />
+            <ToggleRow
+              label="LLM-polering av diktering"
+              help="Skicka varje transkription genom LLM för grammatik/stavning innan inject. Långsammare (~300-700 ms extra) men vassare."
+              value={draft.llm_polish_dictation}
+              onChange={(v) => setDraft({ ...draft, llm_polish_dictation: v })}
+            />
+          </div>
+        </article>
 
         {/* Audio */}
         <article className="settings-section">
@@ -268,24 +396,83 @@ export default function SettingsView() {
               <label className="field-label" htmlFor="ollama-model">
                 Ollama-modell
               </label>
-              <select
-                id="ollama-model"
-                className="select"
-                value={draft.ollama_model}
-                onChange={(e) =>
-                  setDraft({ ...draft, ollama_model: e.target.value })
-                }
-              >
-                {OLLAMA_MODELS.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.label} — {m.note}
-                  </option>
-                ))}
-              </select>
+              <div className="field-with-action">
+                <select
+                  id="ollama-model"
+                  className="select"
+                  value={draft.ollama_model}
+                  onChange={(e) =>
+                    setDraft({ ...draft, ollama_model: e.target.value })
+                  }
+                >
+                  {OLLAMA_MODELS.map((m) => {
+                    const installed = ollamaModels.some((o) =>
+                      o.name.startsWith(m.id.split(":")[0]) && o.name === m.id
+                    );
+                    return (
+                      <option key={m.id} value={m.id}>
+                        {installed ? "✓" : "↓"} {m.label} — {m.note}
+                      </option>
+                    );
+                  })}
+                </select>
+                {(() => {
+                  const installed = ollamaModels.some((o) => o.name === draft.ollama_model);
+                  const pulling = pullState && pullState.model === draft.ollama_model && !pullState.done;
+                  if (!ollamaOnline) {
+                    return <span className="field-badge muted">Ollama offline</span>;
+                  }
+                  if (pulling) return null;
+                  if (installed) return <span className="field-badge ok">✓ installerad</span>;
+                  return (
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-compact"
+                      onClick={handlePullOllama}
+                    >
+                      Ladda ner
+                    </button>
+                  );
+                })()}
+              </div>
+
+              {pullState && pullState.model === draft.ollama_model && (
+                <div className="download-progress">
+                  <div className="download-progress-label">
+                    <span>{pullState.status}</span>
+                    {pullState.total && pullState.completed ? (
+                      <span className="mono">
+                        {formatBytes(pullState.completed)} / {formatBytes(pullState.total)}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="download-progress-bar">
+                    <div
+                      className="download-progress-fill"
+                      style={{
+                        width:
+                          pullState.total && pullState.completed
+                            ? `${Math.min(100, (pullState.completed / pullState.total) * 100)}%`
+                            : "5%",
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
               <div className="field-help">
-                Kräver <code>ollama pull {draft.ollama_model}</code> i terminal
-                innan första användning. Default <strong>Qwen 2.5 14B</strong>{" "}
-                ger bra balans mellan kvalitet och snabbhet på RTX 5080.
+                {ollamaOnline ? (
+                  <>
+                    {ollamaModels.length} modeller installerade.{" "}
+                    <strong>Qwen 2.5 14B</strong> ger bra balans för RTX 5080.
+                  </>
+                ) : (
+                  <>
+                    Ollama-service inte detekterad på{" "}
+                    <code>{draft.ollama_url}</code>. Installera från{" "}
+                    <code>ollama.com</code> och starta tjänsten.
+                  </>
+                )}
               </div>
             </div>
 

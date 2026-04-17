@@ -11,5 +11,5 @@ pub mod ollama;
 pub mod provider;
 
 pub use anthropic::AnthropicClient;
-pub use ollama::OllamaClient;
+pub use ollama::{OllamaClient, OllamaModelInfo, PullProgress};
 pub use provider::{LlmError, LlmProvider, LlmRequest, LlmStream, Role, TurnContent};

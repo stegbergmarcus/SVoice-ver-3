@@ -281,6 +281,8 @@ pub fn run() {
             svoice_ipc::action_apply,
             svoice_ipc::action_cancel,
             svoice_ipc::list_mic_devices,
+            svoice_ipc::list_ollama_models,
+            svoice_ipc::pull_ollama_model,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -343,9 +345,13 @@ fn ptt_worker_loop(
             meter = None;
             emit_event(&app_handle, EV_PTT_VOLUME, VolumeEvent { rms: 0.0 });
             std::thread::sleep(std::time::Duration::from_millis(50));
-            // Hot-reload settings så VAD-ändringar träder i kraft utan restart.
+            // Hot-reload settings så alla ändringar träder i kraft utan restart.
             let current = Settings::load();
-            perform_transcribe_and_inject(&ring, &stt, &rt, current.vad_threshold);
+            if !current.stt_enabled {
+                tracing::info!("STT avstängd — hoppar över transkribering");
+            } else {
+                perform_transcribe_and_inject(&ring, &stt, &rt, &current);
+            }
 
             let final_state = {
                 let mut m = ptt_lock(&ptt);
@@ -395,34 +401,86 @@ fn perform_transcribe_and_inject(
     ring: &AudioRing,
     stt: &PythonStt,
     rt: &tokio::runtime::Runtime,
-    vad_threshold: f32,
+    settings: &Settings,
 ) {
     let audio = ring.drain();
-    let (start, end) = trim_silence(&audio, 16000, vad_threshold);
+    let (start, end) = trim_silence(&audio, 16000, settings.vad_threshold);
     let segment = &audio[start..end];
     if segment.is_empty() {
         tracing::warn!("inget tal detekterat (VAD trimmade allt)");
         return;
     }
-    match rt.block_on(stt.transcribe(segment)) {
-        Ok(text) => {
-            if text.is_empty() {
-                tracing::warn!("STT returnerade tom text");
-                return;
+    let raw_text = match rt.block_on(stt.transcribe(segment)) {
+        Ok(text) => text,
+        Err(e) => {
+            tracing::error!("STT-fel: {e}");
+            return;
+        }
+    };
+    if raw_text.is_empty() {
+        tracing::warn!("STT returnerade tom text");
+        return;
+    }
+
+    // LLM-polering om aktiverad i settings. Använder samma provider-
+    // selection som action-popup.
+    let final_text = if settings.llm_polish_dictation {
+        match rt.block_on(polish_transcript(&raw_text, settings)) {
+            Ok(polished) => {
+                tracing::info!("LLM-polering: \"{}\" → \"{}\"", raw_text, polished);
+                polished
             }
-            match inject(&text) {
-                Ok(method) => {
-                    let method_str = match method {
-                        InjectMethod::SendInput => "send_input",
-                        InjectMethod::Clipboard => "clipboard",
-                    };
-                    tracing::info!("inject OK via {method_str}: \"{}\"", text);
-                }
-                Err(e) => tracing::error!("inject FAIL: {e}"),
+            Err(e) => {
+                tracing::warn!("LLM-polering misslyckades ({e}), injectar råtext");
+                raw_text
             }
         }
-        Err(e) => tracing::error!("STT-fel: {e}"),
+    } else {
+        raw_text
+    };
+
+    match inject(&final_text) {
+        Ok(method) => {
+            let method_str = match method {
+                InjectMethod::SendInput => "send_input",
+                InjectMethod::Clipboard => "clipboard",
+            };
+            tracing::info!("inject OK via {method_str}: \"{}\"", final_text);
+        }
+        Err(e) => tracing::error!("inject FAIL: {e}"),
     }
+}
+
+/// Använd vald LLM-provider för att snabbpolera en STT-transkription
+/// (grammatik, stavning, interpunktion). Returnerar den polerade texten
+/// eller error om ingen provider är konfigurerad/når fram.
+async fn polish_transcript(raw: &str, settings: &Settings) -> anyhow::Result<String> {
+    use futures_util::StreamExt;
+    let llm = select_llm_provider(settings)
+        .await
+        .ok_or_else(|| anyhow::anyhow!("ingen LLM-provider konfigurerad för polering"))?;
+    let req = LlmRequest {
+        system: Some(
+            "Du är en svensk grammatik- och interpunktions-korrigerare. \
+Du får en rå transcription från tal-till-text. Returnera den korrigerade versionen — \
+fixa grammatik, kommatering, saknade punkter, ord som låter lika men stavas olika. \
+Ändra INTE innebörden. Lägg INTE till eller ta bort info. Bara rätta. \
+Returnera BARA den korrigerade texten, inga förklaringar."
+                .into(),
+        ),
+        turns: vec![TurnContent {
+            role: Role::User,
+            text: raw.to_string(),
+        }],
+        temperature: 0.1,
+        max_tokens: 512,
+    };
+    let mut stream = llm.complete_stream(req).await?;
+    let mut out = String::new();
+    while let Some(chunk) = stream.next().await {
+        out.push_str(&chunk?);
+    }
+    Ok(out.trim().to_string())
 }
 
 fn update_tray_for_state(app: &AppHandle, state: PttState) {
@@ -483,6 +541,15 @@ fn action_worker_loop(
                 if PTT_OWNER.load(Ordering::SeqCst) != OWNER_ACTION {
                     continue;
                 }
+                // Hot-reload settings — kolla action-LLM-toggle först.
+                let current = Settings::load();
+                if !current.action_llm_enabled {
+                    tracing::info!("Action-LLM avstängd — ignorerar Insert-release");
+                    emit_event(&app_handle, EV_PTT_STATE, PttState::Idle);
+                    update_tray_for_state(&app_handle, PttState::Idle);
+                    PTT_OWNER.store(OWNER_NONE, Ordering::SeqCst);
+                    continue;
+                }
                 tracing::debug!("action-PTT: released, processing...");
                 emit_event(&app_handle, EV_PTT_STATE, PttState::Processing);
                 update_tray_for_state(&app_handle, PttState::Processing);
@@ -504,9 +571,7 @@ fn action_worker_loop(
                     },
                 );
 
-                // Hot-reload settings: VAD + API-nyckel + modell + provider
-                // tillämpas omedelbart, ingen app-restart krävs.
-                let current = Settings::load();
+                // Bygg LLM-provider från den settings vi redan laddade ovan.
                 let llm = rt.block_on(select_llm_provider(&current));
 
                 if let Err(e) = handle_action_released(

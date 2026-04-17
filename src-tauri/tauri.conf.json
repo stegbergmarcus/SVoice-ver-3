@@ -14,10 +14,10 @@
       {
         "label": "main",
         "title": "SVoice",
-        "width": 1100,
-        "height": 720,
-        "minWidth": 960,
-        "minHeight": 600,
+        "width": 1280,
+        "height": 880,
+        "minWidth": 1040,
+        "minHeight": 700,
         "center": true,
         "resizable": true,
         "visible": false

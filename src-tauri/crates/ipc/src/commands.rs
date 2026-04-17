@@ -3,9 +3,10 @@ use std::sync::Arc;
 use svoice_audio::list_input_devices;
 use svoice_hotkey::PttState;
 use svoice_inject::paste_and_restore;
+use svoice_llm::{OllamaClient, OllamaModelInfo};
 use svoice_settings::{ComputeMode, Settings};
 use svoice_stt::{PythonStt, SttConfig};
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -113,4 +114,36 @@ pub fn action_cancel(app: tauri::AppHandle) {
 #[tauri::command]
 pub fn list_mic_devices() -> Vec<String> {
     list_input_devices()
+}
+
+/// Lista modeller installerade i lokalt Ollama-service. Används för att
+/// visa ✓/↓-status i Settings-UI och avgöra om download behövs.
+#[tauri::command]
+pub async fn list_ollama_models() -> Result<Vec<OllamaModelInfo>, String> {
+    let settings = Settings::load();
+    let client = OllamaClient::new(String::new()).with_base_url(settings.ollama_url);
+    client
+        .list_models()
+        .await
+        .map_err(|e| format!("kunde inte lista Ollama-modeller: {e}"))
+}
+
+/// Starta pull av Ollama-modell. Emittar `ollama_pull_progress`-events
+/// för varje NDJSON-rad från /api/pull. Returnerar när pull är klar (eller fel).
+#[tauri::command]
+pub async fn pull_ollama_model(app: AppHandle, model: String) -> Result<(), String> {
+    let settings = Settings::load();
+    let client = OllamaClient::new(String::new()).with_base_url(settings.ollama_url);
+    let app_for_cb = app.clone();
+    client
+        .pull_model(&model, move |progress| {
+            let _ = app_for_cb.emit("ollama_pull_progress", progress);
+        })
+        .await
+        .map_err(|e| format!("ollama pull failed: {e}"))?;
+    let _ = app.emit(
+        "ollama_pull_done",
+        serde_json::json!({ "model": model }),
+    );
+    Ok(())
 }
