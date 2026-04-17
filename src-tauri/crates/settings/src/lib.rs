@@ -20,7 +20,9 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             mic_device: None,
-            stt_model: "KBLab/kb-whisper-medium".into(),
+            // kb-whisper-large — högsta kvalitet, ~3 GB download första gången,
+            // ~6 GB VRAM fp16. RTX 5080 (16 GB) hanterar den lätt.
+            stt_model: "KBLab/kb-whisper-large".into(),
             stt_compute_mode: ComputeMode::Auto,
             vad_threshold: 0.005,
             anthropic_api_key: None,
