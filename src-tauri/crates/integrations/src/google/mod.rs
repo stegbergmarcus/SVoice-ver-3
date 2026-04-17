@@ -11,5 +11,6 @@ pub mod callback_server;
 pub mod client;
 pub mod gmail;
 pub mod oauth;
+pub mod tool_registry;
 
 pub use client::{ClientError, GoogleClient};
