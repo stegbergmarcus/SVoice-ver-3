@@ -7,7 +7,10 @@
 use keyring::Entry;
 use thiserror::Error;
 
+#[cfg(not(test))]
 pub const SERVICE: &str = "svoice-v3";
+#[cfg(test)]
+pub const SERVICE: &str = "svoice-v3-test";
 const USERNAME_ANTHROPIC: &str = "anthropic_api_key";
 
 #[derive(Error, Debug)]
@@ -48,4 +51,54 @@ pub fn delete_anthropic_key() -> Result<(), SecretsError> {
 /// Convenience för frontend — returnerar alltid bool, sväljer backend-fel.
 pub fn has_anthropic_key() -> bool {
     matches!(get_anthropic_key(), Ok(Some(_)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Rensa state före varje test — testerna delar en global service-entry
+    /// ("svoice-v3-test") i Windows Credential Manager och körs med
+    /// --test-threads=1.
+    fn cleanup() {
+        let _ = delete_anthropic_key();
+    }
+
+    #[test]
+    fn get_returns_none_when_empty() {
+        cleanup();
+        assert_eq!(get_anthropic_key().unwrap(), None);
+    }
+
+    #[test]
+    fn set_then_get_roundtrips() {
+        cleanup();
+        set_anthropic_key("sk-ant-abc123").unwrap();
+        assert_eq!(get_anthropic_key().unwrap().as_deref(), Some("sk-ant-abc123"));
+        cleanup();
+    }
+
+    #[test]
+    fn delete_removes_stored_value() {
+        cleanup();
+        set_anthropic_key("sk-ant-xyz").unwrap();
+        delete_anthropic_key().unwrap();
+        assert_eq!(get_anthropic_key().unwrap(), None);
+    }
+
+    #[test]
+    fn delete_is_noop_when_absent() {
+        cleanup();
+        delete_anthropic_key().unwrap();
+    }
+
+    #[test]
+    fn has_reflects_state() {
+        cleanup();
+        assert!(!has_anthropic_key());
+        set_anthropic_key("sk-ant-xyz").unwrap();
+        assert!(has_anthropic_key());
+        delete_anthropic_key().unwrap();
+        assert!(!has_anthropic_key());
+    }
 }
