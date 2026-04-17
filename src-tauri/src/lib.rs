@@ -17,8 +17,15 @@ const TRAY_REC_BYTES: &[u8] = include_bytes!("../icons/tray-recording.png");
 pub fn run() {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,svoice=debug")),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+                // Explicit per-crate filter — "svoice=debug" matchar inte targets
+                // som heter svoice_audio / svoice_hotkey osv (ingen prefix-semantik
+                // i tracing-subscribers EnvFilter).
+                tracing_subscriber::EnvFilter::new(
+                    "info,svoice_v3_lib=debug,svoice_audio=debug,svoice_hotkey=debug,\
+                     svoice_inject=debug,svoice_ipc=debug,svoice_stt=debug",
+                )
+            }),
         )
         .init();
 

@@ -73,7 +73,14 @@ impl VolumeMeter {
                         move |data: &[f32], _| {
                             let n = cc.fetch_add(1, Ordering::Relaxed);
                             let rms = rms_f32(data);
-                            if n % 50 == 0 {
+                            if n == 0 {
+                                // Info-level så vi alltid ser första callback oavsett filter.
+                                tracing::info!(
+                                    "audio stream aktiv: första callback fick {} samples, rms={:.5}",
+                                    data.len(),
+                                    rms
+                                );
+                            } else if n % 100 == 0 {
                                 tracing::debug!(
                                     "audio callback #{}: {} samples, rms={:.5}",
                                     n,
@@ -144,8 +151,13 @@ fn maybe_emit(
     if now_ns.saturating_sub(last_ns) < min_interval.as_nanos() as u64 {
         return;
     }
+    let is_first = last_ns == 0;
     last.store(now_ns, Ordering::Relaxed);
-    tracing::trace!("volume emit: rms={:.4}", rms);
+    if is_first {
+        // Info-level första gången vi faktiskt emit:ar så vi kan verifiera
+        // att rate-limitern inte sväljer alla events.
+        tracing::info!("volume emit (första): rms={:.4}", rms);
+    }
     cb(rms);
 }
 
