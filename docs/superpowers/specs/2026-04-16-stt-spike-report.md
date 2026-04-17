@@ -24,13 +24,19 @@ Spiken verifierade att **pipeline från WAV → Whisper → transkript fungerar*
 | VRAM-delta | 0 MB (körs på RAM) |
 | Språkdetektering | `sv` @ 100 % confidence |
 
-### GPU-inferens (float16, blockerad)
+### GPU-inferens (float16) — fungerar efter SAC-off + PATH-fix
 
 | Metrik | Värde |
 |---|---|
-| Modell-load till VRAM | 1.56 s |
-| VRAM-delta | +2115 MB (kb-whisper-medium fp16) |
-| Cold inference | **FAIL** — `cublas64_12.dll is not found or cannot be loaded` |
+| Modell-load till VRAM | 1.81 s |
+| VRAM-delta | +1870 MB (kb-whisper-medium fp16) |
+| **Cold inference (5 s audio)** | **701 ms** |
+| **Warm inference (5 s audio)** | **303 ms** |
+| Språkdetektering | `sv` @ 100 % confidence |
+
+**Uppföljning 2026-04-16 kväll:** Användaren stängde av Smart App Control. GPU-testen kördes om. **SAC var inte orsaken till cublas-felet** — det var vanlig Windows DLL-search-path. `os.add_dll_directory()` från Python räckte inte (CTranslate2 C++-kod använder LoadLibrary som ignorerar den). Fixen som fungerade var att sätta Windows `PATH`-miljövariabeln innan Python startar så att den inkluderade `site-packages/nvidia/{cublas,cudnn,cuda_runtime,cuda_nvrtc}/bin/`. Då laddades alla CUDA 12 DLLs utan problem, och warm-inference nådde 303 ms — på gränsen för plan.md:s mål på <300 ms.
+
+Konsekvens för iter 2-distribution: vi bundlar CUDA 12 DLLs (från `nvidia-cublas-cu12`-pip-paketet eller direkt från NVIDIA Redistributable) i `C:\Program Files\SVoice 3\cuda\` och sätter `PATH` för Python-sidecar-processen vid spawn. Ingen EV-signing krävs — DLLs är NVIDIA-signerade redan och PATH sätts i sidecar-processkontexten, inte systemvid.
 
 ### Transkript
 

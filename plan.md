@@ -206,7 +206,7 @@ VAD always-on med wake-word, MCP-klient, fler integrationer (Slack, Outlook, Not
 
 | Risk | Spike |
 |---|---|
-| `ct2rs` Windows + CUDA 12+ mognad för RTX 50-serien | **Spike genomförd 2026-04-16 (se `docs/superpowers/specs/2026-04-16-stt-spike-report.md`). Rust-native `ct2rs` blockerades av Windows Smart App Control (osignerade build-scripts). Vald väg: Python-subprocess med `faster-whisper` (+400-500 MB i distribution). CPU-inferens verifierad (2.6 s för 5 s audio). GPU-inferens blockerad av CUDA 13.2 ↔ CTranslate2 4.x (CUDA 12)-mismatch + SAC-DLL-policy; löses i iter 2 via signerad installer + bundlade CUDA 12 DLLs.** |
+| `ct2rs` Windows + CUDA 12+ mognad för RTX 50-serien | **Spike genomförd 2026-04-16 (se `docs/superpowers/specs/2026-04-16-stt-spike-report.md`). Vald väg: Python-subprocess med `faster-whisper`. GPU-inferens verifierad — warm-inference 303 ms för 5 s audio på RTX 5080 med bundlade CUDA 12 DLLs (PATH-tweek löser CUDA 13.2-mismatch). CPU-fallback fungerar också (2.6 s).** |
 | Silero VAD via ONNX Runtime på Windows | Verifiera DirectML/CUDA EP-tillgång. WebRTC VAD räcker för PTT om Silero strular. |
 | SendInput mot Electron/UIA-tunga appar (Teams, Slack) | Testa top-10 mål-appar; tuna clipboard-fallback-heuristik. |
 | Streaming-dedup vid chunk-gränser med KB Whisper | Empirisk tuning; överväg `whisper-streaming` LocalAgreement-2-algoritm. |
