@@ -6,12 +6,15 @@ testtext i valfri Windows-app.
 
 ## Status
 
-- **Iter 1 (walking skeleton + STT-spike):** klar, merged till main (tag `iter1-complete`).
-- **Iter 2 (riktig STT + settings-UI):** klar, merged till main (tag `iter2-complete`).
-  Svensk tal-till-text via KB-Whisper på Python-sidecar + faster-whisper, CUDA-inferens
-  ~300-700 ms, Settings-UI med live mic-meter och JSON-persistens.
-- **Iter 2.5 (overlay-polish + logotyp):** nästa.
-- **Iter 3 (action-LLM popup):** planerat.
+- **Iter 1** (walking skeleton + STT-spike): merged, tag `iter1-complete`.
+- **Iter 2** (riktig STT + settings-UI): merged, tag `iter2-complete`. KB-Whisper via
+  Python-sidecar, CUDA-inferens ~300-700 ms, Settings-UI med live mic-meter.
+- **Iter 2.5** (voice-oval overlay): merged, tag `iter2.5-complete`. SV-monogram
+  logotyp + live waveform + indeterminate progress-bar vid transkribering.
+- **Iter 3** (action-LLM popup): merged, tag `iter3-complete`. Höger Alt öppnar en
+  kontextmedveten popup som transformerar markerad text eller svarar på frågor via
+  Anthropic Claude med SSE-streaming. **Kräver manuell verifiering med API-nyckel.**
+- **Iter 4** (Google tool-calls + Ollama + keyring): nästa.
 
 Se `plan.md` för övergripande vision och `docs/superpowers/specs/` för detaljerade
 iter-specifikationer och spike-rapporter.
