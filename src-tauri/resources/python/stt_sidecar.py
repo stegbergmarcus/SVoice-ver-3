@@ -40,7 +40,10 @@ def read_request():
     line = sys.stdin.readline()
     if not line:
         return None
-    return json.loads(line)
+    try:
+        return json.loads(line)
+    except json.JSONDecodeError as e:
+        return {"type": "__decode_error__", "message": str(e)}
 
 
 def read_audio(n_samples: int):
@@ -62,7 +65,15 @@ def main():
             break
         t = req.get("type")
         try:
-            if t == "load":
+            if t == "__decode_error__":
+                send({"type": "error", "message": f"json decode: {req.get('message')}", "recoverable": True})
+                continue
+            elif t == "load":
+                if model is not None:
+                    del model
+                    model = None
+                    import gc
+                    gc.collect()
                 from faster_whisper import WhisperModel
                 t0 = time.perf_counter()
                 model = WhisperModel(
@@ -78,7 +89,16 @@ def main():
                 if model is None:
                     send({"type": "error", "message": "model not loaded", "recoverable": True})
                     continue
-                audio = read_audio(req["audio_samples"])
+                if req.get("sample_rate", 16000) != 16000:
+                    send({"type": "error",
+                          "message": f"unsupported sample_rate: {req.get('sample_rate')} (sidecar expects 16000)",
+                          "recoverable": False})
+                    continue
+                try:
+                    audio = read_audio(req["audio_samples"])
+                except (IOError, OSError) as e:
+                    send({"type": "error", "message": f"audio read failed: {e}", "recoverable": False})
+                    break
                 beam_size = req.get("beam_size", beam_size)
                 t0 = time.perf_counter()
                 segments, info = model.transcribe(
