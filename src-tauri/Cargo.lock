@@ -3675,6 +3675,7 @@ dependencies = [
  "serde_json",
  "svoice-hotkey",
  "svoice-inject",
+ "svoice-settings",
  "svoice-stt",
  "tauri",
  "tracing",
@@ -3687,6 +3688,11 @@ version = "0.1.0"
 [[package]]
 name = "svoice-settings"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "svoice-stt"

@@ -127,7 +127,10 @@ pub fn run() {
             let _ = app.get_webview_window("main");
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![])
+        .invoke_handler(tauri::generate_handler![
+            svoice_ipc::get_settings,
+            svoice_ipc::set_settings,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
