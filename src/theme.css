@@ -1,0 +1,101 @@
+/* SVoice 3 — design tokens
+ *
+ * Aesthetic: editorial minimalism × pro-audio studio.
+ * Varm charcoal base, ivory körtext, amber (VU-meter) accent. Kornig textur
+ * för att undvika plattheten hos ren digital färg.
+ */
+
+:root {
+  /* Palette — alla ton-matchade, inga out-of-gamut renodlade RGB */
+  --bg-void:        #0b0b0d;   /* page base */
+  --bg-surface:     #131316;   /* panel */
+  --bg-raised:      #1b1b1f;   /* card/input */
+  --bg-overlay:     #2a2a30;   /* hover */
+
+  --ink-primary:    #ece6d8;   /* ivory — huvudtext */
+  --ink-secondary:  #9b958a;   /* muted body */
+  --ink-tertiary:   #5c5850;   /* hint/placeholder */
+  --ink-divider:    #2b2a27;
+
+  --accent:         #e6a85c;   /* bärnsten — VU-amber */
+  --accent-hot:     #ffb96a;
+  --accent-soft:    rgba(230, 168, 92, 0.14);
+  --accent-glow:    rgba(230, 168, 92, 0.38);
+
+  --danger:         #c75544;
+
+  --ok:             #94a87a;   /* dov olivgrön för "saved"-feedback */
+
+  /* Typography scale */
+  --font-display:   "Fraunces", "Didot", "Bodoni 72", Georgia, serif;
+  --font-body:      "Instrument Sans", ui-sans-serif, -apple-system, "Segoe UI", sans-serif;
+  --font-mono:      "JetBrains Mono", ui-monospace, "SF Mono", Consolas, monospace;
+
+  /* Spacing (8px baseline, quartered for fine control) */
+  --space-1:   4px;
+  --space-2:   8px;
+  --space-3:   12px;
+  --space-4:   16px;
+  --space-5:   24px;
+  --space-6:   32px;
+  --space-8:   48px;
+  --space-10:  64px;
+  --space-12:  96px;
+
+  /* Radii */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+
+  /* Shadows (warm-toned, not cold-black) */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.35), 0 1px 0 rgba(255, 255, 255, 0.02) inset;
+  --shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 255, 255, 0.03) inset;
+
+  /* Motion */
+  --ease-out:  cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-spring: cubic-bezier(0.3, 1.3, 0.4, 1);
+  --dur-fast:  140ms;
+  --dur-base:  240ms;
+  --dur-slow:  420ms;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg-void);
+  color: var(--ink-primary);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+}
+
+button, input, select, textarea {
+  font-family: inherit;
+  color: inherit;
+}
+
+/* Fina scrollbars — synliga bara vid hover */
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: var(--ink-divider);
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb:hover { background: var(--ink-tertiary); }
+
+/* Selection follows the warm accent */
+::selection {
+  background: var(--accent-soft);
+  color: var(--accent-hot);
+}
