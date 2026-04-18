@@ -710,7 +710,7 @@
 .link-button {
   background: none;
   border: none;
-  color: var(--color-amber, #d4a955);
+  color: var(--color-amber, var(--accent, #d4a955));
   padding: 4px 0;
   font: inherit;
   cursor: pointer;
@@ -719,4 +719,45 @@
 }
 .link-button:hover {
   color: var(--color-amber-light, #e6c280);
+}
+
+/* Primär- och ghost-knappar (Anslut Google, Frånkoppla, etc.) */
+.button {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--accent, #d4a955);
+  background: var(--accent, #d4a955);
+  color: var(--bg-void, #1a1615);
+  font: inherit;
+  font-weight: 500;
+  font-size: 13px;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: background 160ms var(--ease-out, ease),
+              border-color 160ms var(--ease-out, ease),
+              color 160ms var(--ease-out, ease),
+              opacity 160ms var(--ease-out, ease);
+}
+.button:hover:not(:disabled) {
+  background: #e6c280;
+  border-color: #e6c280;
+}
+.button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.button-ghost {
+  background: transparent;
+  color: var(--ink-secondary, rgba(243, 237, 227, 0.8));
+  border-color: rgba(243, 237, 227, 0.18);
+}
+.button-ghost:hover:not(:disabled) {
+  background: rgba(243, 237, 227, 0.06);
+  border-color: rgba(243, 237, 227, 0.32);
+  color: var(--ink-primary, #f3ede3);
 }

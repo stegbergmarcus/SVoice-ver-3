@@ -88,6 +88,7 @@ pub struct AgenticRequirements {
     pub api_key: String,
     pub model: String,
     pub client_id: String,
+    pub client_secret: Option<String>,
     pub refresh_token: String,
 }
 
@@ -103,11 +104,17 @@ pub fn prepare_agentic(settings: &Settings) -> Option<AgenticRequirements> {
         .as_deref()
         .filter(|s| !s.is_empty())?
         .to_string();
+    let client_secret = settings
+        .google_oauth_client_secret
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .map(String::from);
     let refresh_token = svoice_secrets::get_google_refresh_token().ok().flatten()?;
     Some(AgenticRequirements {
         api_key,
         model: settings.anthropic_model.clone(),
         client_id,
+        client_secret,
         refresh_token,
     })
 }
@@ -156,7 +163,7 @@ pub async fn run_agentic(
     ev_token: &'static str,
     ev_done: &'static str,
 ) -> anyhow::Result<()> {
-    let google = GoogleClient::new(req.client_id, req.refresh_token);
+    let google = GoogleClient::new(req.client_id, req.client_secret, req.refresh_token);
     let tools = tools_from_registry();
     let mut conv = ToolConversation::new(Some(system_prompt()), command.to_string());
 

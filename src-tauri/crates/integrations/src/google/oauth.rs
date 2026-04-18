@@ -18,7 +18,7 @@ use std::time::Duration;
 
 use oauth2::basic::BasicClient;
 use oauth2::{
-    AuthUrl, AuthorizationCode, ClientId, CsrfToken, EndpointNotSet, EndpointSet,
+    AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken, EndpointNotSet, EndpointSet,
     PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, RefreshToken, Scope, TokenResponse, TokenUrl,
 };
 use serde::{Deserialize, Serialize};
@@ -83,24 +83,37 @@ pub enum GoogleAuthError {
 pub struct GoogleOAuthFlow {
     pub port: u16,
     pub auth_url: String,
-    client: OauthClient,
+    /// Behåll råparams för rebuild i finalize, så vi slipper type-alias för
+    /// oauth2 v5:s komplexa state-machine-typer.
+    client_id: String,
+    client_secret: Option<String>,
+    redirect_url: String,
     pkce_verifier: PkceCodeVerifier,
     csrf_token: CsrfToken,
     callback: callback_server::CallbackServer,
 }
 
-type OauthClient =
-    BasicClient<EndpointSet, EndpointNotSet, EndpointNotSet, EndpointNotSet, EndpointSet>;
-
 impl GoogleOAuthFlow {
     /// Initiera flow. Binder lokal port + genererar auth-URL. Efter detta ska
     /// caller öppna `auth_url` i browsern och sedan anropa `finalize().await`.
-    pub async fn start(client_id: &str, scopes: &[GoogleScope]) -> Result<Self, GoogleAuthError> {
+    ///
+    /// `client_secret` krävs för Google Desktop-app-type (skickas i token-
+    /// exchange trots PKCE). Passa `None` om du använder en ren public
+    /// client-typ (t.ex. Installed app på andra plattformar).
+    pub async fn start(
+        client_id: &str,
+        client_secret: Option<&str>,
+        scopes: &[GoogleScope],
+    ) -> Result<Self, GoogleAuthError> {
         let server = callback_server::start().await?;
         let port = server.port;
         let redirect_url = format!("http://127.0.0.1:{port}/callback");
 
-        let client = BasicClient::new(ClientId::new(client_id.to_string()))
+        let mut client = BasicClient::new(ClientId::new(client_id.to_string()));
+        if let Some(secret) = client_secret {
+            client = client.set_client_secret(ClientSecret::new(secret.to_string()));
+        }
+        let client = client
             .set_auth_uri(
                 AuthUrl::new(AUTH_URL.to_string())
                     .map_err(|e| GoogleAuthError::InvalidClientId(e.to_string()))?,
@@ -131,7 +144,9 @@ impl GoogleOAuthFlow {
         Ok(GoogleOAuthFlow {
             port,
             auth_url: auth_url.to_string(),
-            client,
+            client_id: client_id.to_string(),
+            client_secret: client_secret.map(String::from),
+            redirect_url,
             pkce_verifier,
             csrf_token,
             callback: server,
@@ -141,25 +156,62 @@ impl GoogleOAuthFlow {
     /// Vänta på callback från browsern, verifiera state, byt code mot tokens.
     /// Timeout 5 min.
     pub async fn finalize(self) -> Result<GoogleTokens, GoogleAuthError> {
+        tracing::info!("finalize: väntar på callback (max 5 min)");
         let cb =
             callback_server::wait_for_callback(self.callback, Duration::from_secs(300)).await?;
+        tracing::info!(
+            "finalize: callback mottagen, code.len={}, state.len={}",
+            cb.code.len(),
+            cb.state.len()
+        );
 
         if cb.state != *self.csrf_token.secret() {
+            tracing::error!("finalize: CSRF-state matchar inte");
             return Err(GoogleAuthError::StateMismatch);
         }
+        tracing::debug!("finalize: state OK, bygger HTTP-klient för token-exchange");
 
         let http = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|e| GoogleAuthError::TokenExchange(e.to_string()))?;
 
-        let token = self
-            .client
+        let mut client = BasicClient::new(ClientId::new(self.client_id.clone()));
+        if let Some(secret) = self.client_secret.as_deref() {
+            client = client.set_client_secret(ClientSecret::new(secret.to_string()));
+        }
+        let client = client
+            .set_auth_uri(
+                AuthUrl::new(AUTH_URL.to_string())
+                    .map_err(|e| GoogleAuthError::InvalidClientId(e.to_string()))?,
+            )
+            .set_token_uri(
+                TokenUrl::new(TOKEN_URL.to_string())
+                    .map_err(|e| GoogleAuthError::InvalidClientId(e.to_string()))?,
+            )
+            .set_redirect_uri(
+                RedirectUrl::new(self.redirect_url.clone())
+                    .map_err(|e| GoogleAuthError::InvalidClientId(e.to_string()))?,
+            );
+
+        tracing::info!(
+            "finalize: anropar token-exchange endpoint (client_secret: {})",
+            if self.client_secret.is_some() { "satt" } else { "saknas" }
+        );
+        let token = client
             .exchange_code(AuthorizationCode::new(cb.code))
             .set_pkce_verifier(self.pkce_verifier)
             .request_async(&http)
             .await
-            .map_err(|e| GoogleAuthError::TokenExchange(e.to_string()))?;
+            .map_err(|e| {
+                tracing::error!("finalize: token-exchange misslyckades: {e}");
+                GoogleAuthError::TokenExchange(e.to_string())
+            })?;
+
+        tracing::info!(
+            "finalize: tokens mottagna (har refresh-token: {})",
+            token.refresh_token().is_some()
+        );
 
         Ok(GoogleTokens {
             access_token: token.access_token().secret().clone(),
@@ -170,12 +222,18 @@ impl GoogleOAuthFlow {
 }
 
 /// Använd refresh-token för att få en ny access-token. Anropas transparent av
-/// REST-wrappers vid 401 Unauthorized.
+/// REST-wrappers vid 401 Unauthorized. `client_secret` krävs för Google
+/// Desktop-app-typ.
 pub async fn refresh_access_token(
     client_id: &str,
+    client_secret: Option<&str>,
     refresh_token: &str,
 ) -> Result<GoogleTokens, GoogleAuthError> {
-    let client = BasicClient::new(ClientId::new(client_id.to_string()))
+    let mut client = BasicClient::new(ClientId::new(client_id.to_string()));
+    if let Some(secret) = client_secret {
+        client = client.set_client_secret(ClientSecret::new(secret.to_string()));
+    }
+    let client = client
         .set_auth_uri(
             AuthUrl::new(AUTH_URL.to_string())
                 .map_err(|e| GoogleAuthError::InvalidClientId(e.to_string()))?,

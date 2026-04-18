@@ -98,7 +98,16 @@ async fn accept_once(listener: TcpListener) -> Result<CallbackResult, CallbackEr
     let _ = stream.write_all(response.as_bytes()).await;
     let _ = stream.shutdown().await;
 
-    parse_query(path_and_query)
+    let parsed = parse_query(path_and_query);
+    match &parsed {
+        Ok(r) => tracing::info!(
+            "callback-server: parse OK, code.len={}, state.len={}",
+            r.code.len(),
+            r.state.len()
+        ),
+        Err(e) => tracing::error!("callback-server: parse misslyckades: {e}"),
+    }
+    parsed
 }
 
 fn parse_query(path_and_query: &str) -> Result<CallbackResult, CallbackError> {

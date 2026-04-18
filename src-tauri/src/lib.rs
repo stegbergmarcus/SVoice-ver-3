@@ -312,6 +312,19 @@ pub fn run() {
                 }
             }
 
+            // Intercept close-event på main-fönstret. Default i Tauri 2 är
+            // att X destroyer webview:en — men vi är tray-resident, så vi
+            // vill bara hide:a så user kan öppna igen via tray-click.
+            if let Some(main) = app.get_webview_window("main") {
+                let main_clone = main.clone();
+                main.on_window_event(move |ev| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = ev {
+                        let _ = main_clone.hide();
+                        api.prevent_close();
+                    }
+                });
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
