@@ -385,6 +385,7 @@ pub fn run() {
             svoice_ipc::list_smart_functions,
             svoice_ipc::open_smart_functions_dir,
             svoice_ipc::pull_ollama_model,
+            palette_close,
             run_smart_function,
             svoice_ipc::set_anthropic_key,
             svoice_ipc::set_groq_key,
@@ -957,6 +958,15 @@ async fn transcribe_dispatch(
                 }
             }
         }
+    }
+}
+
+/// Stäng palette-fönstret från backend. Mer pålitligt än frontend
+/// `webview.hide()` som ibland lämnar kvar ett synligt svart window.
+#[tauri::command]
+fn palette_close(app: AppHandle) {
+    if let Some(win) = app.get_webview_window("palette") {
+        let _ = win.hide();
     }
 }
 

@@ -62,8 +62,9 @@ export default function Palette() {
   async function close() {
     setVisible(false);
     try {
-      const win = getCurrentWebviewWindow();
-      await win.hide();
+      // Backend-hide är pålitligare än webview.hide() från frontend
+      // (senare lämnar ibland kvar en synlig svart rektangel).
+      await invoke("palette_close");
     } catch {}
   }
 
