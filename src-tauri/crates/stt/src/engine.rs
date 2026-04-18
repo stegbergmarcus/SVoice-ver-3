@@ -154,4 +154,48 @@ impl PythonStt {
             other => Err(SttError::Unexpected(format!("{other:?}"))),
         }
     }
+
+    /// Skicka DownloadModel-request till sidecar och läs sidecar-events tills
+    /// Downloaded eller Error mottas. `on_event`-callbacken anropas med
+    /// status-strängar för UI (`"startar"`, `"klar"`) — snapshot_download
+    /// saknar granular progress, så vi har bara start/done-markers.
+    ///
+    /// Kräver att sidecar:n är spawnad (ensure_loaded). Om modellen inte är
+    /// laddad ännu används ensure_loaded, vilket kan ladda nuvarande config's
+    /// modell i VRAM — OK, download är orthogonal till load:en.
+    pub async fn download_model<F>(&self, model: &str, mut on_event: F) -> Result<(), SttError>
+    where
+        F: FnMut(&str) + Send + 'static,
+    {
+        self.ensure_loaded().await?;
+        let guard = self.sidecar.lock().await;
+        let sc = guard.as_ref().ok_or(SttError::NotLoaded)?;
+        sc.send_request(&SttRequest::DownloadModel {
+            model: model.to_string(),
+        })
+        .await?;
+        // Läs events tills Downloaded eller Error. Vi kan få DownloadStarted
+        // först (status-event), sen Downloaded som terminal.
+        loop {
+            match sc.read_response().await? {
+                SttResponse::DownloadStarted { model: m } => {
+                    tracing::info!("STT download: start {m}");
+                    on_event("startar");
+                }
+                SttResponse::Downloaded { model: m, elapsed_ms } => {
+                    tracing::info!("STT download klar: {m} på {elapsed_ms} ms");
+                    on_event("klar");
+                    return Ok(());
+                }
+                SttResponse::Error { message, .. } => {
+                    return Err(SttError::Remote(message));
+                }
+                other => {
+                    return Err(SttError::Unexpected(format!(
+                        "förväntade DownloadStarted/Downloaded, fick {other:?}"
+                    )));
+                }
+            }
+        }
+    }
 }

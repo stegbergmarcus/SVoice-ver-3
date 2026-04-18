@@ -619,3 +619,41 @@ pub async fn check_for_updates_cached() -> Result<svoice_updates::UpdateStatus, 
         .await
         .map_err(|e| format!("update-check: {e}"))
 }
+
+/// Starta download av HF-modell via Python-sidecar. Emittar
+/// `stt_model_download_progress` (per status-event) och ett slutligt
+/// `stt_model_download_done`-event + OS-notifikation. Returnerar när
+/// download är klar (eller fel).
+#[tauri::command]
+pub async fn download_stt_model(
+    app: AppHandle,
+    model: String,
+    stt: State<'_, Arc<PythonStt>>,
+) -> Result<(), String> {
+    let app_for_cb = app.clone();
+    let model_for_cb = model.clone();
+    stt.download_model(&model, move |status| {
+        let _ = app_for_cb.emit(
+            "stt_model_download_progress",
+            serde_json::json!({ "model": &model_for_cb, "status": status }),
+        );
+    })
+    .await
+    .map_err(|e| format!("stt download failed: {e}"))?;
+    let _ = app.emit(
+        "stt_model_download_done",
+        serde_json::json!({ "model": model }),
+    );
+
+    use tauri_plugin_notification::NotificationExt;
+    if let Err(e) = app
+        .notification()
+        .builder()
+        .title("SVoice")
+        .body(format!("STT-modell nedladdad: {model}"))
+        .show()
+    {
+        tracing::warn!("kunde inte visa notifikation: {e}");
+    }
+    Ok(())
+}

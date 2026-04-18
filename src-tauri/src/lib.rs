@@ -575,6 +575,7 @@ pub fn run() {
             svoice_ipc::clear_anthropic_key,
             svoice_ipc::clear_gemini_key,
             svoice_ipc::clear_groq_key,
+            svoice_ipc::download_stt_model,
             svoice_ipc::get_settings,
             svoice_ipc::google_connect,
             svoice_ipc::google_connection_status,
