@@ -513,6 +513,12 @@ pub async fn run_agentic_gemini(
                     }
                 }
             }
+            // run_agentic_gemini skickar inte functionDeclarations — Gemini ska inte
+            // returnera FunctionCall-events här. Logga och ignorera defensivt om det
+            // ändå sker (t.ex. om modellen hallucerar ett tool-call).
+            GeminiEvent::FunctionCall { name, .. } => {
+                tracing::warn!("run_agentic_gemini: oväntat FunctionCall-event för '{name}' ignoreras");
+            }
         }
     }
 
@@ -522,6 +528,214 @@ pub async fn run_agentic_gemini(
             Some("sökning klar".into())
         } else {
             let titles: Vec<String> = grounding_chunks
+                .iter()
+                .take(3)
+                .map(|c| {
+                    if c.title.is_empty() {
+                        c.uri.clone()
+                    } else {
+                        c.title.clone()
+                    }
+                })
+                .collect();
+            Some(titles.join(", "))
+        };
+        let _ = app.emit(
+            EV_ACTION_TOOL_CALL,
+            ToolCallEvent {
+                name: "web_search".into(),
+                status: "done",
+                summary,
+            },
+        );
+    }
+
+    if !assistant_accum.is_empty() {
+        svoice_ipc::append_assistant_turn(assistant_accum);
+    }
+    ensure_conversation_system(&sys_prompt);
+    let _ = app.emit(ev_done, ());
+    svoice_ipc::schedule_action_streaming_clear();
+    Ok(())
+}
+
+/// Kör Gemini agentic-flow med full Google-tool-access (Calendar, Gmail)
+/// + Google Search-grounding. Används när user har Google ansluten och
+/// valt Gemini som action-provider. Utan Google-anslutning används
+/// [`run_agentic_gemini`] istället (bara grounding, inga Google-tools).
+///
+/// Emittar samma events som [`run_agentic`] och [`run_agentic_gemini`]:
+/// - `action_llm_token` per text-chunk (live under streaming)
+/// - `action_tool_call` för varje tool-call-chip (running/done/error)
+/// - `action_llm_done` vid slut
+pub async fn run_agentic_gemini_tools(
+    app: &AppHandle,
+    command: &str,
+    api_key: String,
+    model: String,
+    google: GoogleRequirements,
+    ev_token: &'static str,
+    ev_done: &'static str,
+) -> anyhow::Result<()> {
+    use svoice_llm::GeminiClient;
+
+    let sys_prompt = system_prompt();
+    let client = GeminiClient::new(api_key).with_model(model);
+    let google_client = svoice_integrations::google::GoogleClient::new(
+        google.client_id,
+        google.client_secret,
+        google.refresh_token,
+    );
+
+    // Gemini functionDeclarations (Anthropic-format → Gemini-format, utan server-tools).
+    let function_declarations = tool_registry::all_tools_gemini_functions();
+
+    // Bygg upp contents-arrayen; startar med en user-turn.
+    let mut contents: Vec<serde_json::Value> = vec![serde_json::json!({
+        "role": "user",
+        "parts": [{ "text": command }]
+    })];
+
+    let mut assistant_accum = String::new();
+    let mut grounding_chunks_accum: Vec<GeminiGroundingChunk> = Vec::new();
+    let mut grounding_seen_chip = false;
+
+    for round in 0..MAX_ROUNDS {
+        tracing::info!(
+            "Gemini agentic (tools) round {round}, {} function_declarations",
+            function_declarations.len()
+        );
+
+        let mut stream = client
+            .stream_tools(
+                Some(&sys_prompt),
+                contents.clone(),
+                function_declarations.clone(),
+                true, // enable_grounding — Gemini kan blanda websökning + Calendar/Gmail
+                0.3,
+                1024,
+            )
+            .await?;
+
+        // Samla model-svar: text-parts (emittade live) + functionCall-parts (körs efter strömmen).
+        let mut round_text = String::new();
+        let mut function_calls: Vec<(String, serde_json::Value)> = Vec::new();
+
+        while let Some(ev) = stream.next().await {
+            match ev? {
+                GeminiEvent::Text(t) => {
+                    if !t.is_empty() {
+                        round_text.push_str(&t);
+                        assistant_accum.push_str(&t);
+                        svoice_ipc::mark_action_streaming();
+                        let _ = app.emit(ev_token, serde_json::json!({ "text": t }));
+                    }
+                }
+                GeminiEvent::FunctionCall { name, args } => {
+                    function_calls.push((name, args));
+                }
+                GeminiEvent::Grounding { queries, chunks } => {
+                    if !grounding_seen_chip {
+                        let summary = queries
+                            .first()
+                            .map(|q| format!("söker: {q}"))
+                            .or_else(|| Some("söker på webben".into()));
+                        let _ = app.emit(
+                            EV_ACTION_TOOL_CALL,
+                            ToolCallEvent {
+                                name: "web_search".into(),
+                                status: "running",
+                                summary,
+                            },
+                        );
+                        grounding_seen_chip = true;
+                    }
+                    for c in chunks {
+                        if !grounding_chunks_accum
+                            .iter()
+                            .any(|g| g.uri == c.uri && g.title == c.title)
+                        {
+                            grounding_chunks_accum.push(c);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Inga function_calls → Gemini är klart. Avsluta loop.
+        if function_calls.is_empty() {
+            break;
+        }
+
+        // Lägg till model-turnen i contents (text + functionCalls i samma content-parts).
+        let mut model_parts: Vec<serde_json::Value> = Vec::new();
+        if !round_text.is_empty() {
+            model_parts.push(serde_json::json!({ "text": round_text }));
+        }
+        for (name, args) in &function_calls {
+            model_parts.push(serde_json::json!({
+                "functionCall": { "name": name, "args": args }
+            }));
+        }
+        contents.push(serde_json::json!({
+            "role": "model",
+            "parts": model_parts
+        }));
+
+        // Exekvera tool-calls, bygg functionResponse-parts.
+        let mut response_parts: Vec<serde_json::Value> = Vec::new();
+        for (name, args) in &function_calls {
+            let _ = app.emit(
+                EV_ACTION_TOOL_CALL,
+                ToolCallEvent {
+                    name: name.clone(),
+                    status: "running",
+                    summary: short_summary_of_input(name, args),
+                },
+            );
+            let (response_json, is_error, summary) =
+                match tool_registry::execute(&google_client, name, args).await {
+                    Ok(text) => {
+                        // Parsa JSON-strängen tillbaka till Value för Gemini-protokollet.
+                        let parsed: serde_json::Value = serde_json::from_str(&text)
+                            .unwrap_or_else(|_| serde_json::json!({ "raw": text }));
+                        let sum = short_summary_of_result(name, &serde_json::to_string(&parsed).unwrap_or_default());
+                        (parsed, false, sum)
+                    }
+                    Err(e) => {
+                        let err_json = serde_json::json!({ "error": e.to_string() });
+                        (err_json, true, Some(format!("fel: {e}")))
+                    }
+                };
+            let _ = app.emit(
+                EV_ACTION_TOOL_CALL,
+                ToolCallEvent {
+                    name: name.clone(),
+                    status: if is_error { "error" } else { "done" },
+                    summary,
+                },
+            );
+            response_parts.push(serde_json::json!({
+                "functionResponse": {
+                    "name": name,
+                    "response": response_json,
+                }
+            }));
+        }
+
+        // Tool-results som user-turn (Gemini-konvention: functionResponse i user-role).
+        contents.push(serde_json::json!({
+            "role": "user",
+            "parts": response_parts
+        }));
+    }
+
+    // Loop klar. Emittera done-chip för grounding om vi såg det.
+    if grounding_seen_chip {
+        let summary = if grounding_chunks_accum.is_empty() {
+            Some("sökning klar".into())
+        } else {
+            let titles: Vec<String> = grounding_chunks_accum
                 .iter()
                 .take(3)
                 .map(|c| {

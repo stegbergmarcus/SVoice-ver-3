@@ -106,6 +106,26 @@ pub fn all_tools_json() -> Vec<serde_json::Value> {
     ]
 }
 
+/// Konvertera Anthropic-style tool-definitioner till Gemini functionDeclarations.
+///
+/// Filtrerar bort server-tools (de med `"type"`-fält, t.ex. `web_search`) —
+/// Gemini använder `googleSearch`-builtin för det, inte via functionDeclarations.
+/// Byter namn `input_schema` → `parameters` (Gemini-format). JSON Schema-kroppen
+/// är i övrigt identisk.
+pub fn all_tools_gemini_functions() -> Vec<serde_json::Value> {
+    all_tools_json()
+        .into_iter()
+        .filter(|t| t.get("type").is_none()) // skippa server-tools
+        .map(|t| {
+            serde_json::json!({
+                "name": t["name"],
+                "description": t["description"],
+                "parameters": t["input_schema"],
+            })
+        })
+        .collect()
+}
+
 /// Exekvera ett enstaka verktygsanrop. Returnerar JSON-string som skickas
 /// tillbaka till Claude som tool_result-content.
 pub async fn execute(
@@ -208,6 +228,30 @@ pub async fn execute(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gemini_function_declarations_exclude_server_tools() {
+        let funcs = all_tools_gemini_functions();
+        let names: Vec<&str> = funcs.iter().filter_map(|f| f["name"].as_str()).collect();
+        // Server-tool web_search ska INTE finnas — Gemini använder googleSearch built-in
+        assert!(!names.contains(&"web_search"), "web_search ska filtreras bort");
+        // Alla Google-client-tools ska finnas
+        assert!(names.contains(&"create_calendar_event"));
+        assert!(names.contains(&"search_emails"));
+        // Alla ska ha `parameters` (inte `input_schema`) och vara object-schema
+        for f in &funcs {
+            assert!(
+                f["parameters"]["type"] == "object",
+                "parameters.type ska vara 'object' för {:?}",
+                f["name"]
+            );
+            assert!(
+                f.get("input_schema").is_none(),
+                "input_schema ska inte finnas i Gemini-format för {:?}",
+                f["name"]
+            );
+        }
+    }
 
     #[test]
     fn all_tools_have_required_fields() {

@@ -1236,8 +1236,6 @@ fn handle_action_released(
     if use_gemini_agentic {
         if let Some(key) = svoice_secrets::get_gemini_key().ok().flatten() {
             tracing::info!("Gemini agentic flow triggas för command: \"{}\"", command);
-            // Spara en "tom" konversation så follow-up efter Gemini-agentic
-            // kan bygga vidare som fri text (Gemini-svar blir assistant-turn).
             svoice_ipc::set_active_conversation(svoice_ipc::ActiveConversation {
                 system: None,
                 selection: selection.clone(),
@@ -1250,17 +1248,48 @@ fn handle_action_released(
             let app_clone = app_handle.clone();
             let command_clone = command.clone();
             let model_clone = settings.gemini_model.clone();
+            // Om Google är anslutet → full tool-access (Calendar + Gmail + grounding).
+            // Annars → fallback till grounding-only (befintlig run_agentic_gemini).
+            let google = {
+                let cid = settings.google_oauth_client_id.clone();
+                let secret = settings.google_oauth_client_secret.clone();
+                let refresh = svoice_secrets::get_google_refresh_token().ok().flatten();
+                match (cid.filter(|s| !s.is_empty()), refresh) {
+                    (Some(cid), Some(refresh)) => Some(agentic::GoogleRequirements {
+                        client_id: cid,
+                        client_secret: secret.filter(|s| !s.is_empty()),
+                        refresh_token: refresh,
+                    }),
+                    _ => None,
+                }
+            };
             rt.spawn(async move {
-                if let Err(e) = agentic::run_agentic_gemini(
-                    &app_clone,
-                    &command_clone,
-                    key,
-                    model_clone,
-                    EV_ACTION_LLM_TOKEN,
-                    EV_ACTION_LLM_DONE,
-                )
-                .await
-                {
+                let result = match google {
+                    Some(g) => {
+                        agentic::run_agentic_gemini_tools(
+                            &app_clone,
+                            &command_clone,
+                            key,
+                            model_clone,
+                            g,
+                            EV_ACTION_LLM_TOKEN,
+                            EV_ACTION_LLM_DONE,
+                        )
+                        .await
+                    }
+                    None => {
+                        agentic::run_agentic_gemini(
+                            &app_clone,
+                            &command_clone,
+                            key,
+                            model_clone,
+                            EV_ACTION_LLM_TOKEN,
+                            EV_ACTION_LLM_DONE,
+                        )
+                        .await
+                    }
+                };
+                if let Err(e) = result {
                     tracing::error!("Gemini agentic flow fel: {e}");
                     emit_event(
                         &app_clone,

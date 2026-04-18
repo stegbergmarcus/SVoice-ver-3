@@ -65,13 +65,21 @@ pub struct GeminiGroundingChunk {
 
 /// Event från Gemini-streamen. `Text` yieldas per content-delta, `Grounding`
 /// när grounding-metadata hittas (typiskt bara i sista chunken, men vi
-/// emittar för varje chunk där metadata förekommer).
+/// emittar för varje chunk där metadata förekommer). `FunctionCall` yieldas
+/// när Gemini vill kalla ett registrerat tool — agentic-loop tar hand om
+/// exekveringen och skickar resultatet tillbaka i nästa runda.
 #[derive(Debug, Clone)]
 pub enum GeminiEvent {
     Text(String),
     Grounding {
         queries: Vec<String>,
         chunks: Vec<GeminiGroundingChunk>,
+    },
+    /// Gemini vill kalla ett tool. `name` = tool-namn (matchar functionDeclaration),
+    /// `args` = argument-objekt som serde_json::Value (skickas direkt till tool_registry::execute).
+    FunctionCall {
+        name: String,
+        args: serde_json::Value,
     },
 }
 
@@ -150,11 +158,12 @@ impl LlmProvider for GeminiClient {
 
     async fn complete_stream(&self, req: LlmRequest) -> Result<LlmStream, LlmError> {
         let events = self.complete_stream_events(req).await?;
-        // Filtrera bort grounding-events så trait-callers bara ser text.
+        // Filtrera bort grounding- och function-call-events så trait-callers bara ser text.
         let text_only = events.filter_map(|ev| async move {
             match ev {
                 Ok(GeminiEvent::Text(t)) => Some(Ok(t)),
                 Ok(GeminiEvent::Grounding { .. }) => None,
+                Ok(GeminiEvent::FunctionCall { .. }) => None,
                 Err(e) => Some(Err(e)),
             }
         });
@@ -219,6 +228,100 @@ impl GeminiClient {
         let stream = sse_to_event_stream(byte_stream);
         Ok(Box::pin(stream))
     }
+
+    /// Low-level tool-use API för agentic-flow med Gemini function-calling.
+    /// Agentic-flödet bygger sin egen `contents`-array (user-turns + model
+    /// functionCalls + user functionResponses) och tillhandahåller
+    /// `function_declarations` som `functionDeclarations`-tool.
+    ///
+    /// Returnerar en stream av [`GeminiEvent`]s — `Text`, `FunctionCall` och
+    /// `Grounding`. Caller kör tool-use-loop tills inga FunctionCall-events
+    /// dyker upp (Gemini är klart).
+    ///
+    /// # Parametrar
+    /// - `system` — system-instruktions-sträng (optional).
+    /// - `contents` — full JSON-array i Gemini-format (`role` + `parts`).
+    /// - `function_declarations` — array av `{ name, description, parameters }`.
+    /// - `enable_grounding` — `true` för att även inkludera `googleSearch`-tool.
+    pub async fn stream_tools(
+        &self,
+        system: Option<&str>,
+        contents: Vec<serde_json::Value>,
+        function_declarations: Vec<serde_json::Value>,
+        enable_grounding: bool,
+        temperature: f32,
+        max_tokens: u32,
+    ) -> Result<
+        std::pin::Pin<Box<dyn Stream<Item = Result<GeminiEvent, LlmError>> + Send>>,
+        LlmError,
+    > {
+        if self.api_key.is_empty() {
+            return Err(LlmError::MissingApiKey);
+        }
+
+        let url = format!(
+            "{API_BASE}/{model}:streamGenerateContent?alt=sse",
+            model = self.model
+        );
+
+        let mut body = serde_json::json!({
+            "contents": contents,
+            "generationConfig": {
+                "temperature": temperature,
+                "maxOutputTokens": max_tokens,
+            }
+        });
+
+        if let Some(sys) = system {
+            body["systemInstruction"] = serde_json::json!({
+                "parts": [{ "text": sys }]
+            });
+        }
+
+        // Kombinera googleSearch (inbyggd grounding) och functionDeclarations.
+        let mut tools: Vec<serde_json::Value> = Vec::new();
+        if enable_grounding {
+            tools.push(serde_json::json!({ "googleSearch": {} }));
+        }
+        if !function_declarations.is_empty() {
+            tools.push(serde_json::json!({ "functionDeclarations": function_declarations }));
+        }
+        if !tools.is_empty() {
+            body["tools"] = serde_json::json!(tools);
+        }
+
+        let resp = self
+            .client
+            .post(&url)
+            .header("x-goog-api-key", &self.api_key)
+            .header("content-type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| LlmError::Http(e.to_string()))?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body_text = resp.text().await.unwrap_or_default();
+            let short = short_error_message(&body_text);
+            let friendly = if status.as_u16() == 429 {
+                format!(
+                    "Gemini-kvoten slut för {}. Byt modell eller vänta.",
+                    self.model
+                )
+            } else {
+                short.unwrap_or_else(|| body_text.clone())
+            };
+            return Err(LlmError::Api {
+                status: status.as_u16(),
+                body: friendly,
+            });
+        }
+
+        let byte_stream = resp.bytes_stream();
+        let stream = sse_to_event_stream(byte_stream);
+        Ok(Box::pin(stream))
+    }
 }
 
 /// Plocka `error.message` ur Google-felbody. Om body inte är valid JSON
@@ -259,6 +362,15 @@ struct SseContent {
 struct SsePart {
     #[serde(default)]
     text: Option<String>,
+    #[serde(default, rename = "functionCall")]
+    function_call: Option<SseFunctionCall>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SseFunctionCall {
+    name: String,
+    #[serde(default)]
+    args: serde_json::Value,
 }
 
 #[derive(Debug, Deserialize)]
@@ -317,6 +429,12 @@ where
                                         if !text.is_empty() {
                                             yield GeminiEvent::Text(text);
                                         }
+                                    }
+                                    if let Some(fc) = part.function_call {
+                                        yield GeminiEvent::FunctionCall {
+                                            name: fc.name,
+                                            args: fc.args,
+                                        };
                                     }
                                 }
                             }
