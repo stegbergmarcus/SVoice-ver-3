@@ -65,18 +65,63 @@ struct ActionError {
     message: String,
 }
 
+/// Initierar logging till stderr + en roterande fil i `%APPDATA%/svoice-v3/logs/`.
+/// Returnerar WorkerGuard som måste hållas vid liv under hela process-livstiden;
+/// annars droppar non-blocking appender skrivningar innan de når disken.
+fn init_tracing() -> Option<tracing_appender::non_blocking::WorkerGuard> {
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        tracing_subscriber::EnvFilter::new(
+            "info,svoice_v3_lib=debug,svoice_audio=debug,svoice_hotkey=debug,\
+             svoice_inject=debug,svoice_ipc=debug,svoice_stt=debug,svoice_llm=debug",
+        )
+    });
+
+    let stderr_layer = tracing_subscriber::fmt::layer().with_writer(std::io::stderr);
+
+    let (file_layer, guard) = match log_file_writer() {
+        Some((writer, guard)) => {
+            let layer = tracing_subscriber::fmt::layer()
+                .with_ansi(false)
+                .with_writer(writer);
+            (Some(layer), Some(guard))
+        }
+        None => (None, None),
+    };
+
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(stderr_layer)
+        .with(file_layer)
+        .init();
+
+    guard
+}
+
+fn log_file_writer() -> Option<(
+    tracing_appender::non_blocking::NonBlocking,
+    tracing_appender::non_blocking::WorkerGuard,
+)> {
+    let appdata = std::env::var("APPDATA").ok()?;
+    let log_dir = std::path::PathBuf::from(appdata)
+        .join("svoice-v3")
+        .join("logs");
+    if let Err(e) = std::fs::create_dir_all(&log_dir) {
+        eprintln!("svoice: kunde inte skapa loggkatalog {log_dir:?}: {e}");
+        return None;
+    }
+    let appender = tracing_appender::rolling::daily(log_dir, "svoice.log");
+    Some(tracing_appender::non_blocking(appender))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-                tracing_subscriber::EnvFilter::new(
-                    "info,svoice_v3_lib=debug,svoice_audio=debug,svoice_hotkey=debug,\
-                     svoice_inject=debug,svoice_ipc=debug,svoice_stt=debug,svoice_llm=debug",
-                )
-            }),
-        )
-        .init();
+    // Håll guarden vid liv hela run()-livstiden så non-blocking appender
+    // hinner flusha innan processen avslutas.
+    let _log_guard = init_tracing();
+    tracing::info!(version = env!("CARGO_PKG_VERSION"), "svoice-v3 startar");
 
     let ptt = Arc::new(Mutex::new(PttMachine::new()));
 
@@ -120,7 +165,7 @@ pub fn run() {
                 .build(),
         )
         .setup(move |app| {
-            tracing::info!("svoice-v3 startar");
+            tracing::info!("svoice-v3 tauri setup klar");
 
             // Tray — main-fönstret är dolt by default, öppnas via meny eller
             // vänsterklick på tray-ikonen.
