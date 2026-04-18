@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 export type ComputeMode = "auto" | "cpu" | "gpu";
-export type LlmProviderChoice = "auto" | "claude" | "ollama" | "groq";
+export type LlmProviderChoice = "auto" | "claude" | "ollama" | "groq" | "gemini";
 export type SttProviderChoice = "local" | "groq";
 export type HotKeyChoice =
   | "right_ctrl"
@@ -31,6 +31,7 @@ export interface Settings {
   ollama_url: string;
   groq_llm_model: string;
   groq_stt_model: string;
+  gemini_model: string;
   stt_provider: SttProviderChoice;
   stt_language: string;
   dictation_hotkey: HotKeyChoice;
@@ -115,6 +116,18 @@ export async function setGroqKey(key: string): Promise<void> {
 
 export async function clearGroqKey(): Promise<void> {
   await invoke<void>("clear_groq_key");
+}
+
+export async function hasGeminiKey(): Promise<boolean> {
+  return invoke<boolean>("has_gemini_key");
+}
+
+export async function setGeminiKey(key: string): Promise<void> {
+  await invoke<void>("set_gemini_key", { key });
+}
+
+export async function clearGeminiKey(): Promise<void> {
+  await invoke<void>("clear_gemini_key");
 }
 
 export async function googleConnectionStatus(): Promise<GoogleStatus> {

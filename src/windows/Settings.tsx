@@ -4,12 +4,14 @@ import SVoiceLogo from "../components/SVoiceLogo";
 import {
   checkHfCached,
   clearAnthropicKey,
+  clearGeminiKey,
   clearGroqKey,
   getSettings,
   googleConnect,
   googleConnectionStatus,
   googleDisconnect,
   hasAnthropicKey,
+  hasGeminiKey,
   hasGroqKey,
   listMicDevices,
   listOllamaModels,
@@ -17,6 +19,7 @@ import {
   openSmartFunctionsDir,
   pullOllamaModel,
   setAnthropicKey,
+  setGeminiKey,
   setGroqKey,
   setSettings,
   type ComputeMode,
@@ -44,11 +47,25 @@ const COMPUTE_LABELS: Record<ComputeMode, string> = {
 };
 
 const PROVIDER_LABELS: Record<LlmProviderChoice, string> = {
-  auto: "Auto (lokal → Groq → Claude)",
+  auto: "Auto (lokal → Groq → Gemini → Claude)",
   ollama: "Lokal (Ollama)",
   claude: "Claude API",
   groq: "Groq API (gratis-tier)",
+  gemini: "Gemini (Google AI)",
 };
+
+const GEMINI_MODELS: Array<{ id: string; label: string; note: string }> = [
+  {
+    id: "gemini-2.5-flash",
+    label: "Gemini 2.5 Flash",
+    note: "snabb · billig · Google Search-grounding",
+  },
+  {
+    id: "gemini-2.5-pro",
+    label: "Gemini 2.5 Pro",
+    note: "högsta kvalitet · långsammare",
+  },
+];
 
 const STT_PROVIDER_LABELS: Record<SttProviderChoice, string> = {
   local: "Lokal (KB-Whisper via Python-sidecar)",
@@ -181,6 +198,8 @@ export default function SettingsView() {
   const [keyDraft, setKeyDraft] = useState<string | null>(null); // null=orört, ""=rensa, annars=ny nyckel
   const [groqKeyStored, setGroqKeyStored] = useState(false);
   const [groqKeyDraft, setGroqKeyDraft] = useState<string | null>(null);
+  const [geminiKeyStored, setGeminiKeyStored] = useState(false);
+  const [geminiKeyDraft, setGeminiKeyDraft] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [googleStatus, setGoogleStatus] = useState<GoogleStatus>({
     connected: false,
@@ -218,6 +237,9 @@ export default function SettingsView() {
     hasGroqKey()
       .then(setGroqKeyStored)
       .catch(() => setGroqKeyStored(false));
+    hasGeminiKey()
+      .then(setGeminiKeyStored)
+      .catch(() => setGeminiKeyStored(false));
     googleConnectionStatus()
       .then(setGoogleStatus)
       .catch(() =>
@@ -310,6 +332,16 @@ export default function SettingsView() {
         }
         setGroqKeyDraft(null);
       }
+      if (geminiKeyDraft !== null) {
+        if (geminiKeyDraft.trim() === "") {
+          await clearGeminiKey();
+          setGeminiKeyStored(false);
+        } else {
+          await setGeminiKey(geminiKeyDraft.trim());
+          setGeminiKeyStored(true);
+        }
+        setGeminiKeyDraft(null);
+      }
       await setSettings(draft);
       setLoaded(draft);
       setSavedTick((t) => t + 1);
@@ -329,6 +361,7 @@ export default function SettingsView() {
     if (loaded) setDraft(loaded);
     setKeyDraft(null);
     setGroqKeyDraft(null);
+    setGeminiKeyDraft(null);
   }
 
   async function handleGoogleConnect() {
@@ -370,7 +403,8 @@ export default function SettingsView() {
   const dirty =
     JSON.stringify(draft) !== JSON.stringify(loaded) ||
     keyDraft !== null ||
-    groqKeyDraft !== null;
+    groqKeyDraft !== null ||
+    geminiKeyDraft !== null;
 
   return (
     <div className="settings-root">
@@ -1000,6 +1034,62 @@ export default function SettingsView() {
               </select>
               <div className="field-help">
                 Används när provider är Groq eller Auto (fallback efter Ollama).
+              </div>
+            </div>
+
+            <div className="field">
+              <label className="field-label" htmlFor="gemini-key">
+                Gemini API-nyckel
+              </label>
+              <input
+                id="gemini-key"
+                className="input"
+                type="password"
+                placeholder={
+                  geminiKeyStored && geminiKeyDraft === null ? "••••••••" : "AI…"
+                }
+                value={geminiKeyDraft ?? ""}
+                onChange={(e) => setGeminiKeyDraft(e.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <div className="field-help">
+                {geminiKeyDraft === ""
+                  ? "Nyckeln raderas när du sparar."
+                  : "Skapa gratis-nyckel på aistudio.google.com/apikey. Gemini 2.5 Flash har inbyggd Google Search-grounding — skarpare på realtidsdata än Claude web_search."}
+              </div>
+              {geminiKeyStored && geminiKeyDraft === null && (
+                <button
+                  type="button"
+                  className="link-button"
+                  onClick={() => setGeminiKeyDraft("")}
+                >
+                  Rensa nyckel
+                </button>
+              )}
+            </div>
+
+            <div className="field">
+              <label className="field-label" htmlFor="gemini-model">
+                Gemini-modell
+              </label>
+              <select
+                id="gemini-model"
+                className="select"
+                value={draft.gemini_model}
+                onChange={(e) =>
+                  setDraft({ ...draft, gemini_model: e.target.value })
+                }
+              >
+                {GEMINI_MODELS.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label} — {m.note}
+                  </option>
+                ))}
+              </select>
+              <div className="field-help">
+                Flash är standard (snabb, billig, räcker för de flesta frågor).
+                Pro är smartare men långsammare + dyrare.
               </div>
             </div>
           </div>

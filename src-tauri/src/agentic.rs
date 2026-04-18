@@ -11,9 +11,13 @@
 //! svaret kom agentic eller ren text. Dessutom `action_tool_call` för
 //! status-rad under körning.
 
+use futures_util::StreamExt;
 use serde::Serialize;
 use svoice_integrations::google::{tool_registry, GoogleClient};
-use svoice_llm::{tool_step_with_choice, StepOutcome, ToolConversation, ToolResult};
+use svoice_llm::{
+    tool_step_with_choice, GeminiClient, GeminiEvent, GeminiGroundingChunk, LlmRequest, Role,
+    StepOutcome, ToolConversation, ToolResult, TurnContent,
+};
 use svoice_settings::Settings;
 use tauri::{AppHandle, Emitter};
 
@@ -433,6 +437,115 @@ fn short_summary_of_result(tool: &str, json_text: &str) -> Option<String> {
             .map(|s| format!("ämne: {s}")),
         _ => None,
     }
+}
+
+/// Kör en fresh query mot Gemini med Google Search-grounding aktiverat.
+/// Parallell path till [`run_agentic`] (Claude+Google-tools) — används när
+/// user valt Gemini som action-provider. Gemini's inbyggda grounding är
+/// skarpare på realtidsdata (väder, aktier, nyheter) än Claude's web_search
+/// eftersom modellen gör sökningen integrerat istället för via separat tool.
+///
+/// Emittar samma events som [`run_agentic`]:
+/// - `action_llm_token` per text-chunk
+/// - `action_tool_call` (name="web_search") när grounding-metadata visar
+///   att Gemini faktiskt gjort en sökning
+/// - `action_llm_done` vid slut
+pub async fn run_agentic_gemini(
+    app: &AppHandle,
+    command: &str,
+    api_key: String,
+    model: String,
+    ev_token: &'static str,
+    ev_done: &'static str,
+) -> anyhow::Result<()> {
+    let sys_prompt = system_prompt();
+    let client = GeminiClient::new(api_key)
+        .with_model(model)
+        .with_grounding(true);
+    let req = LlmRequest {
+        system: Some(sys_prompt.clone()),
+        turns: vec![TurnContent {
+            role: Role::User,
+            text: command.to_string(),
+        }],
+        temperature: 0.3,
+        max_tokens: 1024,
+    };
+
+    let mut stream = client.complete_stream_events(req).await?;
+    let mut assistant_accum = String::new();
+    let mut grounding_seen = false;
+    let mut grounding_chunks: Vec<GeminiGroundingChunk> = Vec::new();
+
+    while let Some(ev) = stream.next().await {
+        match ev? {
+            GeminiEvent::Text(text) => {
+                if !text.is_empty() {
+                    assistant_accum.push_str(&text);
+                    let _ = app.emit(ev_token, serde_json::json!({ "text": text }));
+                }
+            }
+            GeminiEvent::Grounding { queries, chunks } => {
+                if !grounding_seen {
+                    // Första grounding-signalen → visa "Söker på nätet"-chip.
+                    // Summary = första search-query (om flera, visa första).
+                    let summary = queries
+                        .first()
+                        .map(|q| format!("söker: {q}"))
+                        .or_else(|| Some("söker på webben".into()));
+                    let _ = app.emit(
+                        EV_ACTION_TOOL_CALL,
+                        ToolCallEvent {
+                            name: "web_search".into(),
+                            status: "running",
+                            summary,
+                        },
+                    );
+                    grounding_seen = true;
+                }
+                for c in chunks {
+                    if !grounding_chunks.iter().any(|g| g.uri == c.uri && g.title == c.title) {
+                        grounding_chunks.push(c);
+                    }
+                }
+            }
+        }
+    }
+
+    if grounding_seen {
+        // Summera 1-3 första käll-titles för status-chippet.
+        let summary = if grounding_chunks.is_empty() {
+            Some("sökning klar".into())
+        } else {
+            let titles: Vec<String> = grounding_chunks
+                .iter()
+                .take(3)
+                .map(|c| {
+                    if c.title.is_empty() {
+                        c.uri.clone()
+                    } else {
+                        c.title.clone()
+                    }
+                })
+                .collect();
+            Some(titles.join(", "))
+        };
+        let _ = app.emit(
+            EV_ACTION_TOOL_CALL,
+            ToolCallEvent {
+                name: "web_search".into(),
+                status: "done",
+                summary,
+            },
+        );
+    }
+
+    if !assistant_accum.is_empty() {
+        svoice_ipc::append_assistant_turn(assistant_accum);
+    }
+    ensure_conversation_system(&sys_prompt);
+    let _ = app.emit(ev_done, ());
+    Ok(())
 }
 
 #[cfg(test)]

@@ -23,7 +23,8 @@ use svoice_audio::{AudioCapture, AudioRing, VolumeMeter};
 use svoice_hotkey::{register_with_role, HotKey, LlCallback, LlKeyEvent, PttMachine, PttState};
 use svoice_inject::{capture_selection, inject, remember_foreground_target, InjectMethod};
 use svoice_llm::{
-    AnthropicClient, GroqClient, LlmProvider, LlmRequest, OllamaClient, Role, TurnContent,
+    AnthropicClient, GeminiClient, GroqClient, LlmProvider, LlmRequest, OllamaClient, Role,
+    TurnContent,
 };
 use svoice_settings::{ComputeMode, LlmProvider as ProviderChoice, Settings, SttProvider};
 use svoice_stt::{GroqStt, PythonStt, SttConfig};
@@ -530,12 +531,14 @@ pub fn run() {
             svoice_ipc::action_followup_stop,
             svoice_ipc::check_hf_cached,
             svoice_ipc::clear_anthropic_key,
+            svoice_ipc::clear_gemini_key,
             svoice_ipc::clear_groq_key,
             svoice_ipc::get_settings,
             svoice_ipc::google_connect,
             svoice_ipc::google_connection_status,
             svoice_ipc::google_disconnect,
             svoice_ipc::has_anthropic_key,
+            svoice_ipc::has_gemini_key,
             svoice_ipc::has_groq_key,
             svoice_ipc::list_mic_devices,
             svoice_ipc::list_ollama_models,
@@ -545,6 +548,7 @@ pub fn run() {
             palette_close,
             run_smart_function,
             svoice_ipc::set_anthropic_key,
+            svoice_ipc::set_gemini_key,
             svoice_ipc::set_groq_key,
             svoice_ipc::set_settings,
         ])
@@ -1079,6 +1083,59 @@ fn handle_action_released(
         },
     );
 
+    // Gemini-agentic-path: om user valt Gemini som action-provider, kör med
+    // Google Search-grounding istället för Claude's agentic flow. Skarpare
+    // på realtidsdata eftersom Gemini gör sökningen inbyggt och lägger
+    // käll-URL:er på svaret via `groundingMetadata`.
+    let use_gemini_agentic = !is_follow_up
+        && mode == "query"
+        && settings.action_llm_provider == ProviderChoice::Gemini;
+    if use_gemini_agentic {
+        if let Some(key) = svoice_secrets::get_gemini_key().ok().flatten() {
+            tracing::info!("Gemini agentic flow triggas för command: \"{}\"", command);
+            // Spara en "tom" konversation så follow-up efter Gemini-agentic
+            // kan bygga vidare som fri text (Gemini-svar blir assistant-turn).
+            svoice_ipc::set_active_conversation(svoice_ipc::ActiveConversation {
+                system: None,
+                selection: selection.clone(),
+                turns: vec![TurnContent {
+                    role: Role::User,
+                    text: command.clone(),
+                }],
+                mode,
+            });
+            let app_clone = app_handle.clone();
+            let command_clone = command.clone();
+            let model_clone = settings.gemini_model.clone();
+            rt.spawn(async move {
+                if let Err(e) = agentic::run_agentic_gemini(
+                    &app_clone,
+                    &command_clone,
+                    key,
+                    model_clone,
+                    EV_ACTION_LLM_TOKEN,
+                    EV_ACTION_LLM_DONE,
+                )
+                .await
+                {
+                    tracing::error!("Gemini agentic flow fel: {e}");
+                    emit_event(
+                        &app_clone,
+                        EV_ACTION_LLM_ERROR,
+                        ActionError {
+                            message: format!("Gemini: {e}"),
+                        },
+                    );
+                }
+            });
+            return Ok(());
+        } else {
+            tracing::warn!(
+                "Gemini vald som action-provider men nyckel saknas — faller tillbaka till Claude-agentic/standard"
+            );
+        }
+    }
+
     // Agentic path — alltid för NY session i query-mode om Anthropic-nyckel
     // finns. Claude avgör själv via sin system-prompt om verktyg (web_search,
     // calendar, gmail) behövs. Tidigare rule-based `looks_agentic`-heuristik
@@ -1254,11 +1311,22 @@ async fn select_llm_provider(
                     as Arc<dyn LlmProvider>
             })
     };
+    let build_gemini = || -> Option<Arc<dyn LlmProvider>> {
+        svoice_secrets::get_gemini_key()
+            .ok()
+            .flatten()
+            .filter(|k| !k.is_empty())
+            .map(|key| {
+                Arc::new(GeminiClient::new(key).with_model(settings.gemini_model.clone()))
+                    as Arc<dyn LlmProvider>
+            })
+    };
 
     match choice {
         ProviderChoice::Claude => build_anthropic(),
         ProviderChoice::Ollama => Some(build_ollama()),
         ProviderChoice::Groq => build_groq(),
+        ProviderChoice::Gemini => build_gemini(),
         ProviderChoice::Auto => {
             let ollama = OllamaClient::new(settings.ollama_model.clone())
                 .with_base_url(settings.ollama_url.clone());
@@ -1271,8 +1339,13 @@ async fn select_llm_provider(
             } else if let Some(g) = build_groq() {
                 tracing::info!("action-LLM: Ollama otillgänglig, använder Groq");
                 Some(g)
+            } else if let Some(g) = build_gemini() {
+                tracing::info!("action-LLM: Ollama + Groq otillgängliga, använder Gemini");
+                Some(g)
             } else {
-                tracing::info!("action-LLM: Ollama + Groq otillgängliga, faller tillbaka till Anthropic");
+                tracing::info!(
+                    "action-LLM: Ollama/Groq/Gemini otillgängliga, faller tillbaka till Anthropic"
+                );
                 build_anthropic()
             }
         }

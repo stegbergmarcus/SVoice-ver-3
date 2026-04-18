@@ -50,6 +50,12 @@ pub struct Settings {
     /// Groq STT-modell. Default whisper-large-v3-turbo.
     pub groq_stt_model: String,
 
+    /// Gemini-modell. Default `gemini-2.5-flash` (billig, snabb, stödjer
+    /// Google Search-grounding). Alternativ: `gemini-2.5-pro` (dyrare,
+    /// smartare). Används när action_llm_provider eller dictation_llm_provider
+    /// är `Gemini`.
+    pub gemini_model: String,
+
     /// STT-provider: "local" = KB-Whisper via Python-sidecar, "groq" = Groq API.
     pub stt_provider: SttProvider,
     /// ISO-språkkod för STT, t.ex. "sv", "en", "auto".
@@ -89,6 +95,8 @@ pub enum LlmProvider {
     Ollama,
     /// Använd alltid Groq (gratis-tier, snabb).
     Groq,
+    /// Använd alltid Google Gemini (billig + inbyggd Google Search-grounding).
+    Gemini,
 }
 
 impl Default for LlmProvider {
@@ -124,6 +132,7 @@ impl Default for Settings {
             ollama_url: "http://127.0.0.1:11434".into(),
             groq_llm_model: "llama-3.3-70b-versatile".into(),
             groq_stt_model: "whisper-large-v3-turbo".into(),
+            gemini_model: "gemini-2.5-flash".into(),
             stt_provider: SttProvider::Local,
             stt_language: "sv".into(),
             dictation_hotkey: HotKey::RightCtrl,
@@ -180,7 +189,8 @@ mod tests {
         assert_eq!(s.stt_model, "KBLab/kb-whisper-large");
         assert_eq!(s.stt_compute_mode, ComputeMode::Auto);
         assert!((s.vad_threshold - 0.005).abs() < 1e-6);
-        assert_eq!(s.llm_provider, LlmProvider::Auto);
+        assert_eq!(s.action_llm_provider, LlmProvider::Auto);
+        assert_eq!(s.dictation_llm_provider, LlmProvider::Auto);
         assert_eq!(s.ollama_model, "qwen2.5:14b");
         assert_eq!(s.dictation_hotkey, HotKey::RightCtrl);
         assert_eq!(s.action_hotkey, HotKey::Insert);
@@ -188,6 +198,7 @@ mod tests {
         assert_eq!(s.stt_language, "sv");
         assert_eq!(s.groq_llm_model, "llama-3.3-70b-versatile");
         assert_eq!(s.groq_stt_model, "whisper-large-v3-turbo");
+        assert_eq!(s.gemini_model, "gemini-2.5-flash");
     }
 
     #[test]
@@ -200,18 +211,21 @@ mod tests {
             vad_threshold: 0.01,
             action_llm_enabled: true,
             llm_polish_dictation: true,
-            llm_provider: LlmProvider::Ollama,
+            action_llm_provider: LlmProvider::Gemini,
+            dictation_llm_provider: LlmProvider::Groq,
             anthropic_model: "claude-opus-4-7".into(),
             ollama_model: "qwen2.5:32b".into(),
             ollama_url: "http://127.0.0.1:11434".into(),
             groq_llm_model: "llama-3.3-70b-versatile".into(),
             groq_stt_model: "whisper-large-v3-turbo".into(),
+            gemini_model: "gemini-2.5-pro".into(),
             stt_provider: SttProvider::Groq,
             stt_language: "en".into(),
             dictation_hotkey: HotKey::F12,
             action_hotkey: HotKey::Pause,
             google_oauth_client_id: Some("1234.apps.googleusercontent.com".into()),
             google_oauth_client_secret: Some("GOCSPX-abc123".into()),
+            autostart: false,
         };
         let json = serde_json::to_string(&original).unwrap();
         let restored: Settings = serde_json::from_str(&json).unwrap();
@@ -219,8 +233,13 @@ mod tests {
         assert_eq!(original.stt_model, restored.stt_model);
         assert_eq!(original.stt_compute_mode, restored.stt_compute_mode);
         assert_eq!(original.anthropic_model, restored.anthropic_model);
-        assert_eq!(original.llm_provider, restored.llm_provider);
+        assert_eq!(original.action_llm_provider, restored.action_llm_provider);
+        assert_eq!(
+            original.dictation_llm_provider,
+            restored.dictation_llm_provider
+        );
         assert_eq!(original.ollama_model, restored.ollama_model);
+        assert_eq!(original.gemini_model, restored.gemini_model);
         assert_eq!(original.dictation_hotkey, restored.dictation_hotkey);
         assert_eq!(original.action_hotkey, restored.action_hotkey);
         assert_eq!(

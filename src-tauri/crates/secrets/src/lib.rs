@@ -14,6 +14,7 @@ pub const SERVICE: &str = "svoice-v3-test";
 const USERNAME_ANTHROPIC: &str = "anthropic_api_key";
 const USERNAME_GOOGLE_REFRESH: &str = "google_refresh_token";
 const USERNAME_GROQ: &str = "groq_api_key";
+const USERNAME_GEMINI: &str = "gemini_api_key";
 
 #[derive(Error, Debug)]
 pub enum SecretsError {
@@ -101,6 +102,24 @@ pub fn delete_groq_key() -> Result<(), SecretsError> {
 
 pub fn has_groq_key() -> bool {
     matches!(get_groq_key(), Ok(Some(_)))
+}
+
+// ───────── Gemini API-nyckel ─────────
+
+pub fn get_gemini_key() -> Result<Option<String>, SecretsError> {
+    get_secret(USERNAME_GEMINI)
+}
+
+pub fn set_gemini_key(key: &str) -> Result<(), SecretsError> {
+    set_secret(USERNAME_GEMINI, key)
+}
+
+pub fn delete_gemini_key() -> Result<(), SecretsError> {
+    delete_secret(USERNAME_GEMINI)
+}
+
+pub fn has_gemini_key() -> bool {
+    matches!(get_gemini_key(), Ok(Some(_)))
 }
 
 #[cfg(test)]
