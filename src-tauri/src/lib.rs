@@ -539,6 +539,8 @@ pub fn run() {
             svoice_ipc::action_cancel,
             svoice_ipc::action_followup_start,
             svoice_ipc::action_followup_stop,
+            svoice_ipc::check_for_updates,
+            svoice_ipc::check_for_updates_cached,
             svoice_ipc::check_hf_cached,
             svoice_ipc::clear_anthropic_key,
             svoice_ipc::clear_gemini_key,

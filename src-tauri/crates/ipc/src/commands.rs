@@ -576,3 +576,29 @@ pub fn open_smart_functions_dir(app: AppHandle) -> Result<(), String> {
         .open_path(dir.to_string_lossy(), None::<&str>)
         .map_err(|e| format!("kunde inte öppna mappen: {e}"))
 }
+
+// ───────── Update-check ─────────
+
+/// Query GitHub Releases API efter senaste publicerade version av SVoice 3.
+/// Jämför semver mot `CARGO_PKG_VERSION` och returnerar struktur med
+/// `available: bool` + download-URL. Resultatet cachas 24 h i
+/// `%APPDATA%/svoice-v3/update-check.json`.
+#[tauri::command]
+pub async fn check_for_updates() -> Result<svoice_updates::UpdateStatus, String> {
+    svoice_updates::check_latest()
+        .await
+        .map_err(|e| format!("update-check: {e}"))
+}
+
+/// Variant av `check_for_updates` som returnerar cachat resultat om det finns
+/// inom cooldown-fönstret, annars hämtar färskt. Anropas vid app-start för att
+/// undvika att trigga GitHub-API varje gång appen öppnas.
+#[tauri::command]
+pub async fn check_for_updates_cached() -> Result<svoice_updates::UpdateStatus, String> {
+    if let Some(cached) = svoice_updates::cached_recent() {
+        return Ok(cached);
+    }
+    svoice_updates::check_latest()
+        .await
+        .map_err(|e| format!("update-check: {e}"))
+}

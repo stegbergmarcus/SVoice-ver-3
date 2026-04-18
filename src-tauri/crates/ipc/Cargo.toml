@@ -25,3 +25,4 @@ svoice-secrets = { path = "../secrets" }
 svoice-settings = { path = "../settings" }
 svoice-smart-functions = { path = "../smart-functions" }
 svoice-stt = { path = "../stt" }
+svoice-updates = { path = "../updates" }
