@@ -13,6 +13,10 @@ const OWNER_DICTATION: u8 = 1;
 const OWNER_ACTION: u8 = 2;
 static PTT_OWNER: AtomicU8 = AtomicU8::new(OWNER_NONE);
 
+/// Senaste selection fångad när palette-hotkey trycktes. Läses av
+/// `run_smart_function`-IPC när user väljer en function.
+static PALETTE_SELECTION: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
 use futures_util::StreamExt;
 use svoice_audio::vad::trim_silence;
 use svoice_audio::{AudioCapture, AudioRing, VolumeMeter};
@@ -76,10 +80,45 @@ pub fn run() {
 
     let ptt = Arc::new(Mutex::new(PttMachine::new()));
 
+    // Ctrl+Shift+Space → öppna command palette (smart-functions).
+    use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut, ShortcutState};
+    let palette_shortcut = Shortcut::new(
+        Some(Modifiers::CONTROL | Modifiers::SHIFT),
+        Code::Space,
+    );
+
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_shortcut(palette_shortcut)
+                .expect("valid palette shortcut")
+                .with_handler(move |app, shortcut, event| {
+                    if shortcut == &palette_shortcut
+                        && event.state() == ShortcutState::Pressed
+                    {
+                        // 1. Spara target-HWND (active app just nu, innan palette
+                        //    stjäl focus). Använd samma mekanism som action-popup.
+                        if !remember_foreground_target() {
+                            tracing::debug!("palette: target är vår egen app, skippa");
+                            return;
+                        }
+                        // 2. Fånga markering (Ctrl+C → clipboard). OK om tom.
+                        let selection = capture_selection().ok().flatten();
+                        if let Ok(mut guard) = PALETTE_SELECTION.lock() {
+                            *guard = selection;
+                        }
+                        // 3. Öppna palette-window + emit open-event.
+                        if let Some(win) = app.get_webview_window("palette") {
+                            let _ = win.show();
+                            let _ = win.set_focus();
+                        }
+                        let _ = app.emit("palette_open", ());
+                    }
+                })
+                .build(),
+        )
         .setup(move |app| {
             tracing::info!("svoice-v3 startar");
 
@@ -346,12 +385,28 @@ pub fn run() {
             svoice_ipc::list_smart_functions,
             svoice_ipc::open_smart_functions_dir,
             svoice_ipc::pull_ollama_model,
+            run_smart_function,
             svoice_ipc::set_anthropic_key,
             svoice_ipc::set_groq_key,
             svoice_ipc::set_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// Skicka OS-toast-notifikation vid fel. Används parallellt med event-emit
+/// så user ser felet även om popup/main-window är dolda.
+fn emit_error_toast(app: &AppHandle, title: &str, body: &str) {
+    use tauri_plugin_notification::NotificationExt;
+    if let Err(e) = app
+        .notification()
+        .builder()
+        .title(title)
+        .body(body)
+        .show()
+    {
+        tracing::debug!("kunde inte visa error-toast: {e}");
+    }
 }
 
 fn emit_event<T: serde::Serialize + Clone>(app: &AppHandle, event: &str, payload: T) {
@@ -485,6 +540,8 @@ fn perform_transcribe_and_inject(
         Ok(text) => text,
         Err(e) => {
             tracing::error!("STT-fel: {e}");
+            // (STT-fel syns inte som toast — för ofta trivialt som "för kort tal".
+            //  Action-popup-fel toast:as i action-worker-loopen.)
             return;
         }
     };
@@ -653,6 +710,7 @@ fn action_worker_loop(
                             message: e.to_string(),
                         },
                     );
+                    emit_error_toast(&app_handle, "Action-PTT misslyckades", &e.to_string());
                 }
                 emit_event(&app_handle, EV_PTT_STATE, PttState::Idle);
                 update_tray_for_state(&app_handle, PttState::Idle);
@@ -900,6 +958,116 @@ async fn transcribe_dispatch(
             }
         }
     }
+}
+
+/// Tauri-command: kör en smart-function by id. Triggas när user väljer en
+/// function i command palette. Flow:
+/// 1. Hämta function från disk.
+/// 2. Använd selection från PALETTE_SELECTION (fångad vid hotkey-press).
+/// 3. Bygg LlmRequest med function's system + interpolated user_template.
+/// 4. Göm palette, öppna action-popup.
+/// 5. Streama tokens. User trycker Enter → paste till target-HWND.
+#[tauri::command]
+async fn run_smart_function(app: AppHandle, id: String) -> Result<(), String> {
+    // 1. Hitta function.
+    let fns = svoice_smart_functions::list()
+        .map_err(|e| format!("kunde inte läsa smart-functions: {e}"))?;
+    let sf = fns
+        .into_iter()
+        .find(|f| f.id == id)
+        .ok_or_else(|| format!("okänd smart-function: {id}"))?;
+
+    // 2. Läs selection + kontrollera mode-krav.
+    let selection = PALETTE_SELECTION
+        .lock()
+        .ok()
+        .and_then(|mut g| g.take())
+        .filter(|s| !s.is_empty());
+
+    if sf.mode == svoice_smart_functions::SmartMode::Transform && selection.is_none() {
+        return Err("Markera text innan du kör en transform-function.".into());
+    }
+
+    // 3. Göm palette (om den fortfarande syns).
+    if let Some(win) = app.get_webview_window("palette") {
+        let _ = win.hide();
+    }
+
+    // 4. Bygg LLM-provider.
+    let settings = Settings::load();
+    let anthropic_key = svoice_secrets::get_anthropic_key().ok().flatten();
+    let llm = select_llm_provider(&settings, anthropic_key.as_deref())
+        .await
+        .ok_or_else(|| "Ingen LLM-provider konfigurerad. Lägg till API-nyckel eller installera Ollama.".to_string())?;
+
+    // 5. Bygg prompt.
+    let user_msg =
+        svoice_smart_functions::build_user_prompt(&sf.user_template, selection.as_deref(), None);
+    let req = LlmRequest {
+        system: Some(sf.system.clone()),
+        turns: vec![TurnContent {
+            role: Role::User,
+            text: user_msg,
+        }],
+        temperature: 0.3,
+        max_tokens: 1024,
+    };
+
+    // 6. Öppna action-popup + emit open.
+    if let Some(win) = app.get_webview_window("action-popup") {
+        let _ = win.show();
+        let _ = win.set_focus();
+    }
+    let mode = match sf.mode {
+        svoice_smart_functions::SmartMode::Transform => "transform",
+        svoice_smart_functions::SmartMode::Query => "query",
+    };
+    let _ = app.emit(
+        EV_ACTION_POPUP_OPEN,
+        ActionPopupOpen {
+            selection: selection.clone(),
+            command: sf.name.clone(),
+            mode,
+        },
+    );
+
+    // 7. Streama tokens i bakgrunden. Använd en ny tokio-runtime eftersom
+    //    vi inte har tillgång till den delade rt här. Billigt för en request.
+    let app_clone = app.clone();
+    tokio::spawn(async move {
+        match llm.complete_stream(req).await {
+            Ok(mut stream) => {
+                while let Some(chunk) = stream.next().await {
+                    match chunk {
+                        Ok(text) => {
+                            let _ = app_clone
+                                .emit(EV_ACTION_LLM_TOKEN, ActionToken { text });
+                        }
+                        Err(e) => {
+                            let _ = app_clone.emit(
+                                EV_ACTION_LLM_ERROR,
+                                ActionError {
+                                    message: e.to_string(),
+                                },
+                            );
+                            return;
+                        }
+                    }
+                }
+                let _ = app_clone.emit(EV_ACTION_LLM_DONE, ());
+            }
+            Err(e) => {
+                let _ = app_clone.emit(
+                    EV_ACTION_LLM_ERROR,
+                    ActionError {
+                        message: e.to_string(),
+                    },
+                );
+            }
+        }
+    });
+
+    Ok(())
 }
 
 fn build_llm_request(mode: &str, selection: Option<&str>, command: &str) -> LlmRequest {

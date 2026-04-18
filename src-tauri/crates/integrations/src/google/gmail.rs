@@ -86,6 +86,70 @@ pub async fn get_message(client: &GoogleClient, message_id: &str) -> Result<Mess
     })
 }
 
+/// Skapa ett utkast (DRAFT). Skickas INTE automatiskt — user granskar i
+/// Gmail-webben och trycker Skicka själv. Skyddar mot felaktiga mail.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Draft {
+    pub id: String,
+    #[serde(default)]
+    pub message: Option<MessageRef>,
+}
+
+pub async fn create_draft(
+    client: &GoogleClient,
+    to: &str,
+    subject: &str,
+    body: &str,
+    thread_id: Option<&str>,
+) -> Result<Draft, ClientError> {
+    let raw = build_rfc822(to, subject, body);
+    let encoded = base64url_encode(raw.as_bytes());
+    let mut message = serde_json::json!({ "raw": encoded });
+    if let Some(tid) = thread_id {
+        message["threadId"] = serde_json::Value::String(tid.to_string());
+    }
+    let req = serde_json::json!({ "message": message });
+    let url = format!("{API_BASE}/drafts");
+    let json = client.post_json(&url, &req).await?;
+    serde_json::from_value(json).map_err(|e| ClientError::ApiError {
+        status: 0,
+        body: format!("parse-fel: {e}"),
+    })
+}
+
+fn build_rfc822(to: &str, subject: &str, body: &str) -> String {
+    format!(
+        "To: {to}\r\nSubject: {subject}\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n{body}"
+    )
+}
+
+/// Base64url utan padding (Gmail-krav).
+fn base64url_encode(bytes: &[u8]) -> String {
+    const A: &[u8] =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let mut out = String::with_capacity((bytes.len() * 4 + 2) / 3);
+    let mut i = 0;
+    while i + 3 <= bytes.len() {
+        let (b0, b1, b2) = (bytes[i], bytes[i + 1], bytes[i + 2]);
+        out.push(A[(b0 >> 2) as usize] as char);
+        out.push(A[(((b0 & 0x03) << 4) | (b1 >> 4)) as usize] as char);
+        out.push(A[(((b1 & 0x0f) << 2) | (b2 >> 6)) as usize] as char);
+        out.push(A[(b2 & 0x3f) as usize] as char);
+        i += 3;
+    }
+    let rem = bytes.len() - i;
+    if rem == 1 {
+        out.push(A[(bytes[i] >> 2) as usize] as char);
+        out.push(A[((bytes[i] & 0x03) << 4) as usize] as char);
+    } else if rem == 2 {
+        let (b0, b1) = (bytes[i], bytes[i + 1]);
+        out.push(A[(b0 >> 2) as usize] as char);
+        out.push(A[(((b0 & 0x03) << 4) | (b1 >> 4)) as usize] as char);
+        out.push(A[((b1 & 0x0f) << 2) as usize] as char);
+    }
+    out
+}
+
 fn urlencoding_simple(s: &str) -> String {
     s.chars()
         .map(|c| match c {
@@ -128,6 +192,24 @@ mod tests {
         let q = urlencoding_simple("from:marcus is:unread");
         assert!(q.contains("%3A")); // :
         assert!(q.contains("%20")); // space
+    }
+
+    #[test]
+    fn base64url_matches_reference() {
+        // "hello world" → "aGVsbG8gd29ybGQ" (utan padding)
+        assert_eq!(base64url_encode(b"hello world"), "aGVsbG8gd29ybGQ");
+        assert_eq!(base64url_encode(b""), "");
+        assert_eq!(base64url_encode(b"M"), "TQ");
+        assert_eq!(base64url_encode(b"Ma"), "TWE");
+    }
+
+    #[test]
+    fn rfc822_has_required_headers() {
+        let msg = build_rfc822("a@b.se", "Hej!", "Text");
+        assert!(msg.contains("To: a@b.se"));
+        assert!(msg.contains("Subject: Hej!"));
+        assert!(msg.contains("charset=utf-8"));
+        assert!(msg.ends_with("Text"));
     }
 
     #[test]

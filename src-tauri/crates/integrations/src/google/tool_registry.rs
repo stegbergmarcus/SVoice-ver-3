@@ -76,6 +76,33 @@ pub fn all_tools_json() -> Vec<serde_json::Value> {
                 "required": ["message_id"]
             }
         }),
+        json!({
+            "name": "draft_email",
+            "description": "Skapa ett nytt mail-utkast i Gmail. Skickas INTE automatiskt — user granskar i Gmail-webben och trycker Skicka själv. Använd för nya mail (inte svar).",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "to": {"type": "string", "description": "Mottagares mail-adress"},
+                    "subject": {"type": "string"},
+                    "body": {"type": "string", "description": "Mail-text (klartext, ingen HTML)"}
+                },
+                "required": ["to", "subject", "body"]
+            }
+        }),
+        json!({
+            "name": "draft_reply",
+            "description": "Skapa ett SVAR-utkast i en befintlig Gmail-tråd. Skickas INTE automatiskt — user granskar och trycker Skicka själv. Hämta thread_id från search_emails eller read_email.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "thread_id": {"type": "string"},
+                    "to": {"type": "string", "description": "Oftast samma som From-headern på originalet"},
+                    "subject": {"type": "string", "description": "Prefixa med 'Re: ' om du vill matcha Gmail-konvention"},
+                    "body": {"type": "string"}
+                },
+                "required": ["thread_id", "to", "subject", "body"]
+            }
+        }),
     ]
 }
 
@@ -136,11 +163,38 @@ pub async fn execute(
             // Platt JSON med nyckel-headers för Claude:
             let out = serde_json::json!({
                 "id": msg.id,
+                "thread_id": msg.thread_id,
                 "from": msg.header("From"),
                 "to": msg.header("To"),
                 "subject": msg.header("Subject"),
                 "date": msg.header("Date"),
                 "snippet": msg.snippet,
+            });
+            Ok(serde_json::to_string(&out).unwrap_or_else(|_| "{}".into()))
+        }
+        "draft_email" => {
+            let to = input["to"].as_str().unwrap_or("");
+            let subject = input["subject"].as_str().unwrap_or("");
+            let body = input["body"].as_str().unwrap_or("");
+            let draft = gmail::create_draft(client, to, subject, body, None).await?;
+            let out = serde_json::json!({
+                "draft_id": draft.id,
+                "message_id": draft.message.as_ref().map(|m| &m.id),
+                "status": "utkast skapat — öppna Gmail för att granska och skicka",
+            });
+            Ok(serde_json::to_string(&out).unwrap_or_else(|_| "{}".into()))
+        }
+        "draft_reply" => {
+            let thread_id = input["thread_id"].as_str().unwrap_or("");
+            let to = input["to"].as_str().unwrap_or("");
+            let subject = input["subject"].as_str().unwrap_or("");
+            let body = input["body"].as_str().unwrap_or("");
+            let draft =
+                gmail::create_draft(client, to, subject, body, Some(thread_id)).await?;
+            let out = serde_json::json!({
+                "draft_id": draft.id,
+                "thread_id": thread_id,
+                "status": "svar-utkast skapat — öppna Gmail för att granska och skicka",
             });
             Ok(serde_json::to_string(&out).unwrap_or_else(|_| "{}".into()))
         }

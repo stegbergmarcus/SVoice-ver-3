@@ -52,6 +52,21 @@
         "shadow": false,
         "focus": false,
         "visible": false
+      },
+      {
+        "label": "palette",
+        "url": "src/palette/palette.html",
+        "width": 520,
+        "height": 440,
+        "center": true,
+        "decorations": false,
+        "resizable": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "transparent": true,
+        "shadow": false,
+        "focus": false,
+        "visible": false
       }
     ],
     "security": {
