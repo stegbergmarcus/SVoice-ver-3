@@ -1,0 +1,71 @@
+SVoice 3 — Proprietary License
+
+Copyright © 2026 Marcus Stegberg. All rights reserved.
+
+1. DEFINITIONS
+
+   "Software" means SVoice 3, including all source code, compiled binaries,
+   documentation, assets, and configuration files published in the
+   stegbergmarcus/SVoice-ver-3 repository.
+
+   "Authorized User" means an individual who has received a direct invitation
+   or installer link from the copyright holder.
+
+2. GRANT OF LIMITED USE
+
+   The copyright holder grants Authorized Users a non-exclusive,
+   non-transferable, revocable license to:
+
+   a. Install and use the Software for personal, non-commercial purposes on
+      personal devices.
+   b. Read and review the source code for educational or security-audit
+      purposes.
+
+3. RESTRICTIONS
+
+   Authorized Users and all other persons are expressly prohibited from:
+
+   a. Redistributing the Software, installers, or any derivative works to
+      third parties without prior written consent from the copyright holder.
+   b. Using the Software or any part thereof for commercial purposes,
+      including but not limited to selling, licensing, or incorporating it
+      into commercial products or services.
+   c. Publishing modified versions of the Software publicly.
+   d. Removing or altering copyright notices, license text, or attribution
+      in any part of the Software.
+
+4. NO OPEN-SOURCE LICENSE GRANTED
+
+   This Software is NOT open source. The public availability of the source
+   code on GitHub is for transparency and review only. It does not
+   constitute a grant under any open-source license (MIT, Apache, GPL, or
+   otherwise).
+
+5. NO WARRANTY
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+   OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
+
+6. LIMITATION OF LIABILITY
+
+   IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES,
+   OR OTHER LIABILITY ARISING FROM USE OF THE SOFTWARE, INCLUDING LOSS OF
+   DATA, LOSS OF PRODUCTIVITY, OR API-PROVIDER COSTS INCURRED BY THE USER.
+
+7. TERMINATION
+
+   This license terminates automatically if the Authorized User violates any
+   of the restrictions above. Upon termination, the Authorized User must
+   cease all use of the Software and delete all copies.
+
+8. FUTURE LICENSING
+
+   The copyright holder reserves the right to relicense this Software under
+   different terms (including potential commercial release) in the future.
+   Nothing in this license grants the Authorized User rights beyond those
+   explicitly stated above.
+
+For inquiries regarding commercial licensing, redistribution rights, or
+authorization to use the Software beyond the scope of this license, contact
+Marcus Stegberg directly.
