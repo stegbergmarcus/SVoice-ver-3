@@ -39,18 +39,38 @@ impl Sidecar {
         python_args: &[String],
         script_path: &Path,
     ) -> Result<Self, SidecarError> {
-        let mut child = Command::new(python_path)
-            .args(python_args)
+        let mut cmd = Command::new(python_path);
+        cmd.args(python_args)
             .arg(script_path)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::inherit())
-            .kill_on_drop(true)
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true);
+
+        // Windows GUI-app utan egen konsol skapar annars en synlig konsol för
+        // barnprocessen första gången Python-sidecaren startas. CREATE_NO_WINDOW
+        // = 0x08000000 döljer det. No-op på andra plattformar.
+        #[cfg(windows)]
+        cmd.creation_flags(0x08000000);
+
+        let mut child = cmd
             .spawn()
             .map_err(|e| SidecarError::Spawn(e.to_string()))?;
 
         let stdin = child.stdin.take().ok_or(SidecarError::Closed)?;
         let stdout = BufReader::new(child.stdout.take().ok_or(SidecarError::Closed)?);
+
+        // Vidarebefordra Python stderr till tracing. Utan egen konsol skulle
+        // inherited stderr vara en ogiltig handle som kan krascha Python vid
+        // utskrift; piping är både säkrare och ger oss loggbara fel.
+        if let Some(stderr) = child.stderr.take() {
+            tokio::spawn(async move {
+                let mut lines = BufReader::new(stderr).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    tracing::warn!(target: "python_stderr", "{line}");
+                }
+            });
+        }
         let this = Self {
             child,
             stdin: Mutex::new(stdin),
