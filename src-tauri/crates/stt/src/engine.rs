@@ -32,7 +32,7 @@ pub struct SttConfig {
 impl Default for SttConfig {
     fn default() -> Self {
         Self {
-            model: "KBLab/kb-whisper-medium".into(),
+            model: "KBLab/kb-whisper-base".into(),
             device: "cuda".into(),
             compute_type: "float16".into(),
             language: "sv".into(),

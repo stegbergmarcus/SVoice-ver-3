@@ -120,7 +120,7 @@ impl Default for Settings {
         Self {
             mic_device: None,
             stt_enabled: true,
-            stt_model: "KBLab/kb-whisper-large".into(),
+            stt_model: "KBLab/kb-whisper-base".into(),
             stt_compute_mode: ComputeMode::Auto,
             vad_threshold: 0.005,
             action_llm_enabled: true,
@@ -186,7 +186,7 @@ mod tests {
     fn default_values_match_spec() {
         let s = Settings::default();
         assert!(s.mic_device.is_none());
-        assert_eq!(s.stt_model, "KBLab/kb-whisper-large");
+        assert_eq!(s.stt_model, "KBLab/kb-whisper-base");
         assert_eq!(s.stt_compute_mode, ComputeMode::Auto);
         assert!((s.vad_threshold - 0.005).abs() < 1e-6);
         assert_eq!(s.action_llm_provider, LlmProvider::Auto);

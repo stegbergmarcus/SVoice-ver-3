@@ -286,6 +286,12 @@ pub static FOLLOWUP_STOP_REQUESTED: std::sync::atomic::AtomicBool =
 pub static ACTION_POPUP_STREAMING: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
+/// Sätts true medan STT-modell-download pågår (auto vid app-start eller
+/// manuell via Settings). Används för att undvika race om user klickar
+/// "Ladda ner" medan auto-download redan kör.
+pub static STT_DOWNLOAD_IN_PROGRESS: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 /// Markera att popup-streaming pågår. Gate:ar click-outside-hide i
 /// lib.rs focus-lost-handlern. Anropas före varje `action_llm_token`-
 /// emit. Återställs antingen via [`schedule_action_streaming_clear`]
@@ -320,13 +326,10 @@ pub fn list_mic_devices() -> Vec<String> {
     list_input_devices()
 }
 
-/// Kolla om en HuggingFace-modell finns i lokal cache. Cache-path är
-/// ~/.cache/huggingface/hub/models--<org>--<name>/snapshots/. Om den
-/// finns + har innehåll: modellen är nedladdad och första-transcribe
-/// blir snabbt (ingen 1-3 min väntan).
-#[tauri::command]
-pub fn check_hf_cached(model: String) -> bool {
-    // Tauri skickar "KBLab/kb-whisper-large" -> "models--KBLab--kb-whisper-large"
+/// Testa om en HF-modell är komplett nedladdad till lokal cache.
+/// Samma logik som `check_hf_cached` IPC-commandet men callable direkt
+/// från lib.rs utan IPC-round-trip.
+pub fn is_hf_model_cached(model: &str) -> bool {
     let slug = format!("models--{}", model.replace('/', "--"));
     let home = match std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")) {
         Ok(h) => h,
@@ -341,7 +344,6 @@ pub fn check_hf_cached(model: String) -> bool {
     if !cache_path.exists() {
         return false;
     }
-    // Kolla att någon snapshot finns och att den inte är tom.
     std::fs::read_dir(&cache_path)
         .map(|entries| {
             entries.flatten().any(|e| {
@@ -352,6 +354,15 @@ pub fn check_hf_cached(model: String) -> bool {
             })
         })
         .unwrap_or(false)
+}
+
+/// Kolla om en HuggingFace-modell finns i lokal cache. Cache-path är
+/// ~/.cache/huggingface/hub/models--<org>--<name>/snapshots/. Om den
+/// finns + har innehåll: modellen är nedladdad och första-transcribe
+/// blir snabbt (ingen 1-3 min väntan).
+#[tauri::command]
+pub fn check_hf_cached(model: String) -> bool {
+    is_hf_model_cached(&model)
 }
 
 /// Lista modeller installerade i lokalt Ollama-service. Används för att
@@ -630,6 +641,26 @@ pub async fn download_stt_model(
     model: String,
     stt: State<'_, Arc<PythonStt>>,
 ) -> Result<(), String> {
+    if STT_DOWNLOAD_IN_PROGRESS
+        .compare_exchange(
+            false,
+            true,
+            std::sync::atomic::Ordering::SeqCst,
+            std::sync::atomic::Ordering::SeqCst,
+        )
+        .is_err()
+    {
+        return Err("En STT-modell-download pågår redan, vänta tills den är klar.".into());
+    }
+    // RAII-guard: återställ flaggan även vid early return / panic.
+    struct DownloadGuard;
+    impl Drop for DownloadGuard {
+        fn drop(&mut self) {
+            STT_DOWNLOAD_IN_PROGRESS.store(false, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+    let _guard = DownloadGuard;
+
     let app_for_cb = app.clone();
     let model_for_cb = model.clone();
     stt.download_model(&model, move |status| {

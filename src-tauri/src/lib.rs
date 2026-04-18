@@ -375,6 +375,85 @@ pub fn run() {
                 }
             });
 
+            // Auto-download av default-STT-modellen vid första app-start om
+            // den inte redan är cachad. Görs bara om STT är aktiverat (annars
+            // behövs modellen inte ändå) och gater på STT_DOWNLOAD_IN_PROGRESS
+            // så manuell Settings-download inte krockar.
+            if user_settings.stt_enabled {
+                let default_model = Settings::default().stt_model;
+                if !svoice_ipc::is_hf_model_cached(&default_model) {
+                    if svoice_ipc::STT_DOWNLOAD_IN_PROGRESS
+                        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                        .is_ok()
+                    {
+                        let stt_clone = stt.clone();
+                        let app_clone = app_handle.clone();
+                        let model_clone = default_model.clone();
+                        rt.spawn(async move {
+                            use tauri_plugin_notification::NotificationExt;
+                            let _ = app_clone
+                                .notification()
+                                .builder()
+                                .title("SVoice")
+                                .body(format!(
+                                    "Laddar ner STT-modell i bakgrunden: {model_clone}"
+                                ))
+                                .show();
+                            let app_for_cb = app_clone.clone();
+                            let model_for_cb = model_clone.clone();
+                            let result = stt_clone
+                                .download_model(&model_clone, move |status| {
+                                    let _ = app_for_cb.emit(
+                                        "stt_model_download_progress",
+                                        serde_json::json!({
+                                            "model": &model_for_cb,
+                                            "status": status,
+                                        }),
+                                    );
+                                })
+                                .await;
+                            // Rensa flaggan oavsett utfall — annars kan user
+                            // inte köra manuell download efter auto-fail.
+                            svoice_ipc::STT_DOWNLOAD_IN_PROGRESS
+                                .store(false, Ordering::SeqCst);
+                            match result {
+                                Ok(()) => {
+                                    let _ = app_clone.emit(
+                                        "stt_model_download_done",
+                                        serde_json::json!({ "model": &model_clone }),
+                                    );
+                                    let _ = app_clone
+                                        .notification()
+                                        .builder()
+                                        .title("SVoice")
+                                        .body(format!(
+                                            "STT-modell redo: {model_clone}. Håll höger Ctrl för att diktera."
+                                        ))
+                                        .show();
+                                    tracing::info!("auto-download klar: {model_clone}");
+                                }
+                                Err(e) => {
+                                    tracing::error!("auto-download fel: {e}");
+                                    let _ = app_clone
+                                        .notification()
+                                        .builder()
+                                        .title("SVoice")
+                                        .body(
+                                            "STT-modell kunde inte laddas ner. Öppna Settings och klicka Ladda ner manuellt.",
+                                        )
+                                        .show();
+                                }
+                            }
+                        });
+                    }
+                } else {
+                    tracing::info!(
+                        "auto-download: default-STT-modellen {} är redan cachad, hoppar över",
+                        default_model
+                    );
+                }
+            }
+
             // Dikterings-PTT (höger Ctrl) — befintlig iter 2-workflow.
             let ptt_worker = ptt.clone();
             let (ptt_tx, ptt_rx) = mpsc::channel::<LlKeyEvent>();
