@@ -1,8 +1,9 @@
+mod agentic;
+mod migrate;
+
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
-
-mod migrate;
 
 /// Förhindrar att båda PTT-flöden (diktering RCtrl och action Insert) kör
 /// samtidigt — de delar AudioRing och skulle tömma varandras data.
@@ -614,7 +615,7 @@ fn action_worker_loop(
                     &stt,
                     &rt,
                     &llm,
-                    current.vad_threshold,
+                    &current,
                 ) {
                     tracing::error!("action-PTT fel: {e}");
                     emit_event(
@@ -640,8 +641,9 @@ fn handle_action_released(
     stt: &Arc<PythonStt>,
     rt: &Arc<tokio::runtime::Runtime>,
     llm: &Option<Arc<dyn LlmProvider>>,
-    vad_threshold: f32,
+    settings: &Settings,
 ) -> anyhow::Result<()> {
+    let vad_threshold = settings.vad_threshold;
     // 1. Fånga markering i aktivt fönster via clipboard-snapshot.
     //    Görs FÖRST innan vi transkriberar — target-fönstret har fortfarande fokus.
     std::thread::sleep(std::time::Duration::from_millis(40));
@@ -696,7 +698,43 @@ fn handle_action_released(
         },
     );
 
-    // 6. Kör LLM i bakgrunden; streama tokens.
+    // 6a. Agentic path — försök tool-use-loop om kommandot ser ut att behöva
+    //     externa verktyg (Calendar/Gmail) OCH Google är ansluten. Annars
+    //     fallback till vanlig streaming nedan.
+    if mode == "query" && agentic::looks_agentic(&command, selection.as_deref()) {
+        if let Some(req) = agentic::prepare_agentic(settings) {
+            tracing::info!("agentic flow triggas för command: \"{}\"", command);
+            let app_clone = app_handle.clone();
+            let command_clone = command.clone();
+            rt.spawn(async move {
+                if let Err(e) = agentic::run_agentic(
+                    &app_clone,
+                    &command_clone,
+                    req,
+                    EV_ACTION_LLM_TOKEN,
+                    EV_ACTION_LLM_DONE,
+                )
+                .await
+                {
+                    tracing::error!("agentic flow fel: {e}");
+                    emit_event(
+                        &app_clone,
+                        EV_ACTION_LLM_ERROR,
+                        ActionError {
+                            message: format!("agentic: {e}"),
+                        },
+                    );
+                }
+            });
+            return Ok(());
+        } else {
+            tracing::debug!(
+                "agentic-triggers matchade men Google/API saknas — fallback till text"
+            );
+        }
+    }
+
+    // 6b. Kör LLM i bakgrunden; streama tokens.
     let Some(llm) = llm.clone() else {
         emit_event(
             app_handle,

@@ -16,7 +16,7 @@ const API_URL: &str = "https://api.anthropic.com/v1/messages";
 const API_VERSION: &str = "2023-06-01";
 
 /// Verktygs-definition som skickas till Claude.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolDef {
     pub name: String,
     pub description: String,
@@ -50,8 +50,15 @@ fn is_false(b: &bool) -> bool {
 pub enum StepOutcome {
     /// Claude är klar. Text är samlat svar till user.
     Finished { text: String },
-    /// Claude vill exekvera verktyg. Caller ska anropa dem och skicka tillbaka.
-    NeedTools { calls: Vec<ToolCall>, partial_text: String },
+    /// Claude vill exekvera verktyg. Caller ska anropa dem och skicka tillbaka
+    /// via `conv.add_tool_roundtrip(assistant_blocks, &results)`.
+    NeedTools {
+        calls: Vec<ToolCall>,
+        partial_text: String,
+        /// Rå content-array från Claude — skicka oförändrad till
+        /// `add_tool_roundtrip` så assistant-turn:en bevaras korrekt.
+        assistant_blocks: serde_json::Value,
+    },
 }
 
 /// Konversations-state. Bygg med `new(system, user)`. Efter varje step ska
@@ -197,11 +204,12 @@ fn parse_response(
     }
 
     if stop_reason == "tool_use" && !tool_calls.is_empty() {
-        // Spara assistant-content i conversationen så caller kan matcha tool-results.
-        // Vi lägger till själva roundtrip:en i add_tool_roundtrip() senare.
+        // Returnera assistant-blocks rå; caller matchar tool-results och
+        // anropar add_tool_roundtrip(blocks, &results).
         Ok(StepOutcome::NeedTools {
             calls: tool_calls,
             partial_text: text_buf,
+            assistant_blocks: serde_json::Value::Array(blocks),
         })
     } else {
         // end_turn eller max_tokens → klar. Lägg till assistant i conv för framtida ev. use.
@@ -264,13 +272,39 @@ mod tests {
         });
         let outcome = parse_response(json, &mut conv).unwrap();
         match outcome {
-            StepOutcome::NeedTools { calls, partial_text } => {
+            StepOutcome::NeedTools {
+                calls,
+                partial_text,
+                assistant_blocks,
+            } => {
                 assert_eq!(calls.len(), 1);
                 assert_eq!(calls[0].name, "create_event");
                 assert_eq!(calls[0].id, "toolu_01");
                 assert_eq!(partial_text, "Skapar möte...");
+                let arr = assistant_blocks.as_array().unwrap();
+                assert_eq!(arr.len(), 2);
+                assert_eq!(arr[1]["type"], "tool_use");
             }
             _ => panic!("förväntade NeedTools"),
         }
+    }
+
+    #[test]
+    fn roundtrip_with_assistant_blocks() {
+        let mut conv = ToolConversation::new(Some("sys".into()), "hej".into());
+        let blocks = serde_json::json!([
+            {"type": "tool_use", "id": "t1", "name": "noop", "input": {}}
+        ]);
+        conv.add_tool_roundtrip(
+            blocks,
+            &[ToolResult {
+                tool_use_id: "t1".into(),
+                content: "\"ok\"".into(),
+                is_error: false,
+            }],
+        );
+        assert_eq!(conv.messages.len(), 3);
+        assert_eq!(conv.messages[1]["role"], "assistant");
+        assert_eq!(conv.messages[1]["content"][0]["id"], "t1");
     }
 }

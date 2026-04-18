@@ -11,6 +11,19 @@ type PopupOpenPayload = {
   mode: "transform" | "query";
 };
 
+type ToolCallPayload = {
+  name: string;
+  status: "running" | "done" | "error";
+  summary: string | null;
+};
+
+const TOOL_LABELS: Record<string, string> = {
+  list_calendar_events: "Listar kalender",
+  create_calendar_event: "Skapar möte",
+  search_emails: "Söker mail",
+  read_email: "Läser mail",
+};
+
 export default function ActionPopup() {
   const [visible, setVisible] = useState(false);
   const [selection, setSelection] = useState<string | null>(null);
@@ -20,6 +33,7 @@ export default function ActionPopup() {
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
+  const [toolCalls, setToolCalls] = useState<ToolCallPayload[]>([]);
   const rootRef = useRef<HTMLDivElement>(null);
 
   // Close popup-window and reset state via backend (pålitligare än frontend).
@@ -59,6 +73,7 @@ export default function ActionPopup() {
       setError(null);
       setStreaming(true);
       setApplying(false);
+      setToolCalls([]);
       setVisible(true);
       // Visa fönstret OCH ta fokus så Enter/Escape fungerar.
       // Focus stjäls från target-appen, men target-HWND är redan sparat i
@@ -86,11 +101,29 @@ export default function ActionPopup() {
       setStreaming(false);
     });
 
+    const unTool = listen<ToolCallPayload>("action_tool_call", (ev) => {
+      setToolCalls((prev) => {
+        // Om status === 'running' för en ny tool → append.
+        // Om status === 'done'/'error' och finns en matchande running → ersätt.
+        if (ev.payload.status === "running") {
+          return [...prev, ev.payload];
+        }
+        const idx = prev.findIndex(
+          (t) => t.name === ev.payload.name && t.status === "running",
+        );
+        if (idx === -1) return [...prev, ev.payload];
+        const next = [...prev];
+        next[idx] = ev.payload;
+        return next;
+      });
+    });
+
     return () => {
       unOpen.then((fn) => fn());
       unToken.then((fn) => fn());
       unDone.then((fn) => fn());
       unError.then((fn) => fn());
+      unTool.then((fn) => fn());
     };
   }, []);
 
@@ -134,6 +167,27 @@ export default function ActionPopup() {
         <div className="action-popup-context">
           <span className="action-popup-context-label">markerad text</span>
           {selection}
+        </div>
+      )}
+
+      {toolCalls.length > 0 && (
+        <div className="action-popup-tools">
+          {toolCalls.map((t, i) => (
+            <div
+              key={`${t.name}-${i}`}
+              className={`action-popup-tool action-popup-tool-${t.status}`}
+            >
+              <span className="action-popup-tool-dot" aria-hidden>
+                {t.status === "running" ? "⏳" : t.status === "done" ? "✓" : "✕"}
+              </span>
+              <span className="action-popup-tool-name">
+                {TOOL_LABELS[t.name] ?? t.name}
+              </span>
+              {t.summary && (
+                <span className="action-popup-tool-summary"> · {t.summary}</span>
+              )}
+            </div>
+          ))}
         </div>
       )}
 
