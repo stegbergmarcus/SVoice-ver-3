@@ -517,7 +517,9 @@ pub async fn run_agentic_gemini(
             // returnera FunctionCall-events här. Logga och ignorera defensivt om det
             // ändå sker (t.ex. om modellen hallucerar ett tool-call).
             GeminiEvent::FunctionCall { name, .. } => {
-                tracing::warn!("run_agentic_gemini: oväntat FunctionCall-event för '{name}' ignoreras");
+                tracing::warn!(
+                    "run_agentic_gemini: oväntat FunctionCall-event för '{name}' ignoreras"
+                );
             }
         }
     }
@@ -619,7 +621,9 @@ pub async fn run_agentic_gemini_tools(
 
         // Samla model-svar: text-parts (emittade live) + functionCall-parts (körs efter strömmen).
         let mut round_text = String::new();
-        let mut function_calls: Vec<(String, serde_json::Value)> = Vec::new();
+        // (name, args, thought_signature) — signature måste skickas tillbaka
+        // i samma part som functionCall i nästa roundtrip (Gemini 3+ krav).
+        let mut function_calls: Vec<(String, serde_json::Value, Option<String>)> = Vec::new();
 
         while let Some(ev) = stream.next().await {
             match ev? {
@@ -631,8 +635,8 @@ pub async fn run_agentic_gemini_tools(
                         let _ = app.emit(ev_token, serde_json::json!({ "text": t }));
                     }
                 }
-                GeminiEvent::FunctionCall { name, args } => {
-                    function_calls.push((name, args));
+                GeminiEvent::FunctionCall { name, args, thought_signature } => {
+                    function_calls.push((name, args, thought_signature));
                 }
                 GeminiEvent::Grounding { queries, chunks } => {
                     if !grounding_seen_chip {
@@ -672,10 +676,14 @@ pub async fn run_agentic_gemini_tools(
         if !round_text.is_empty() {
             model_parts.push(serde_json::json!({ "text": round_text }));
         }
-        for (name, args) in &function_calls {
-            model_parts.push(serde_json::json!({
+        for (name, args, signature) in &function_calls {
+            let mut part = serde_json::json!({
                 "functionCall": { "name": name, "args": args }
-            }));
+            });
+            if let Some(sig) = signature {
+                part["thoughtSignature"] = serde_json::Value::String(sig.clone());
+            }
+            model_parts.push(part);
         }
         contents.push(serde_json::json!({
             "role": "model",
@@ -684,7 +692,7 @@ pub async fn run_agentic_gemini_tools(
 
         // Exekvera tool-calls, bygg functionResponse-parts.
         let mut response_parts: Vec<serde_json::Value> = Vec::new();
-        for (name, args) in &function_calls {
+        for (name, args, _signature) in &function_calls {
             let _ = app.emit(
                 EV_ACTION_TOOL_CALL,
                 ToolCallEvent {

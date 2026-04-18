@@ -77,9 +77,13 @@ pub enum GeminiEvent {
     },
     /// Gemini vill kalla ett tool. `name` = tool-namn (matchar functionDeclaration),
     /// `args` = argument-objekt som serde_json::Value (skickas direkt till tool_registry::execute).
+    /// `thought_signature` kommer från Gemini 3+ thinking-modeller och MÅSTE
+    /// skickas tillbaka ohanterad på samma part i nästa roundtrip, annars
+    /// svarar API:t 400 "Function call is missing a thought_signature".
     FunctionCall {
         name: String,
         args: serde_json::Value,
+        thought_signature: Option<String>,
     },
 }
 
@@ -374,6 +378,11 @@ struct SsePart {
     text: Option<String>,
     #[serde(default, rename = "functionCall")]
     function_call: Option<SseFunctionCall>,
+    /// Gemini 3+ "thinking"-signatur som måste skickas tillbaka i nästa
+    /// roundtrip på samma part som `functionCall`. Utan detta svarar API:t
+    /// "Function call is missing a thought_signature in functionCall parts".
+    #[serde(default, rename = "thoughtSignature")]
+    thought_signature: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -444,6 +453,7 @@ where
                                         yield GeminiEvent::FunctionCall {
                                             name: fc.name,
                                             args: fc.args,
+                                            thought_signature: part.thought_signature,
                                         };
                                     }
                                 }
