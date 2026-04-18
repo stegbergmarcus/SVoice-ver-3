@@ -1,7 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 
 export type ComputeMode = "auto" | "cpu" | "gpu";
-export type LlmProviderChoice = "auto" | "claude" | "ollama";
+export type LlmProviderChoice = "auto" | "claude" | "ollama" | "groq";
+export type SttProviderChoice = "local" | "groq";
 export type HotKeyChoice =
   | "right_ctrl"
   | "insert"
@@ -25,6 +26,10 @@ export interface Settings {
   anthropic_model: string;
   ollama_model: string;
   ollama_url: string;
+  groq_llm_model: string;
+  groq_stt_model: string;
+  stt_provider: SttProviderChoice;
+  stt_language: string;
   dictation_hotkey: HotKeyChoice;
   action_hotkey: HotKeyChoice;
   google_oauth_client_id: string | null;
@@ -94,6 +99,18 @@ export async function setAnthropicKey(key: string): Promise<void> {
 
 export async function clearAnthropicKey(): Promise<void> {
   await invoke<void>("clear_anthropic_key");
+}
+
+export async function hasGroqKey(): Promise<boolean> {
+  return invoke<boolean>("has_groq_key");
+}
+
+export async function setGroqKey(key: string): Promise<void> {
+  await invoke<void>("set_groq_key", { key });
+}
+
+export async function clearGroqKey(): Promise<void> {
+  await invoke<void>("clear_groq_key");
 }
 
 export async function googleConnectionStatus(): Promise<GoogleStatus> {

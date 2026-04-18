@@ -35,6 +35,16 @@ pub struct Settings {
     /// Ollama-server URL. Default http://127.0.0.1:11434.
     pub ollama_url: String,
 
+    /// Groq LLM-modell. Default llama-3.3-70b-versatile (gratis-tier, snabb).
+    pub groq_llm_model: String,
+    /// Groq STT-modell. Default whisper-large-v3-turbo.
+    pub groq_stt_model: String,
+
+    /// STT-provider: "local" = KB-Whisper via Python-sidecar, "groq" = Groq API.
+    pub stt_provider: SttProvider,
+    /// ISO-språkkod för STT, t.ex. "sv", "en", "auto".
+    pub stt_language: String,
+
     /// Hotkey för diktering (hold-to-talk). Standard: höger Ctrl.
     pub dictation_hotkey: HotKey,
     /// Hotkey för action-popup. Standard: Insert.
@@ -60,6 +70,17 @@ pub enum LlmProvider {
     Claude,
     /// Använd alltid lokal Ollama.
     Ollama,
+    /// Använd alltid Groq (gratis-tier, snabb).
+    Groq,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SttProvider {
+    /// Lokal KB-Whisper via Python-sidecar. Svenska-optimerad.
+    Local,
+    /// Groq Whisper-API (kräver internet + API-nyckel, ~100x snabbare).
+    Groq,
 }
 
 impl Default for Settings {
@@ -76,6 +97,10 @@ impl Default for Settings {
             anthropic_model: "claude-sonnet-4-5".into(),
             ollama_model: "qwen2.5:14b".into(),
             ollama_url: "http://127.0.0.1:11434".into(),
+            groq_llm_model: "llama-3.3-70b-versatile".into(),
+            groq_stt_model: "whisper-large-v3-turbo".into(),
+            stt_provider: SttProvider::Local,
+            stt_language: "sv".into(),
             dictation_hotkey: HotKey::RightCtrl,
             action_hotkey: HotKey::Insert,
             google_oauth_client_id: None,
@@ -133,6 +158,10 @@ mod tests {
         assert_eq!(s.ollama_model, "qwen2.5:14b");
         assert_eq!(s.dictation_hotkey, HotKey::RightCtrl);
         assert_eq!(s.action_hotkey, HotKey::Insert);
+        assert_eq!(s.stt_provider, SttProvider::Local);
+        assert_eq!(s.stt_language, "sv");
+        assert_eq!(s.groq_llm_model, "llama-3.3-70b-versatile");
+        assert_eq!(s.groq_stt_model, "whisper-large-v3-turbo");
     }
 
     #[test]
@@ -149,6 +178,10 @@ mod tests {
             anthropic_model: "claude-opus-4-7".into(),
             ollama_model: "qwen2.5:32b".into(),
             ollama_url: "http://127.0.0.1:11434".into(),
+            groq_llm_model: "llama-3.3-70b-versatile".into(),
+            groq_stt_model: "whisper-large-v3-turbo".into(),
+            stt_provider: SttProvider::Groq,
+            stt_language: "en".into(),
             dictation_hotkey: HotKey::F12,
             action_hotkey: HotKey::Pause,
             google_oauth_client_id: Some("1234.apps.googleusercontent.com".into()),

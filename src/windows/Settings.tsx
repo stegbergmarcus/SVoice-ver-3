@@ -4,22 +4,26 @@ import SVoiceLogo from "../components/SVoiceLogo";
 import {
   checkHfCached,
   clearAnthropicKey,
+  clearGroqKey,
   getSettings,
   googleConnect,
   googleConnectionStatus,
   googleDisconnect,
   hasAnthropicKey,
+  hasGroqKey,
   listMicDevices,
   listOllamaModels,
   listSmartFunctions,
   openSmartFunctionsDir,
   pullOllamaModel,
   setAnthropicKey,
+  setGroqKey,
   setSettings,
   type ComputeMode,
   type GoogleStatus,
   type HotKeyChoice,
   type LlmProviderChoice,
+  type SttProviderChoice,
   type OllamaModelInfo,
   type PullProgress,
   type Settings,
@@ -40,10 +44,44 @@ const COMPUTE_LABELS: Record<ComputeMode, string> = {
 };
 
 const PROVIDER_LABELS: Record<LlmProviderChoice, string> = {
-  auto: "Auto (lokal först)",
+  auto: "Auto (lokal → Groq → Claude)",
   ollama: "Lokal (Ollama)",
   claude: "Claude API",
+  groq: "Groq API (gratis-tier)",
 };
+
+const STT_PROVIDER_LABELS: Record<SttProviderChoice, string> = {
+  local: "Lokal (KB-Whisper via Python-sidecar)",
+  groq: "Groq Whisper API (gratis, ~100× snabbare)",
+};
+
+// Vanliga språkkoder för STT. "auto" låter Whisper detektera.
+const STT_LANGUAGES: Array<{ code: string; label: string }> = [
+  { code: "auto", label: "Auto-detektera" },
+  { code: "sv", label: "Svenska" },
+  { code: "en", label: "Engelska" },
+  { code: "no", label: "Norska" },
+  { code: "da", label: "Danska" },
+  { code: "de", label: "Tyska" },
+  { code: "fr", label: "Franska" },
+  { code: "es", label: "Spanska" },
+  { code: "fi", label: "Finska" },
+  { code: "it", label: "Italienska" },
+  { code: "nl", label: "Nederländska" },
+  { code: "pl", label: "Polska" },
+];
+
+const GROQ_STT_MODELS: Array<{ id: string; label: string; note: string }> = [
+  { id: "whisper-large-v3-turbo", label: "Whisper Large v3 Turbo", note: "snabbast · gratis-tier" },
+  { id: "whisper-large-v3", label: "Whisper Large v3", note: "högst kvalitet" },
+];
+
+const GROQ_LLM_MODELS: Array<{ id: string; label: string; note: string }> = [
+  { id: "llama-3.3-70b-versatile", label: "Llama 3.3 70B", note: "balans · stark på svenska" },
+  { id: "openai/gpt-oss-120b", label: "GPT-OSS 120B", note: "toppresonemang · OpenAI-öppen" },
+  { id: "moonshotai/kimi-k2-instruct", label: "Kimi K2", note: "stark på EU-språk" },
+  { id: "llama-3.1-8b-instant", label: "Llama 3.1 8B", note: "snabbast · enkel" },
+];
 
 const HOTKEY_LABELS: Record<HotKeyChoice, string> = {
   right_ctrl: "Höger Ctrl",
@@ -131,6 +169,8 @@ export default function SettingsView() {
   const [sttCached, setSttCached] = useState<Record<string, boolean>>({});
   const [keyStored, setKeyStored] = useState(false);
   const [keyDraft, setKeyDraft] = useState<string | null>(null); // null=orört, ""=rensa, annars=ny nyckel
+  const [groqKeyStored, setGroqKeyStored] = useState(false);
+  const [groqKeyDraft, setGroqKeyDraft] = useState<string | null>(null);
   const [googleStatus, setGoogleStatus] = useState<GoogleStatus>({
     connected: false,
     client_id_configured: false,
@@ -164,6 +204,9 @@ export default function SettingsView() {
     hasAnthropicKey()
       .then(setKeyStored)
       .catch(() => setKeyStored(false));
+    hasGroqKey()
+      .then(setGroqKeyStored)
+      .catch(() => setGroqKeyStored(false));
     googleConnectionStatus()
       .then(setGoogleStatus)
       .catch(() =>
@@ -246,6 +289,16 @@ export default function SettingsView() {
         }
         setKeyDraft(null);
       }
+      if (groqKeyDraft !== null) {
+        if (groqKeyDraft.trim() === "") {
+          await clearGroqKey();
+          setGroqKeyStored(false);
+        } else {
+          await setGroqKey(groqKeyDraft.trim());
+          setGroqKeyStored(true);
+        }
+        setGroqKeyDraft(null);
+      }
       await setSettings(draft);
       setLoaded(draft);
       setSavedTick((t) => t + 1);
@@ -264,6 +317,7 @@ export default function SettingsView() {
   function handleReset() {
     if (loaded) setDraft(loaded);
     setKeyDraft(null);
+    setGroqKeyDraft(null);
   }
 
   async function handleGoogleConnect() {
@@ -303,7 +357,9 @@ export default function SettingsView() {
   }
 
   const dirty =
-    JSON.stringify(draft) !== JSON.stringify(loaded) || keyDraft !== null;
+    JSON.stringify(draft) !== JSON.stringify(loaded) ||
+    keyDraft !== null ||
+    groqKeyDraft !== null;
 
   return (
     <div className="settings-root">
@@ -349,6 +405,98 @@ export default function SettingsView() {
             %APPDATA%/svoice-v3/settings.json
           </div>
         </header>
+
+        {/* Kom igång — onboarding-checklist */}
+        <article
+          className="settings-section"
+          style={{ gridTemplateColumns: "180px minmax(0, 1fr)" }}
+        >
+          <div className="settings-section-label">
+            <h2>Kom igång</h2>
+            <p>
+              Minsta uppsättning för att börja använda SVoice. Alla steg är
+              oberoende — välj det du vill köra.
+            </p>
+          </div>
+          <div className="settings-section-body">
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 10,
+                padding: "16px 18px",
+                background: "rgba(243, 237, 227, 0.02)",
+                border: "1px solid rgba(243, 237, 227, 0.06)",
+                borderRadius: 12,
+              }}
+            >
+              {(() => {
+                const hasAnthropic = keyStored;
+                const hasGroq = groqKeyStored;
+                const hasGoogle = googleStatus.connected;
+                const items: Array<{
+                  ok: boolean;
+                  title: string;
+                  hint: string;
+                }> = [
+                  {
+                    ok: true,
+                    title: "1. Diktering",
+                    hint: `Håll ${HOTKEY_LABELS[draft.dictation_hotkey]} och prata. Texten injiceras där markören står. Välj lokal eller Groq Whisper under "Transkribering".`,
+                  },
+                  {
+                    ok: hasAnthropic || hasGroq,
+                    title: "2. Action-LLM (Claude eller Groq)",
+                    hint: hasAnthropic || hasGroq
+                      ? `Håll ${HOTKEY_LABELS[draft.action_hotkey]} + säg kommando → AI-popup med svar. Markera text innan för transformering.`
+                      : "Lägg till Anthropic- eller Groq-nyckel under 'Action-LLM' för att aktivera AI-popup.",
+                  },
+                  {
+                    ok: hasGoogle,
+                    title: "3. Google (valfritt)",
+                    hint: hasGoogle
+                      ? "Säg 'vad har jag i kalendern idag' eller 'sök mail från X'."
+                      : "Koppla Google-konto under 'Integrationer' för kalender + mail via röst.",
+                  },
+                ];
+                return items.map((it, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: 12,
+                    }}
+                  >
+                    <span
+                      style={{
+                        marginTop: 2,
+                        fontSize: 14,
+                        color: it.ok ? "#7bd37e" : "var(--ink-tertiary)",
+                      }}
+                    >
+                      {it.ok ? "✓" : "○"}
+                    </span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 500, marginBottom: 2 }}>
+                        {it.title}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 12,
+                          color: "var(--ink-tertiary)",
+                          lineHeight: 1.5,
+                        }}
+                      >
+                        {it.hint}
+                      </div>
+                    </div>
+                  </div>
+                ));
+              })()}
+            </div>
+          </div>
+        </article>
 
         {/* Moduler — av/på-togglar */}
         <article className="settings-section">
@@ -423,64 +571,141 @@ export default function SettingsView() {
           <div className="settings-section-label">
             <h2>Transkribering</h2>
             <p>
-              KB-Whisper tränad på svensk tal. Större modell = bättre kvalitet men längre
-              laddning och mer VRAM.
+              Välj mellan lokal KB-Whisper (privat, fungerar offline) eller
+              Groq Whisper (snabb, kräver internet + gratis API-nyckel).
             </p>
           </div>
           <div className="settings-section-body">
             <div className="field">
-              <label className="field-label" htmlFor="model">
-                Modell
+              <label className="field-label" htmlFor="stt-provider">
+                Provider
               </label>
               <select
-                id="model"
+                id="stt-provider"
                 className="select"
-                value={draft.stt_model}
-                onChange={(e) => setDraft({ ...draft, stt_model: e.target.value })}
+                value={draft.stt_provider}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    stt_provider: e.target.value as SttProviderChoice,
+                  })
+                }
               >
-                {MODELS.map((m) => {
-                  const cached = sttCached[m.id];
-                  const prefix = cached === undefined ? "…" : cached ? "✓" : "↓";
-                  return (
-                    <option key={m.id} value={m.id}>
-                      {prefix} {m.label} — {m.note}
-                    </option>
-                  );
-                })}
+                {(Object.keys(STT_PROVIDER_LABELS) as SttProviderChoice[]).map((p) => (
+                  <option key={p} value={p}>
+                    {STT_PROVIDER_LABELS[p]}
+                  </option>
+                ))}
               </select>
-              {sttCached[draft.stt_model] === false && (
-                <div className="field-help" style={{ color: "var(--accent)" }}>
-                  Inte cachad — första PTT efter spara laddar ner modellen (~
-                  {draft.stt_model.includes("large")
-                    ? "3 GB"
-                    : draft.stt_model.includes("medium")
-                      ? "1.5 GB"
-                      : "150 MB"}
-                  , tar 1-3 min).
-                </div>
-              )}
+              <div className="field-help">
+                {draft.stt_provider === "groq"
+                  ? "Kräver Groq-nyckel nedan. Faller tillbaka till lokal STT vid nätfel."
+                  : "Allt lokalt — ljud lämnar aldrig datorn."}
+              </div>
             </div>
 
             <div className="field">
-              <label className="field-label">Beräkningsläge</label>
-              <div className="segmented" role="tablist">
-                {(Object.keys(COMPUTE_LABELS) as ComputeMode[]).map((mode) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    role="tab"
-                    aria-selected={draft.stt_compute_mode === mode}
-                    className={draft.stt_compute_mode === mode ? "active" : ""}
-                    onClick={() => setDraft({ ...draft, stt_compute_mode: mode })}
-                  >
-                    {COMPUTE_LABELS[mode]}
-                  </button>
+              <label className="field-label" htmlFor="stt-language">
+                Språk
+              </label>
+              <select
+                id="stt-language"
+                className="select"
+                value={draft.stt_language}
+                onChange={(e) =>
+                  setDraft({ ...draft, stt_language: e.target.value })
+                }
+              >
+                {STT_LANGUAGES.map((l) => (
+                  <option key={l.code} value={l.code}>
+                    {l.label}
+                  </option>
                 ))}
-              </div>
+              </select>
               <div className="field-help">
-                Auto väljer GPU om CUDA-körningstid finns, annars CPU-fallback.
+                Whisper-modellerna stödjer ~100 språk. Fast val är snabbare än auto.
               </div>
             </div>
+
+            {draft.stt_provider === "local" && (
+              <>
+                <div className="field">
+                  <label className="field-label" htmlFor="model">
+                    Lokal modell
+                  </label>
+                  <select
+                    id="model"
+                    className="select"
+                    value={draft.stt_model}
+                    onChange={(e) => setDraft({ ...draft, stt_model: e.target.value })}
+                  >
+                    {MODELS.map((m) => {
+                      const cached = sttCached[m.id];
+                      const prefix = cached === undefined ? "…" : cached ? "✓" : "↓";
+                      return (
+                        <option key={m.id} value={m.id}>
+                          {prefix} {m.label} — {m.note}
+                        </option>
+                      );
+                    })}
+                  </select>
+                  {sttCached[draft.stt_model] === false && (
+                    <div className="field-help" style={{ color: "var(--accent)" }}>
+                      Inte cachad — första PTT efter spara laddar ner modellen (~
+                      {draft.stt_model.includes("large")
+                        ? "3 GB"
+                        : draft.stt_model.includes("medium")
+                          ? "1.5 GB"
+                          : "150 MB"}
+                      , tar 1-3 min).
+                    </div>
+                  )}
+                </div>
+
+                <div className="field">
+                  <label className="field-label">Beräkningsläge</label>
+                  <div className="segmented" role="tablist">
+                    {(Object.keys(COMPUTE_LABELS) as ComputeMode[]).map((mode) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        role="tab"
+                        aria-selected={draft.stt_compute_mode === mode}
+                        className={draft.stt_compute_mode === mode ? "active" : ""}
+                        onClick={() => setDraft({ ...draft, stt_compute_mode: mode })}
+                      >
+                        {COMPUTE_LABELS[mode]}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="field-help">
+                    Auto väljer GPU om CUDA-körningstid finns, annars CPU-fallback.
+                  </div>
+                </div>
+              </>
+            )}
+
+            {draft.stt_provider === "groq" && (
+              <div className="field">
+                <label className="field-label" htmlFor="groq-stt-model">
+                  Groq-modell
+                </label>
+                <select
+                  id="groq-stt-model"
+                  className="select"
+                  value={draft.groq_stt_model}
+                  onChange={(e) =>
+                    setDraft({ ...draft, groq_stt_model: e.target.value })
+                  }
+                >
+                  {GROQ_STT_MODELS.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label} — {m.note}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
         </article>
 
@@ -655,6 +880,61 @@ export default function SettingsView() {
                   Claude Opus 4.7 — högsta kvalitet
                 </option>
               </select>
+            </div>
+
+            <div className="field">
+              <label className="field-label" htmlFor="groq-key">
+                Groq API-nyckel
+              </label>
+              <input
+                id="groq-key"
+                className="input"
+                type="password"
+                placeholder={
+                  groqKeyStored && groqKeyDraft === null ? "••••••••" : "gsk_…"
+                }
+                value={groqKeyDraft ?? ""}
+                onChange={(e) => setGroqKeyDraft(e.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <div className="field-help">
+                {groqKeyDraft === ""
+                  ? "Nyckeln raderas när du sparar."
+                  : "Skapa gratis-nyckel på console.groq.com/keys. Samma nyckel används för både STT och LLM."}
+              </div>
+              {groqKeyStored && groqKeyDraft === null && (
+                <button
+                  type="button"
+                  className="link-button"
+                  onClick={() => setGroqKeyDraft("")}
+                >
+                  Rensa nyckel
+                </button>
+              )}
+            </div>
+
+            <div className="field">
+              <label className="field-label" htmlFor="groq-llm-model">
+                Groq-modell
+              </label>
+              <select
+                id="groq-llm-model"
+                className="select"
+                value={draft.groq_llm_model}
+                onChange={(e) =>
+                  setDraft({ ...draft, groq_llm_model: e.target.value })
+                }
+              >
+                {GROQ_LLM_MODELS.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label} — {m.note}
+                  </option>
+                ))}
+              </select>
+              <div className="field-help">
+                Används när provider är Groq eller Auto (fallback efter Ollama).
+              </div>
             </div>
           </div>
         </article>

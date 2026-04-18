@@ -18,9 +18,11 @@ use svoice_audio::vad::trim_silence;
 use svoice_audio::{AudioCapture, AudioRing, VolumeMeter};
 use svoice_hotkey::{register_with_role, HotKey, LlCallback, LlKeyEvent, PttMachine, PttState};
 use svoice_inject::{capture_selection, inject, remember_foreground_target, InjectMethod};
-use svoice_llm::{AnthropicClient, LlmProvider, LlmRequest, OllamaClient, Role, TurnContent};
-use svoice_settings::{ComputeMode, LlmProvider as ProviderChoice, Settings};
-use svoice_stt::{PythonStt, SttConfig};
+use svoice_llm::{
+    AnthropicClient, GroqClient, LlmProvider, LlmRequest, OllamaClient, Role, TurnContent,
+};
+use svoice_settings::{ComputeMode, LlmProvider as ProviderChoice, Settings, SttProvider};
+use svoice_stt::{GroqStt, PythonStt, SttConfig};
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -332,17 +334,20 @@ pub fn run() {
             svoice_ipc::action_cancel,
             svoice_ipc::check_hf_cached,
             svoice_ipc::clear_anthropic_key,
+            svoice_ipc::clear_groq_key,
             svoice_ipc::get_settings,
             svoice_ipc::google_connect,
             svoice_ipc::google_connection_status,
             svoice_ipc::google_disconnect,
             svoice_ipc::has_anthropic_key,
+            svoice_ipc::has_groq_key,
             svoice_ipc::list_mic_devices,
             svoice_ipc::list_ollama_models,
             svoice_ipc::list_smart_functions,
             svoice_ipc::open_smart_functions_dir,
             svoice_ipc::pull_ollama_model,
             svoice_ipc::set_anthropic_key,
+            svoice_ipc::set_groq_key,
             svoice_ipc::set_settings,
         ])
         .run(tauri::generate_context!())
@@ -476,7 +481,7 @@ fn perform_transcribe_and_inject(
         tracing::warn!("inget tal detekterat (VAD trimmade allt)");
         return;
     }
-    let raw_text = match rt.block_on(stt.transcribe(segment)) {
+    let raw_text = match rt.block_on(transcribe_dispatch(settings, stt, segment)) {
         Ok(text) => text,
         Err(e) => {
             tracing::error!("STT-fel: {e}");
@@ -690,7 +695,7 @@ fn handle_action_released(
     if segment.is_empty() {
         anyhow::bail!("inget röstkommando detekterat");
     }
-    let command = rt.block_on(stt.transcribe(segment))?;
+    let command = rt.block_on(transcribe_dispatch(settings, stt, segment))?;
     let command = command.trim().to_string();
     if command.is_empty() {
         anyhow::bail!("STT returnerade tom text");
@@ -812,7 +817,7 @@ fn handle_action_released(
 
 /// Väljer LLM-provider baserat på settings. Auto prövar Ollama först (snabb
 /// health-check mot localhost:11434) och fallback till Anthropic om det
-/// misslyckas. Uttryckligt val (Claude/Ollama) gör ingen fallback.
+/// misslyckas. Uttryckligt val (Claude/Ollama/Groq) gör ingen fallback.
 async fn select_llm_provider(
     settings: &Settings,
     anthropic_key: Option<&str>,
@@ -830,10 +835,21 @@ async fn select_llm_provider(
                 .with_base_url(settings.ollama_url.clone()),
         )
     };
+    let build_groq = || -> Option<Arc<dyn LlmProvider>> {
+        svoice_secrets::get_groq_key()
+            .ok()
+            .flatten()
+            .filter(|k| !k.is_empty())
+            .map(|key| {
+                Arc::new(GroqClient::new(key).with_model(settings.groq_llm_model.clone()))
+                    as Arc<dyn LlmProvider>
+            })
+    };
 
     match settings.llm_provider {
         ProviderChoice::Claude => build_anthropic(),
         ProviderChoice::Ollama => Some(build_ollama()),
+        ProviderChoice::Groq => build_groq(),
         ProviderChoice::Auto => {
             let ollama = OllamaClient::new(settings.ollama_model.clone())
                 .with_base_url(settings.ollama_url.clone());
@@ -843,9 +859,44 @@ async fn select_llm_provider(
                     settings.ollama_model
                 );
                 Some(Arc::new(ollama))
+            } else if let Some(g) = build_groq() {
+                tracing::info!("action-LLM: Ollama otillgänglig, använder Groq");
+                Some(g)
             } else {
-                tracing::info!("action-LLM: Ollama otillgänglig, faller tillbaka till Anthropic");
+                tracing::info!("action-LLM: Ollama + Groq otillgängliga, faller tillbaka till Anthropic");
                 build_anthropic()
+            }
+        }
+    }
+}
+
+/// Transkribera via vald STT-provider. För Groq krävs API-nyckel i keyring —
+/// saknas den (eller om API-call failar) faller vi tillbaka till lokal STT.
+async fn transcribe_dispatch(
+    settings: &Settings,
+    local: &PythonStt,
+    audio: &[f32],
+) -> anyhow::Result<String> {
+    match settings.stt_provider {
+        SttProvider::Local => Ok(local.transcribe(audio).await?),
+        SttProvider::Groq => {
+            let Some(key) = svoice_secrets::get_groq_key()
+                .ok()
+                .flatten()
+                .filter(|k| !k.is_empty())
+            else {
+                tracing::warn!("Groq STT vald men API-nyckel saknas — faller tillbaka till lokal");
+                return Ok(local.transcribe(audio).await?);
+            };
+            let client = GroqStt::new(key)
+                .with_model(settings.groq_stt_model.clone())
+                .with_language(settings.stt_language.clone());
+            match client.transcribe(audio).await {
+                Ok(text) => Ok(text),
+                Err(e) => {
+                    tracing::error!("Groq STT fel: {e} — faller tillbaka till lokal");
+                    Ok(local.transcribe(audio).await?)
+                }
             }
         }
     }
