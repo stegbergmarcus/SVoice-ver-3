@@ -129,6 +129,44 @@ def main():
                     "language": info.language if info else language,
                     "confidence": float(info.language_probability or 0.0),
                 })
+            elif t == "download_model":
+                repo_id = req.get("model")
+                if not repo_id:
+                    send({"type": "error", "message": "download_model saknar 'model'", "recoverable": False})
+                    continue
+                try:
+                    from huggingface_hub import snapshot_download
+                    send({"type": "download_started", "model": repo_id})
+                    t0 = time.perf_counter()
+                    # allow_patterns trimmar bort README/exempel-filer som inte
+                    # behövs för inferens → minst 10-20% mindre download per modell.
+                    snapshot_download(
+                        repo_id=repo_id,
+                        allow_patterns=[
+                            "*.bin",
+                            "*.safetensors",
+                            "*.pt",
+                            "*.json",
+                            "*.txt",
+                            "*.model",
+                            "tokenizer*",
+                            "vocab*",
+                        ],
+                    )
+                    elapsed_ms = int((time.perf_counter() - t0) * 1000)
+                    send({"type": "downloaded", "model": repo_id, "elapsed_ms": elapsed_ms})
+                except ImportError as e:
+                    send({
+                        "type": "error",
+                        "message": f"huggingface_hub saknas i Python-runtime: {e}",
+                        "recoverable": False,
+                    })
+                except Exception as e:
+                    send({
+                        "type": "error",
+                        "message": f"download failed: {e}",
+                        "recoverable": True,
+                    })
             elif t == "shutdown":
                 break
             else:

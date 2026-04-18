@@ -17,6 +17,12 @@ pub enum SttRequest {
         sample_rate: u32,
         beam_size: u32,
     },
+    /// Be sidecar att ladda ner en HF-modell till disk-cache utan att
+    /// ladda den i VRAM. Idempotent: no-op om modellen redan är komplett
+    /// cachad. Efter download kan user byta till modellen via Load.
+    DownloadModel {
+        model: String,
+    },
     /// Stäng ner sidecar gracefully.
     Shutdown,
 }
@@ -34,6 +40,16 @@ pub enum SttResponse {
         inference_ms: u64,
         language: String,
         confidence: f32,
+    },
+    /// Sidecar har startat download — används för UI "startar..."-status.
+    /// Skickas direkt efter DownloadModel-request mottagen.
+    DownloadStarted {
+        model: String,
+    },
+    /// Download klar. `elapsed_ms` = tid från request till klar.
+    Downloaded {
+        model: String,
+        elapsed_ms: u64,
     },
     Error {
         message: String,
