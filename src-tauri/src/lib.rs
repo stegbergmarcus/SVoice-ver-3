@@ -649,7 +649,7 @@ fn emit_event<T: serde::Serialize + Clone>(app: &AppHandle, event: &str, payload
 /// Emittar ett `action_llm_token`-event och sätter streaming-flaggan true.
 /// Flaggan hindrar click-outside-hide under streaming.
 fn emit_action_token(app: &AppHandle, text: String) {
-    svoice_ipc::ACTION_POPUP_STREAMING.store(true, Ordering::SeqCst);
+    svoice_ipc::mark_action_streaming();
     emit_event(app, EV_ACTION_LLM_TOKEN, ActionToken { text });
 }
 
@@ -657,12 +657,7 @@ fn emit_action_token(app: &AppHandle, text: String) {
 /// 500 ms senare (grace-period så user inte råkar stänga popupen direkt).
 fn emit_action_done(app: &AppHandle) {
     emit_event(app, EV_ACTION_LLM_DONE, ());
-    let app_clone = app.clone();
-    tokio::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-        svoice_ipc::ACTION_POPUP_STREAMING.store(false, Ordering::SeqCst);
-        let _ = app_clone;
-    });
+    svoice_ipc::schedule_action_streaming_clear();
 }
 
 /// Visa main-fönstret (Settings) och ge det fokus. Anropas från tray-menyn
@@ -1155,6 +1150,7 @@ fn handle_action_released(
                             message: format!("Gemini: {e}"),
                         },
                     );
+                    svoice_ipc::clear_action_streaming();
                 }
             });
             return Ok(());
@@ -1214,6 +1210,7 @@ fn handle_action_released(
                             message: format!("agentic: {e}"),
                         },
                     );
+                    svoice_ipc::clear_action_streaming();
                 }
             });
             return Ok(());
@@ -1280,6 +1277,7 @@ fn handle_action_released(
                                     message: e.to_string(),
                                 },
                             );
+                            svoice_ipc::clear_action_streaming();
                             return;
                         }
                     }
@@ -1299,6 +1297,7 @@ fn handle_action_released(
                         message: e.to_string(),
                     },
                 );
+                svoice_ipc::clear_action_streaming();
             }
         }
         let _ = rt_clone;
@@ -1527,6 +1526,7 @@ async fn run_smart_function(app: AppHandle, id: String) -> Result<(), String> {
                                     message: e.to_string(),
                                 },
                             );
+                            svoice_ipc::clear_action_streaming();
                             return;
                         }
                     }
@@ -1540,6 +1540,7 @@ async fn run_smart_function(app: AppHandle, id: String) -> Result<(), String> {
                         message: e.to_string(),
                     },
                 );
+                svoice_ipc::clear_action_streaming();
             }
         }
     });

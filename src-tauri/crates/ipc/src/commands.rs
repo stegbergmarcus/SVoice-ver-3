@@ -269,6 +269,33 @@ pub static FOLLOWUP_STOP_REQUESTED: std::sync::atomic::AtomicBool =
 pub static ACTION_POPUP_STREAMING: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
+/// Markera att popup-streaming pågår. Gate:ar click-outside-hide i
+/// lib.rs focus-lost-handlern. Anropas före varje `action_llm_token`-
+/// emit. Återställs antingen via [`schedule_action_streaming_clear`]
+/// efter done, eller direkt i `action_apply` / `action_cancel`.
+pub fn mark_action_streaming() {
+    ACTION_POPUP_STREAMING.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// Schemalägg rensning av `ACTION_POPUP_STREAMING` 500 ms efter att
+/// streaming är klar. Grace-perioden låter user se färdigt svar utan
+/// att popupen försvinner om de råkar klicka utanför direkt efter sista
+/// token. Anropas efter `action_llm_done`-emit.
+pub fn schedule_action_streaming_clear() {
+    tokio::spawn(async {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        ACTION_POPUP_STREAMING.store(false, std::sync::atomic::Ordering::SeqCst);
+    });
+}
+
+/// Omedelbar rensning av `ACTION_POPUP_STREAMING` (ingen grace-period).
+/// Används på error-paths där vi aldrig når done — annars kan flaggan
+/// fastna i true och popup vägrar stängas via click-outside förrän user
+/// Esc:ar eller Apply:ar.
+pub fn clear_action_streaming() {
+    ACTION_POPUP_STREAMING.store(false, std::sync::atomic::Ordering::SeqCst);
+}
+
 /// Lista alla tillgängliga mic-enheter (default-enheten listas först).
 /// Används av Settings-UI:ets mikrofon-dropdown.
 #[tauri::command]

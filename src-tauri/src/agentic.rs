@@ -271,8 +271,7 @@ pub async fn run_agentic(
             StepOutcome::Finished { text } => {
                 if !text.is_empty() {
                     assistant_accum.push_str(&text);
-                    svoice_ipc::ACTION_POPUP_STREAMING
-                        .store(true, std::sync::atomic::Ordering::SeqCst);
+                    svoice_ipc::mark_action_streaming();
                     let _ = app.emit(ev_token, serde_json::json!({ "text": text }));
                 }
                 // Spara final assistant-svar + sätt system-prompten på
@@ -283,13 +282,7 @@ pub async fn run_agentic(
                 }
                 ensure_conversation_system(&sys_prompt);
                 let _ = app.emit(ev_done, ());
-                let app_clone = app.clone();
-                tokio::spawn(async move {
-                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                    svoice_ipc::ACTION_POPUP_STREAMING
-                        .store(false, std::sync::atomic::Ordering::SeqCst);
-                    let _ = app_clone;
-                });
+                svoice_ipc::schedule_action_streaming_clear();
                 return Ok(());
             }
             StepOutcome::NeedTools {
@@ -301,8 +294,7 @@ pub async fn run_agentic(
                 // och ackumulera så final turn sparas korrekt.
                 if !partial_text.is_empty() {
                     assistant_accum.push_str(&partial_text);
-                    svoice_ipc::ACTION_POPUP_STREAMING
-                        .store(true, std::sync::atomic::Ordering::SeqCst);
+                    svoice_ipc::mark_action_streaming();
                     let _ = app.emit(ev_token, serde_json::json!({ "text": partial_text }));
                 }
 
@@ -493,8 +485,7 @@ pub async fn run_agentic_gemini(
             GeminiEvent::Text(text) => {
                 if !text.is_empty() {
                     assistant_accum.push_str(&text);
-                    svoice_ipc::ACTION_POPUP_STREAMING
-                        .store(true, std::sync::atomic::Ordering::SeqCst);
+                    svoice_ipc::mark_action_streaming();
                     let _ = app.emit(ev_token, serde_json::json!({ "text": text }));
                 }
             }
@@ -558,13 +549,7 @@ pub async fn run_agentic_gemini(
     }
     ensure_conversation_system(&sys_prompt);
     let _ = app.emit(ev_done, ());
-    let app_clone = app.clone();
-    tokio::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-        svoice_ipc::ACTION_POPUP_STREAMING
-            .store(false, std::sync::atomic::Ordering::SeqCst);
-        let _ = app_clone;
-    });
+    svoice_ipc::schedule_action_streaming_clear();
     Ok(())
 }
 
