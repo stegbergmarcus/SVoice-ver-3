@@ -290,6 +290,16 @@ impl GeminiClient {
             body["tools"] = serde_json::json!(tools);
         }
 
+        // När man blandar built-in tools (googleSearch) med functionDeclarations
+        // kräver Gemini API att `toolConfig.includeServerSideToolInvocations`
+        // är true — annars 400: "Please enable tool_config.include_server_side_
+        // tool_invocations to use Built-in tools with Function calling."
+        if enable_grounding && !function_declarations.is_empty() {
+            body["toolConfig"] = serde_json::json!({
+                "includeServerSideToolInvocations": true
+            });
+        }
+
         let resp = self
             .client
             .post(&url)
