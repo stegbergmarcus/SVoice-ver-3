@@ -497,16 +497,21 @@ export default function SettingsView() {
             <sub>by Stegberg · v3</sub>
           </h1>
           <p className="settings-wordmark-lede">
-            Lokal tal-till-text. Privat först. Håll höger Ctrl i valfri app för att diktera —
-            resten är din text.
+            Röststyrd produktivitetssvit för Windows. Diktera var som helst, omformulera
+            markerad text, ställ frågor och hantera kalender + mail — allt via två tangenter.
           </p>
         </div>
 
         <div className="settings-wordmark-footer">
           <div>
-            <span className="dot" /> STT-modell laddad · 1670 ms
+            <span className="dot" />{" "}
+            {draft.stt_provider === "groq"
+              ? `STT: Groq · ${draft.groq_stt_model}`
+              : `STT: ${draft.stt_model.split("/").pop()}`}
           </div>
-          <div>GPU · kb-whisper-medium · float16</div>
+          <div>
+            {PROVIDER_LABELS[draft.action_llm_provider]} · action-popup
+          </div>
           <div style={{ opacity: 0.6 }}>Ingen telemetri · ljud endast i RAM</div>
         </div>
       </aside>
