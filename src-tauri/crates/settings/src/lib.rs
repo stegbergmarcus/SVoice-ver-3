@@ -22,9 +22,19 @@ pub struct Settings {
     /// grammatik/stavning-polering INNAN inject. Långsammare men vassare.
     pub llm_polish_dictation: bool,
 
-    /// Vilken LLM-provider som action-popup + polering ska använda.
-    /// Auto = försök lokal först, fallback till API om inte tillgänglig.
-    pub llm_provider: LlmProvider,
+    /// LLM-provider för **action-popup** (Insert-PTT → svar i popup).
+    /// `#[serde(alias = "llm_provider")]` migrerar tysta gamla settings.json där
+    /// bara ett fält `llm_provider` fanns — det antas ha varit user:s
+    /// action-provider (eftersom den primära use-casen var action-popup).
+    #[serde(default, alias = "llm_provider")]
+    pub action_llm_provider: LlmProvider,
+
+    /// LLM-provider för **dikterings-polering** (RightCtrl-PTT → LLM-fixar
+    /// grammatik/interpunktion innan inject). Separerad från action-LLM så
+    /// user kan t.ex. köra snabb+billig Groq för diktering och Claude för
+    /// kraftfull action. Auto = lokal Ollama först, Anthropic fallback.
+    #[serde(default)]
+    pub dictation_llm_provider: LlmProvider,
 
     /// Anthropic-modell. Default claude-sonnet-4-5.
     pub anthropic_model: String,
@@ -81,6 +91,13 @@ pub enum LlmProvider {
     Groq,
 }
 
+impl Default for LlmProvider {
+    fn default() -> Self {
+        // Auto = lokalt först, fallback cloud. Matchar privacy-first-default.
+        LlmProvider::Auto
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SttProvider {
@@ -100,7 +117,8 @@ impl Default for Settings {
             vad_threshold: 0.005,
             action_llm_enabled: true,
             llm_polish_dictation: false,
-            llm_provider: LlmProvider::Auto,
+            action_llm_provider: LlmProvider::Auto,
+            dictation_llm_provider: LlmProvider::Auto,
             anthropic_model: "claude-sonnet-4-5".into(),
             ollama_model: "qwen2.5:14b".into(),
             ollama_url: "http://127.0.0.1:11434".into(),

@@ -1,0 +1,1145 @@
+<!DOCTYPE html>
+<html lang="sv">
+  <head>
+    <meta charset="UTF-8" />
+    <title>SVoice 3 — logotyp-förslag</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,500&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg-void:     #0b0b0d;
+        --bg-card:     #131316;
+        --ink:         #f3ede3;
+        --ink-mid:     #9b958a;
+        --ink-low:     #5c5850;
+        --accent:      #e6a85c;
+        --accent-hot:  #ffb96a;
+        --font-display: "Fraunces", Georgia, serif;
+        --font-body:   "Instrument Sans", ui-sans-serif, sans-serif;
+        --font-mono:   "JetBrains Mono", ui-monospace, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 48px 32px 96px;
+        background: var(--bg-void);
+        color: var(--ink);
+        font-family: var(--font-body);
+        -webkit-font-smoothing: antialiased;
+      }
+      header {
+        max-width: 1040px;
+        margin: 0 auto 48px;
+      }
+      h1 {
+        font-family: var(--font-display);
+        font-style: italic;
+        font-weight: 400;
+        font-variation-settings: "opsz" 144;
+        font-size: 44px;
+        line-height: 1;
+        margin: 0 0 12px;
+      }
+      .lead {
+        color: var(--ink-mid);
+        font-size: 15px;
+        line-height: 1.5;
+        max-width: 640px;
+      }
+      .grid {
+        max-width: 1040px;
+        margin: 0 auto;
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 24px;
+      }
+      .variant {
+        background: var(--bg-card);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 18px;
+        padding: 24px 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+      .variant-name {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+      }
+      .variant-name .num {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+      .variant-name .label {
+        font-family: var(--font-display);
+        font-style: italic;
+        font-weight: 500;
+        font-size: 22px;
+        color: var(--ink);
+      }
+      .variant-desc {
+        font-size: 12.5px;
+        line-height: 1.5;
+        color: var(--ink-mid);
+      }
+      .sizes {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 8px;
+        align-items: end;
+        justify-items: center;
+        padding: 20px 0 8px;
+      }
+      .sizes .slot {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+      }
+      .sizes .slot span {
+        font-family: var(--font-mono);
+        font-size: 9px;
+        letter-spacing: 0.15em;
+        color: var(--ink-low);
+      }
+      /* Ljus bakgrund-preview så vi ser logo mot både ljust och mörkt */
+      .light-bg {
+        background: #f3ede3;
+        border-radius: 12px;
+        padding: 18px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 20px;
+      }
+      .footer-note {
+        max-width: 1040px;
+        margin: 56px auto 0;
+        padding-top: 24px;
+        border-top: 1px solid rgba(255, 255, 255, 0.06);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        letter-spacing: 0.1em;
+        color: var(--ink-low);
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Logotyp-förslag</h1>
+      <p class="lead">
+        Sex förslag på ny SVoice-logotyp. Var och en visas i fyra storlekar
+        (16, 32, 64, 128 px) samt mot ivory-bakgrund. Alla lutar på charcoal
+        och amber från temat. Säg vilken nummer du vill ha så implementerar
+        jag den i <code>SVoiceLogo.tsx</code>.
+      </p>
+    </header>
+
+    <div class="grid">
+      <!-- ============ VARIANT 1: AMBIT ============ -->
+      <article class="variant">
+        <div class="variant-name">
+          <span class="num">01</span>
+          <span class="label">Ambit</span>
+        </div>
+        <p class="variant-desc">
+          Amber-prick + tre expanderande båglar. Broadcast-symbol som antyder
+          röst som sprids ut. Ultra-minimalist, skalar ner till 16 px utan
+          att tappa identitet.
+        </p>
+        <div class="sizes">
+          <div class="slot">
+            <svg width="16" height="16" viewBox="0 0 48 48">
+              <defs>
+                <radialGradient id="v1-bg" cx="30%" cy="30%" r="80%"><stop offset="0%" stop-color="#ffb96a"/><stop offset="70%" stop-color="#e6a85c"/><stop offset="100%" stop-color="#c88a3f"/></radialGradient>
+              </defs>
+              <circle cx="24" cy="24" r="23.5" fill="url(#v1-bg)"/>
+              <g transform="translate(17 24)">
+                <circle cx="0" cy="0" r="3" fill="#0b0b0d"/>
+                <path d="M 4 -6 A 6 6 0 0 1 4 6" stroke="#0b0b0d" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+                <path d="M 9 -10 A 11 11 0 0 1 9 10" stroke="#0b0b0d" stroke-width="1.6" fill="none" stroke-linecap="round" opacity="0.75"/>
+                <path d="M 14 -14 A 16 16 0 0 1 14 14" stroke="#0b0b0d" stroke-width="1.4" fill="none" stroke-linecap="round" opacity="0.5"/>
+              </g>
+            </svg>
+            <span>16</span>
+          </div>
+          <div class="slot">
+            <svg width="32" height="32" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v1-bg)"/>
+              <g transform="translate(17 24)">
+                <circle cx="0" cy="0" r="3" fill="#0b0b0d"/>
+                <path d="M 4 -6 A 6 6 0 0 1 4 6" stroke="#0b0b0d" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+                <path d="M 9 -10 A 11 11 0 0 1 9 10" stroke="#0b0b0d" stroke-width="1.6" fill="none" stroke-linecap="round" opacity="0.75"/>
+                <path d="M 14 -14 A 16 16 0 0 1 14 14" stroke="#0b0b0d" stroke-width="1.4" fill="none" stroke-linecap="round" opacity="0.5"/>
+              </g>
+            </svg>
+            <span>32</span>
+          </div>
+          <div class="slot">
+            <svg width="64" height="64" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v1-bg)"/>
+              <g transform="translate(17 24)">
+                <circle cx="0" cy="0" r="3" fill="#0b0b0d"/>
+                <path d="M 4 -6 A 6 6 0 0 1 4 6" stroke="#0b0b0d" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+                <path d="M 9 -10 A 11 11 0 0 1 9 10" stroke="#0b0b0d" stroke-width="1.6" fill="none" stroke-linecap="round" opacity="0.75"/>
+                <path d="M 14 -14 A 16 16 0 0 1 14 14" stroke="#0b0b0d" stroke-width="1.4" fill="none" stroke-linecap="round" opacity="0.5"/>
+              </g>
+            </svg>
+            <span>64</span>
+          </div>
+          <div class="slot">
+            <svg width="128" height="128" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v1-bg)"/>
+              <g transform="translate(17 24)">
+                <circle cx="0" cy="0" r="3" fill="#0b0b0d"/>
+                <path d="M 4 -6 A 6 6 0 0 1 4 6" stroke="#0b0b0d" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+                <path d="M 9 -10 A 11 11 0 0 1 9 10" stroke="#0b0b0d" stroke-width="1.6" fill="none" stroke-linecap="round" opacity="0.75"/>
+                <path d="M 14 -14 A 16 16 0 0 1 14 14" stroke="#0b0b0d" stroke-width="1.4" fill="none" stroke-linecap="round" opacity="0.5"/>
+              </g>
+            </svg>
+            <span>128</span>
+          </div>
+        </div>
+        <div class="light-bg">
+          <svg width="48" height="48" viewBox="0 0 48 48">
+            <circle cx="24" cy="24" r="23.5" fill="url(#v1-bg)"/>
+            <g transform="translate(17 24)">
+              <circle cx="0" cy="0" r="3" fill="#0b0b0d"/>
+              <path d="M 4 -6 A 6 6 0 0 1 4 6" stroke="#0b0b0d" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+              <path d="M 9 -10 A 11 11 0 0 1 9 10" stroke="#0b0b0d" stroke-width="1.6" fill="none" stroke-linecap="round" opacity="0.75"/>
+              <path d="M 14 -14 A 16 16 0 0 1 14 14" stroke="#0b0b0d" stroke-width="1.4" fill="none" stroke-linecap="round" opacity="0.5"/>
+            </g>
+          </svg>
+        </div>
+      </article>
+
+      <!-- ============ VARIANT 2: ECHO ============ -->
+      <article class="variant">
+        <div class="variant-name">
+          <span class="num">02</span>
+          <span class="label">Echo</span>
+        </div>
+        <p class="variant-desc">
+          Tre koncentriska amber-ringar centrerat — som ljud-ekot. Symmetriskt
+          och lugnt, refererar klassisk broadcast-estetik. Fungerar både
+          fyllda och som outline.
+        </p>
+        <div class="sizes">
+          <div class="slot">
+            <svg width="16" height="16" viewBox="0 0 48 48">
+              <defs>
+                <radialGradient id="v2-bg" cx="30%" cy="30%" r="80%"><stop offset="0%" stop-color="#ffb96a"/><stop offset="70%" stop-color="#e6a85c"/><stop offset="100%" stop-color="#c88a3f"/></radialGradient>
+              </defs>
+              <circle cx="24" cy="24" r="23.5" fill="url(#v2-bg)"/>
+              <circle cx="24" cy="24" r="3" fill="#0b0b0d"/>
+              <circle cx="24" cy="24" r="9" stroke="#0b0b0d" stroke-width="2" fill="none" opacity="0.85"/>
+              <circle cx="24" cy="24" r="15" stroke="#0b0b0d" stroke-width="1.6" fill="none" opacity="0.55"/>
+            </svg>
+            <span>16</span>
+          </div>
+          <div class="slot">
+            <svg width="32" height="32" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v2-bg)"/>
+              <circle cx="24" cy="24" r="3" fill="#0b0b0d"/>
+              <circle cx="24" cy="24" r="9" stroke="#0b0b0d" stroke-width="2" fill="none" opacity="0.85"/>
+              <circle cx="24" cy="24" r="15" stroke="#0b0b0d" stroke-width="1.6" fill="none" opacity="0.55"/>
+            </svg>
+            <span>32</span>
+          </div>
+          <div class="slot">
+            <svg width="64" height="64" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v2-bg)"/>
+              <circle cx="24" cy="24" r="3" fill="#0b0b0d"/>
+              <circle cx="24" cy="24" r="9" stroke="#0b0b0d" stroke-width="2" fill="none" opacity="0.85"/>
+              <circle cx="24" cy="24" r="15" stroke="#0b0b0d" stroke-width="1.6" fill="none" opacity="0.55"/>
+            </svg>
+            <span>64</span>
+          </div>
+          <div class="slot">
+            <svg width="128" height="128" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v2-bg)"/>
+              <circle cx="24" cy="24" r="3" fill="#0b0b0d"/>
+              <circle cx="24" cy="24" r="9" stroke="#0b0b0d" stroke-width="2" fill="none" opacity="0.85"/>
+              <circle cx="24" cy="24" r="15" stroke="#0b0b0d" stroke-width="1.6" fill="none" opacity="0.55"/>
+            </svg>
+            <span>128</span>
+          </div>
+        </div>
+        <div class="light-bg">
+          <svg width="48" height="48" viewBox="0 0 48 48">
+            <circle cx="24" cy="24" r="23.5" fill="url(#v2-bg)"/>
+            <circle cx="24" cy="24" r="3" fill="#0b0b0d"/>
+            <circle cx="24" cy="24" r="9" stroke="#0b0b0d" stroke-width="2" fill="none" opacity="0.85"/>
+            <circle cx="24" cy="24" r="15" stroke="#0b0b0d" stroke-width="1.6" fill="none" opacity="0.55"/>
+          </svg>
+        </div>
+      </article>
+
+      <!-- ============ VARIANT 3: MERIDIAN ============ -->
+      <article class="variant">
+        <div class="variant-name">
+          <span class="num">03</span>
+          <span class="label">Meridian</span>
+        </div>
+        <p class="variant-desc">
+          En central vertikal stav (mic-stommen) flankerad av två asymmetriska
+          amber-vågor. Editorial rytm — det längsta draget är alltid mitten.
+          Refererar reel-to-reel magnetband / pro-audio.
+        </p>
+        <div class="sizes">
+          <div class="slot">
+            <svg width="16" height="16" viewBox="0 0 48 48">
+              <defs>
+                <radialGradient id="v3-bg" cx="30%" cy="30%" r="80%"><stop offset="0%" stop-color="#ffb96a"/><stop offset="70%" stop-color="#e6a85c"/><stop offset="100%" stop-color="#c88a3f"/></radialGradient>
+              </defs>
+              <circle cx="24" cy="24" r="23.5" fill="url(#v3-bg)"/>
+              <rect x="22.5" y="8"  width="3" height="32" rx="1.5" fill="#0b0b0d"/>
+              <rect x="14"   y="14" width="3" height="20" rx="1.5" fill="#0b0b0d" opacity="0.8"/>
+              <rect x="31"   y="18" width="3" height="12" rx="1.5" fill="#0b0b0d" opacity="0.6"/>
+              <rect x="5.5"  y="20" width="3" height="8"  rx="1.5" fill="#0b0b0d" opacity="0.45"/>
+              <rect x="39.5" y="21" width="3" height="6"  rx="1.5" fill="#0b0b0d" opacity="0.3"/>
+            </svg>
+            <span>16</span>
+          </div>
+          <div class="slot">
+            <svg width="32" height="32" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v3-bg)"/>
+              <rect x="22.5" y="8"  width="3" height="32" rx="1.5" fill="#0b0b0d"/>
+              <rect x="14"   y="14" width="3" height="20" rx="1.5" fill="#0b0b0d" opacity="0.8"/>
+              <rect x="31"   y="18" width="3" height="12" rx="1.5" fill="#0b0b0d" opacity="0.6"/>
+              <rect x="5.5"  y="20" width="3" height="8"  rx="1.5" fill="#0b0b0d" opacity="0.45"/>
+              <rect x="39.5" y="21" width="3" height="6"  rx="1.5" fill="#0b0b0d" opacity="0.3"/>
+            </svg>
+            <span>32</span>
+          </div>
+          <div class="slot">
+            <svg width="64" height="64" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v3-bg)"/>
+              <rect x="22.5" y="8"  width="3" height="32" rx="1.5" fill="#0b0b0d"/>
+              <rect x="14"   y="14" width="3" height="20" rx="1.5" fill="#0b0b0d" opacity="0.8"/>
+              <rect x="31"   y="18" width="3" height="12" rx="1.5" fill="#0b0b0d" opacity="0.6"/>
+              <rect x="5.5"  y="20" width="3" height="8"  rx="1.5" fill="#0b0b0d" opacity="0.45"/>
+              <rect x="39.5" y="21" width="3" height="6"  rx="1.5" fill="#0b0b0d" opacity="0.3"/>
+            </svg>
+            <span>64</span>
+          </div>
+          <div class="slot">
+            <svg width="128" height="128" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v3-bg)"/>
+              <rect x="22.5" y="8"  width="3" height="32" rx="1.5" fill="#0b0b0d"/>
+              <rect x="14"   y="14" width="3" height="20" rx="1.5" fill="#0b0b0d" opacity="0.8"/>
+              <rect x="31"   y="18" width="3" height="12" rx="1.5" fill="#0b0b0d" opacity="0.6"/>
+              <rect x="5.5"  y="20" width="3" height="8"  rx="1.5" fill="#0b0b0d" opacity="0.45"/>
+              <rect x="39.5" y="21" width="3" height="6"  rx="1.5" fill="#0b0b0d" opacity="0.3"/>
+            </svg>
+            <span>128</span>
+          </div>
+        </div>
+        <div class="light-bg">
+          <svg width="48" height="48" viewBox="0 0 48 48">
+            <circle cx="24" cy="24" r="23.5" fill="url(#v3-bg)"/>
+            <rect x="22.5" y="8"  width="3" height="32" rx="1.5" fill="#0b0b0d"/>
+            <rect x="14"   y="14" width="3" height="20" rx="1.5" fill="#0b0b0d" opacity="0.8"/>
+            <rect x="31"   y="18" width="3" height="12" rx="1.5" fill="#0b0b0d" opacity="0.6"/>
+            <rect x="5.5"  y="20" width="3" height="8"  rx="1.5" fill="#0b0b0d" opacity="0.45"/>
+            <rect x="39.5" y="21" width="3" height="6"  rx="1.5" fill="#0b0b0d" opacity="0.3"/>
+          </svg>
+        </div>
+      </article>
+
+      <!-- ============ VARIANT 4: QUILL ============ -->
+      <article class="variant">
+        <div class="variant-name">
+          <span class="num">04</span>
+          <span class="label">Quill</span>
+        </div>
+        <p class="variant-desc">
+          En enda italic serif-strekstång (som från Fraunces pennspets) med
+          amber accent-droppe. Editorial-forward — pennan som skriver det
+          du säger. Blir typografiskt, nära Fraunces-display i appen.
+        </p>
+        <div class="sizes">
+          <div class="slot">
+            <svg width="16" height="16" viewBox="0 0 48 48">
+              <defs>
+                <radialGradient id="v4-bg" cx="30%" cy="30%" r="80%"><stop offset="0%" stop-color="#ffb96a"/><stop offset="70%" stop-color="#e6a85c"/><stop offset="100%" stop-color="#c88a3f"/></radialGradient>
+              </defs>
+              <circle cx="24" cy="24" r="23.5" fill="url(#v4-bg)"/>
+              <path d="M 17 36 C 19 24, 24 14, 31 10 L 28 18 C 26 24, 23 30, 19 36 Z" fill="#0b0b0d"/>
+              <circle cx="33" cy="34" r="2.5" fill="#0b0b0d"/>
+            </svg>
+            <span>16</span>
+          </div>
+          <div class="slot">
+            <svg width="32" height="32" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v4-bg)"/>
+              <path d="M 17 36 C 19 24, 24 14, 31 10 L 28 18 C 26 24, 23 30, 19 36 Z" fill="#0b0b0d"/>
+              <circle cx="33" cy="34" r="2.5" fill="#0b0b0d"/>
+            </svg>
+            <span>32</span>
+          </div>
+          <div class="slot">
+            <svg width="64" height="64" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v4-bg)"/>
+              <path d="M 17 36 C 19 24, 24 14, 31 10 L 28 18 C 26 24, 23 30, 19 36 Z" fill="#0b0b0d"/>
+              <circle cx="33" cy="34" r="2.5" fill="#0b0b0d"/>
+            </svg>
+            <span>64</span>
+          </div>
+          <div class="slot">
+            <svg width="128" height="128" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v4-bg)"/>
+              <path d="M 17 36 C 19 24, 24 14, 31 10 L 28 18 C 26 24, 23 30, 19 36 Z" fill="#0b0b0d"/>
+              <circle cx="33" cy="34" r="2.5" fill="#0b0b0d"/>
+            </svg>
+            <span>128</span>
+          </div>
+        </div>
+        <div class="light-bg">
+          <svg width="48" height="48" viewBox="0 0 48 48">
+            <circle cx="24" cy="24" r="23.5" fill="url(#v4-bg)"/>
+            <path d="M 17 36 C 19 24, 24 14, 31 10 L 28 18 C 26 24, 23 30, 19 36 Z" fill="#0b0b0d"/>
+            <circle cx="33" cy="34" r="2.5" fill="#0b0b0d"/>
+          </svg>
+        </div>
+      </article>
+
+      <!-- ============ VARIANT 5: APERTURE ============ -->
+      <article class="variant">
+        <div class="variant-name">
+          <span class="num">05</span>
+          <span class="label">Aperture</span>
+        </div>
+        <p class="variant-desc">
+          Amber-ring med fyra indragna "bladtänder" inåt — samma visual som
+          en kameralinsens bländare. Röstinputen är en öppning som släpper
+          in ljud. Lite prouder studio-feel, kräver skalning över 32 px för
+          att synas bäst.
+        </p>
+        <div class="sizes">
+          <div class="slot">
+            <svg width="16" height="16" viewBox="0 0 48 48">
+              <defs>
+                <radialGradient id="v5-bg" cx="30%" cy="30%" r="80%"><stop offset="0%" stop-color="#ffb96a"/><stop offset="70%" stop-color="#e6a85c"/><stop offset="100%" stop-color="#c88a3f"/></radialGradient>
+              </defs>
+              <circle cx="24" cy="24" r="23.5" fill="url(#v5-bg)"/>
+              <g stroke="#0b0b0d" stroke-width="2.4" stroke-linecap="round" fill="none">
+                <path d="M 24 10 L 24 38" opacity="0.9"/>
+                <path d="M 10 24 L 38 24" opacity="0.9"/>
+                <path d="M 14 14 L 34 34" opacity="0.55"/>
+                <path d="M 34 14 L 14 34" opacity="0.55"/>
+              </g>
+              <circle cx="24" cy="24" r="5" fill="#0b0b0d"/>
+            </svg>
+            <span>16</span>
+          </div>
+          <div class="slot">
+            <svg width="32" height="32" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v5-bg)"/>
+              <g stroke="#0b0b0d" stroke-width="2.4" stroke-linecap="round" fill="none">
+                <path d="M 24 10 L 24 38" opacity="0.9"/>
+                <path d="M 10 24 L 38 24" opacity="0.9"/>
+                <path d="M 14 14 L 34 34" opacity="0.55"/>
+                <path d="M 34 14 L 14 34" opacity="0.55"/>
+              </g>
+              <circle cx="24" cy="24" r="5" fill="#0b0b0d"/>
+            </svg>
+            <span>32</span>
+          </div>
+          <div class="slot">
+            <svg width="64" height="64" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v5-bg)"/>
+              <g stroke="#0b0b0d" stroke-width="2.4" stroke-linecap="round" fill="none">
+                <path d="M 24 10 L 24 38" opacity="0.9"/>
+                <path d="M 10 24 L 38 24" opacity="0.9"/>
+                <path d="M 14 14 L 34 34" opacity="0.55"/>
+                <path d="M 34 14 L 14 34" opacity="0.55"/>
+              </g>
+              <circle cx="24" cy="24" r="5" fill="#0b0b0d"/>
+            </svg>
+            <span>64</span>
+          </div>
+          <div class="slot">
+            <svg width="128" height="128" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v5-bg)"/>
+              <g stroke="#0b0b0d" stroke-width="2.4" stroke-linecap="round" fill="none">
+                <path d="M 24 10 L 24 38" opacity="0.9"/>
+                <path d="M 10 24 L 38 24" opacity="0.9"/>
+                <path d="M 14 14 L 34 34" opacity="0.55"/>
+                <path d="M 34 14 L 14 34" opacity="0.55"/>
+              </g>
+              <circle cx="24" cy="24" r="5" fill="#0b0b0d"/>
+            </svg>
+            <span>128</span>
+          </div>
+        </div>
+        <div class="light-bg">
+          <svg width="48" height="48" viewBox="0 0 48 48">
+            <circle cx="24" cy="24" r="23.5" fill="url(#v5-bg)"/>
+            <g stroke="#0b0b0d" stroke-width="2.4" stroke-linecap="round" fill="none">
+              <path d="M 24 10 L 24 38" opacity="0.9"/>
+              <path d="M 10 24 L 38 24" opacity="0.9"/>
+              <path d="M 14 14 L 34 34" opacity="0.55"/>
+              <path d="M 34 14 L 14 34" opacity="0.55"/>
+            </g>
+            <circle cx="24" cy="24" r="5" fill="#0b0b0d"/>
+          </svg>
+        </div>
+      </article>
+
+      <!-- ============ VARIANT 6: SIGNAL ============ -->
+      <article class="variant">
+        <div class="variant-name">
+          <span class="num">06</span>
+          <span class="label">Signal</span>
+        </div>
+        <p class="variant-desc">
+          En gyllene vertikal linje bryts upp av två amber "dots" i botten
+          (ett kolon, som i ett citat-inslag). Hyper-minimalistiskt, nästan
+          typografiskt — fungerar om temat är &quot;röst som citat&quot;.
+        </p>
+        <div class="sizes">
+          <div class="slot">
+            <svg width="16" height="16" viewBox="0 0 48 48">
+              <defs>
+                <radialGradient id="v6-bg" cx="30%" cy="30%" r="80%"><stop offset="0%" stop-color="#ffb96a"/><stop offset="70%" stop-color="#e6a85c"/><stop offset="100%" stop-color="#c88a3f"/></radialGradient>
+              </defs>
+              <circle cx="24" cy="24" r="23.5" fill="url(#v6-bg)"/>
+              <rect x="22" y="9" width="4" height="20" rx="2" fill="#0b0b0d"/>
+              <circle cx="20" cy="35" r="2.6" fill="#0b0b0d"/>
+              <circle cx="28" cy="35" r="2.6" fill="#0b0b0d"/>
+            </svg>
+            <span>16</span>
+          </div>
+          <div class="slot">
+            <svg width="32" height="32" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v6-bg)"/>
+              <rect x="22" y="9" width="4" height="20" rx="2" fill="#0b0b0d"/>
+              <circle cx="20" cy="35" r="2.6" fill="#0b0b0d"/>
+              <circle cx="28" cy="35" r="2.6" fill="#0b0b0d"/>
+            </svg>
+            <span>32</span>
+          </div>
+          <div class="slot">
+            <svg width="64" height="64" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v6-bg)"/>
+              <rect x="22" y="9" width="4" height="20" rx="2" fill="#0b0b0d"/>
+              <circle cx="20" cy="35" r="2.6" fill="#0b0b0d"/>
+              <circle cx="28" cy="35" r="2.6" fill="#0b0b0d"/>
+            </svg>
+            <span>64</span>
+          </div>
+          <div class="slot">
+            <svg width="128" height="128" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v6-bg)"/>
+              <rect x="22" y="9" width="4" height="20" rx="2" fill="#0b0b0d"/>
+              <circle cx="20" cy="35" r="2.6" fill="#0b0b0d"/>
+              <circle cx="28" cy="35" r="2.6" fill="#0b0b0d"/>
+            </svg>
+            <span>128</span>
+          </div>
+        </div>
+        <div class="light-bg">
+          <svg width="48" height="48" viewBox="0 0 48 48">
+            <circle cx="24" cy="24" r="23.5" fill="url(#v6-bg)"/>
+            <rect x="22" y="9" width="4" height="20" rx="2" fill="#0b0b0d"/>
+            <circle cx="20" cy="35" r="2.6" fill="#0b0b0d"/>
+            <circle cx="28" cy="35" r="2.6" fill="#0b0b0d"/>
+          </svg>
+        </div>
+      </article>
+
+      <!-- ============ VARIANT 7: ARIA ============ -->
+      <article class="variant">
+        <div class="variant-name">
+          <span class="num">07</span>
+          <span class="label">Aria</span>
+        </div>
+        <p class="variant-desc">
+          Stiliserad serif-italic "V" med en subtil horisontell streck i
+          botten — som ett typografiskt monogram. Editorial genom och
+          genom, direkt släkting till Fraunces.
+        </p>
+        <div class="sizes">
+          <div class="slot">
+            <svg width="16" height="16" viewBox="0 0 48 48">
+              <defs>
+                <radialGradient id="v7-bg" cx="30%" cy="30%" r="80%"><stop offset="0%" stop-color="#ffb96a"/><stop offset="70%" stop-color="#e6a85c"/><stop offset="100%" stop-color="#c88a3f"/></radialGradient>
+              </defs>
+              <circle cx="24" cy="24" r="23.5" fill="url(#v7-bg)"/>
+              <path d="M 13 13 L 26 34 L 36 13 L 32 13 L 25 28 L 17 13 Z" fill="#0b0b0d"/>
+              <rect x="16" y="36" width="16" height="2" rx="1" fill="#0b0b0d" opacity="0.7"/>
+            </svg>
+            <span>16</span>
+          </div>
+          <div class="slot">
+            <svg width="32" height="32" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v7-bg)"/>
+              <path d="M 13 13 L 26 34 L 36 13 L 32 13 L 25 28 L 17 13 Z" fill="#0b0b0d"/>
+              <rect x="16" y="36" width="16" height="2" rx="1" fill="#0b0b0d" opacity="0.7"/>
+            </svg>
+            <span>32</span>
+          </div>
+          <div class="slot">
+            <svg width="64" height="64" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v7-bg)"/>
+              <path d="M 13 13 L 26 34 L 36 13 L 32 13 L 25 28 L 17 13 Z" fill="#0b0b0d"/>
+              <rect x="16" y="36" width="16" height="2" rx="1" fill="#0b0b0d" opacity="0.7"/>
+            </svg>
+            <span>64</span>
+          </div>
+          <div class="slot">
+            <svg width="128" height="128" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v7-bg)"/>
+              <path d="M 13 13 L 26 34 L 36 13 L 32 13 L 25 28 L 17 13 Z" fill="#0b0b0d"/>
+              <rect x="16" y="36" width="16" height="2" rx="1" fill="#0b0b0d" opacity="0.7"/>
+            </svg>
+            <span>128</span>
+          </div>
+        </div>
+        <div class="light-bg">
+          <svg width="48" height="48" viewBox="0 0 48 48">
+            <circle cx="24" cy="24" r="23.5" fill="url(#v7-bg)"/>
+            <path d="M 13 13 L 26 34 L 36 13 L 32 13 L 25 28 L 17 13 Z" fill="#0b0b0d"/>
+            <rect x="16" y="36" width="16" height="2" rx="1" fill="#0b0b0d" opacity="0.7"/>
+          </svg>
+        </div>
+      </article>
+
+      <!-- ============ VARIANT 8: LENS ============ -->
+      <article class="variant">
+        <div class="variant-name">
+          <span class="num">08</span>
+          <span class="label">Lens</span>
+        </div>
+        <p class="variant-desc">
+          En amber-ring + centerprick. Geometrisk minimalism i sin renaste form.
+          Refererar kameralens / mikrofon / öga — skalar hela vägen ner till
+          favicon utan att tappa identitet.
+        </p>
+        <div class="sizes">
+          <div class="slot">
+            <svg width="16" height="16" viewBox="0 0 48 48">
+              <defs>
+                <radialGradient id="v8-bg" cx="30%" cy="30%" r="80%"><stop offset="0%" stop-color="#ffb96a"/><stop offset="70%" stop-color="#e6a85c"/><stop offset="100%" stop-color="#c88a3f"/></radialGradient>
+              </defs>
+              <circle cx="24" cy="24" r="23.5" fill="url(#v8-bg)"/>
+              <circle cx="24" cy="24" r="13" stroke="#0b0b0d" stroke-width="3.5" fill="none"/>
+              <circle cx="24" cy="24" r="4" fill="#0b0b0d"/>
+            </svg>
+            <span>16</span>
+          </div>
+          <div class="slot">
+            <svg width="32" height="32" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v8-bg)"/>
+              <circle cx="24" cy="24" r="13" stroke="#0b0b0d" stroke-width="3.5" fill="none"/>
+              <circle cx="24" cy="24" r="4" fill="#0b0b0d"/>
+            </svg>
+            <span>32</span>
+          </div>
+          <div class="slot">
+            <svg width="64" height="64" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v8-bg)"/>
+              <circle cx="24" cy="24" r="13" stroke="#0b0b0d" stroke-width="3.5" fill="none"/>
+              <circle cx="24" cy="24" r="4" fill="#0b0b0d"/>
+            </svg>
+            <span>64</span>
+          </div>
+          <div class="slot">
+            <svg width="128" height="128" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v8-bg)"/>
+              <circle cx="24" cy="24" r="13" stroke="#0b0b0d" stroke-width="3.5" fill="none"/>
+              <circle cx="24" cy="24" r="4" fill="#0b0b0d"/>
+            </svg>
+            <span>128</span>
+          </div>
+        </div>
+        <div class="light-bg">
+          <svg width="48" height="48" viewBox="0 0 48 48">
+            <circle cx="24" cy="24" r="23.5" fill="url(#v8-bg)"/>
+            <circle cx="24" cy="24" r="13" stroke="#0b0b0d" stroke-width="3.5" fill="none"/>
+            <circle cx="24" cy="24" r="4" fill="#0b0b0d"/>
+          </svg>
+        </div>
+      </article>
+
+      <!-- ============ VARIANT 9: ARC ============ -->
+      <article class="variant">
+        <div class="variant-name">
+          <span class="num">09</span>
+          <span class="label">Arc</span>
+        </div>
+        <p class="variant-desc">
+          En enda kalligrafisk amber-kurva — som penseldrag eller musikalisk
+          accent. Ultra-minimal, asymmetrisk. Andas pro-audio studio utan
+          att explicit säga "mic" eller "waveform".
+        </p>
+        <div class="sizes">
+          <div class="slot">
+            <svg width="16" height="16" viewBox="0 0 48 48">
+              <defs>
+                <radialGradient id="v9-bg" cx="30%" cy="30%" r="80%"><stop offset="0%" stop-color="#ffb96a"/><stop offset="70%" stop-color="#e6a85c"/><stop offset="100%" stop-color="#c88a3f"/></radialGradient>
+              </defs>
+              <circle cx="24" cy="24" r="23.5" fill="url(#v9-bg)"/>
+              <path d="M 12 34 C 14 26, 22 14, 38 14" stroke="#0b0b0d" stroke-width="5" stroke-linecap="round" fill="none"/>
+              <circle cx="38" cy="14" r="3" fill="#0b0b0d"/>
+            </svg>
+            <span>16</span>
+          </div>
+          <div class="slot">
+            <svg width="32" height="32" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v9-bg)"/>
+              <path d="M 12 34 C 14 26, 22 14, 38 14" stroke="#0b0b0d" stroke-width="5" stroke-linecap="round" fill="none"/>
+              <circle cx="38" cy="14" r="3" fill="#0b0b0d"/>
+            </svg>
+            <span>32</span>
+          </div>
+          <div class="slot">
+            <svg width="64" height="64" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v9-bg)"/>
+              <path d="M 12 34 C 14 26, 22 14, 38 14" stroke="#0b0b0d" stroke-width="5" stroke-linecap="round" fill="none"/>
+              <circle cx="38" cy="14" r="3" fill="#0b0b0d"/>
+            </svg>
+            <span>64</span>
+          </div>
+          <div class="slot">
+            <svg width="128" height="128" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v9-bg)"/>
+              <path d="M 12 34 C 14 26, 22 14, 38 14" stroke="#0b0b0d" stroke-width="5" stroke-linecap="round" fill="none"/>
+              <circle cx="38" cy="14" r="3" fill="#0b0b0d"/>
+            </svg>
+            <span>128</span>
+          </div>
+        </div>
+        <div class="light-bg">
+          <svg width="48" height="48" viewBox="0 0 48 48">
+            <circle cx="24" cy="24" r="23.5" fill="url(#v9-bg)"/>
+            <path d="M 12 34 C 14 26, 22 14, 38 14" stroke="#0b0b0d" stroke-width="5" stroke-linecap="round" fill="none"/>
+            <circle cx="38" cy="14" r="3" fill="#0b0b0d"/>
+          </svg>
+        </div>
+      </article>
+
+      <!-- ============ VARIANT 10: OBELISK ============ -->
+      <article class="variant">
+        <div class="variant-name">
+          <span class="num">10</span>
+          <span class="label">Obelisk</span>
+        </div>
+        <p class="variant-desc">
+          En slank amber-spegelbild av vertikala strek som smalnar uppåt —
+          som en minnes-stav eller musikalisk crescendo. Arkitektonisk,
+          vertikalt dominant, editorial-tidlös.
+        </p>
+        <div class="sizes">
+          <div class="slot">
+            <svg width="16" height="16" viewBox="0 0 48 48">
+              <defs>
+                <radialGradient id="v10-bg" cx="30%" cy="30%" r="80%"><stop offset="0%" stop-color="#ffb96a"/><stop offset="70%" stop-color="#e6a85c"/><stop offset="100%" stop-color="#c88a3f"/></radialGradient>
+              </defs>
+              <circle cx="24" cy="24" r="23.5" fill="url(#v10-bg)"/>
+              <path d="M 20 38 L 22 10 L 26 10 L 28 38 Z" fill="#0b0b0d"/>
+              <rect x="14" y="38" width="20" height="2" rx="1" fill="#0b0b0d"/>
+              <circle cx="24" cy="7" r="2" fill="#0b0b0d"/>
+            </svg>
+            <span>16</span>
+          </div>
+          <div class="slot">
+            <svg width="32" height="32" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v10-bg)"/>
+              <path d="M 20 38 L 22 10 L 26 10 L 28 38 Z" fill="#0b0b0d"/>
+              <rect x="14" y="38" width="20" height="2" rx="1" fill="#0b0b0d"/>
+              <circle cx="24" cy="7" r="2" fill="#0b0b0d"/>
+            </svg>
+            <span>32</span>
+          </div>
+          <div class="slot">
+            <svg width="64" height="64" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v10-bg)"/>
+              <path d="M 20 38 L 22 10 L 26 10 L 28 38 Z" fill="#0b0b0d"/>
+              <rect x="14" y="38" width="20" height="2" rx="1" fill="#0b0b0d"/>
+              <circle cx="24" cy="7" r="2" fill="#0b0b0d"/>
+            </svg>
+            <span>64</span>
+          </div>
+          <div class="slot">
+            <svg width="128" height="128" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v10-bg)"/>
+              <path d="M 20 38 L 22 10 L 26 10 L 28 38 Z" fill="#0b0b0d"/>
+              <rect x="14" y="38" width="20" height="2" rx="1" fill="#0b0b0d"/>
+              <circle cx="24" cy="7" r="2" fill="#0b0b0d"/>
+            </svg>
+            <span>128</span>
+          </div>
+        </div>
+        <div class="light-bg">
+          <svg width="48" height="48" viewBox="0 0 48 48">
+            <circle cx="24" cy="24" r="23.5" fill="url(#v10-bg)"/>
+            <path d="M 20 38 L 22 10 L 26 10 L 28 38 Z" fill="#0b0b0d"/>
+            <rect x="14" y="38" width="20" height="2" rx="1" fill="#0b0b0d"/>
+            <circle cx="24" cy="7" r="2" fill="#0b0b0d"/>
+          </svg>
+        </div>
+      </article>
+
+      <!-- ============ VARIANT 11: NORTH ============ -->
+      <article class="variant">
+        <div class="variant-name">
+          <span class="num">11</span>
+          <span class="label">North</span>
+        </div>
+        <p class="variant-desc">
+          Lågt-poly diamant (rombform) + pil som pekar uppåt. Nordisk
+          minimalism, gelidge precision. Med tydlig svensk karaktär utan
+          att vara nationalistisk — ren, kall, exakt.
+        </p>
+        <div class="sizes">
+          <div class="slot">
+            <svg width="16" height="16" viewBox="0 0 48 48">
+              <defs>
+                <radialGradient id="v11-bg" cx="30%" cy="30%" r="80%"><stop offset="0%" stop-color="#ffb96a"/><stop offset="70%" stop-color="#e6a85c"/><stop offset="100%" stop-color="#c88a3f"/></radialGradient>
+              </defs>
+              <circle cx="24" cy="24" r="23.5" fill="url(#v11-bg)"/>
+              <path d="M 24 10 L 34 24 L 24 38 L 14 24 Z" fill="#0b0b0d"/>
+              <path d="M 24 14 L 30 24 L 24 34 L 18 24 Z" fill="url(#v11-bg)" opacity="0.85"/>
+              <rect x="23" y="14" width="2" height="20" fill="#0b0b0d"/>
+              <path d="M 20 18 L 24 14 L 28 18" stroke="#0b0b0d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+            </svg>
+            <span>16</span>
+          </div>
+          <div class="slot">
+            <svg width="32" height="32" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v11-bg)"/>
+              <path d="M 24 10 L 34 24 L 24 38 L 14 24 Z" fill="#0b0b0d"/>
+              <path d="M 24 14 L 30 24 L 24 34 L 18 24 Z" fill="url(#v11-bg)" opacity="0.85"/>
+              <rect x="23" y="14" width="2" height="20" fill="#0b0b0d"/>
+              <path d="M 20 18 L 24 14 L 28 18" stroke="#0b0b0d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+            </svg>
+            <span>32</span>
+          </div>
+          <div class="slot">
+            <svg width="64" height="64" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v11-bg)"/>
+              <path d="M 24 10 L 34 24 L 24 38 L 14 24 Z" fill="#0b0b0d"/>
+              <path d="M 24 14 L 30 24 L 24 34 L 18 24 Z" fill="url(#v11-bg)" opacity="0.85"/>
+              <rect x="23" y="14" width="2" height="20" fill="#0b0b0d"/>
+              <path d="M 20 18 L 24 14 L 28 18" stroke="#0b0b0d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+            </svg>
+            <span>64</span>
+          </div>
+          <div class="slot">
+            <svg width="128" height="128" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v11-bg)"/>
+              <path d="M 24 10 L 34 24 L 24 38 L 14 24 Z" fill="#0b0b0d"/>
+              <path d="M 24 14 L 30 24 L 24 34 L 18 24 Z" fill="url(#v11-bg)" opacity="0.85"/>
+              <rect x="23" y="14" width="2" height="20" fill="#0b0b0d"/>
+              <path d="M 20 18 L 24 14 L 28 18" stroke="#0b0b0d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+            </svg>
+            <span>128</span>
+          </div>
+        </div>
+        <div class="light-bg">
+          <svg width="48" height="48" viewBox="0 0 48 48">
+            <circle cx="24" cy="24" r="23.5" fill="url(#v11-bg)"/>
+            <path d="M 24 10 L 34 24 L 24 38 L 14 24 Z" fill="#0b0b0d"/>
+            <path d="M 24 14 L 30 24 L 24 34 L 18 24 Z" fill="url(#v11-bg)" opacity="0.85"/>
+            <rect x="23" y="14" width="2" height="20" fill="#0b0b0d"/>
+            <path d="M 20 18 L 24 14 L 28 18" stroke="#0b0b0d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+          </svg>
+        </div>
+      </article>
+    </div>
+
+      <!-- ============ VARIANT 12: MONOGRAM ============ -->
+      <article class="variant">
+        <div class="variant-name">
+          <span class="num">12</span>
+          <span class="label">Monogram</span>
+        </div>
+        <p class="variant-desc">
+          "SV" i Fraunces italic — pure typography. Ligger tight som en
+          fabriksmärkning, editorialt genom och genom. Ingen illustration,
+          bara bokstäverna talar.
+        </p>
+        <div class="sizes">
+          <div class="slot">
+            <svg width="16" height="16" viewBox="0 0 48 48">
+              <defs>
+                <radialGradient id="v12-bg" cx="30%" cy="30%" r="80%"><stop offset="0%" stop-color="#ffb96a"/><stop offset="70%" stop-color="#e6a85c"/><stop offset="100%" stop-color="#c88a3f"/></radialGradient>
+              </defs>
+              <circle cx="24" cy="24" r="23.5" fill="url(#v12-bg)"/>
+              <text x="24" y="33" text-anchor="middle" fill="#0b0b0d" font-family="Fraunces, Georgia, serif" font-style="italic" font-weight="500" font-size="24" font-variation-settings="'opsz' 72" letter-spacing="-1">SV</text>
+            </svg>
+            <span>16</span>
+          </div>
+          <div class="slot">
+            <svg width="32" height="32" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v12-bg)"/>
+              <text x="24" y="33" text-anchor="middle" fill="#0b0b0d" font-family="Fraunces, Georgia, serif" font-style="italic" font-weight="500" font-size="24" font-variation-settings="'opsz' 72" letter-spacing="-1">SV</text>
+            </svg>
+            <span>32</span>
+          </div>
+          <div class="slot">
+            <svg width="64" height="64" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v12-bg)"/>
+              <text x="24" y="33" text-anchor="middle" fill="#0b0b0d" font-family="Fraunces, Georgia, serif" font-style="italic" font-weight="500" font-size="24" font-variation-settings="'opsz' 72" letter-spacing="-1">SV</text>
+            </svg>
+            <span>64</span>
+          </div>
+          <div class="slot">
+            <svg width="128" height="128" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v12-bg)"/>
+              <text x="24" y="33" text-anchor="middle" fill="#0b0b0d" font-family="Fraunces, Georgia, serif" font-style="italic" font-weight="500" font-size="24" font-variation-settings="'opsz' 72" letter-spacing="-1">SV</text>
+            </svg>
+            <span>128</span>
+          </div>
+        </div>
+        <div class="light-bg">
+          <svg width="48" height="48" viewBox="0 0 48 48">
+            <circle cx="24" cy="24" r="23.5" fill="url(#v12-bg)"/>
+            <text x="24" y="33" text-anchor="middle" fill="#0b0b0d" font-family="Fraunces, Georgia, serif" font-style="italic" font-weight="500" font-size="24" font-variation-settings="'opsz' 72" letter-spacing="-1">SV</text>
+          </svg>
+        </div>
+      </article>
+
+      <!-- ============ VARIANT 13: QUILL + SV ============ -->
+      <article class="variant">
+        <div class="variant-name">
+          <span class="num">13</span>
+          <span class="label">Quill · SV</span>
+        </div>
+        <p class="variant-desc">
+          Quill-streket (från 04) men med ett mindre "SV"-monogram ovanför
+          droppen. Symbolik + typografi tillsammans: pennan skriver initialerna.
+        </p>
+        <div class="sizes">
+          <div class="slot">
+            <svg width="16" height="16" viewBox="0 0 48 48">
+              <defs>
+                <radialGradient id="v13-bg" cx="30%" cy="30%" r="80%"><stop offset="0%" stop-color="#ffb96a"/><stop offset="70%" stop-color="#e6a85c"/><stop offset="100%" stop-color="#c88a3f"/></radialGradient>
+              </defs>
+              <circle cx="24" cy="24" r="23.5" fill="url(#v13-bg)"/>
+              <path d="M 13 36 C 15 26, 19 18, 24 14 L 22 20 C 20 26, 18 32, 15 36 Z" fill="#0b0b0d"/>
+              <text x="34" y="22" text-anchor="middle" fill="#0b0b0d" font-family="Fraunces, Georgia, serif" font-style="italic" font-weight="500" font-size="14" letter-spacing="-0.5">SV</text>
+              <circle cx="30" cy="32" r="2" fill="#0b0b0d"/>
+            </svg>
+            <span>16</span>
+          </div>
+          <div class="slot">
+            <svg width="32" height="32" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v13-bg)"/>
+              <path d="M 13 36 C 15 26, 19 18, 24 14 L 22 20 C 20 26, 18 32, 15 36 Z" fill="#0b0b0d"/>
+              <text x="34" y="22" text-anchor="middle" fill="#0b0b0d" font-family="Fraunces, Georgia, serif" font-style="italic" font-weight="500" font-size="14" letter-spacing="-0.5">SV</text>
+              <circle cx="30" cy="32" r="2" fill="#0b0b0d"/>
+            </svg>
+            <span>32</span>
+          </div>
+          <div class="slot">
+            <svg width="64" height="64" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v13-bg)"/>
+              <path d="M 13 36 C 15 26, 19 18, 24 14 L 22 20 C 20 26, 18 32, 15 36 Z" fill="#0b0b0d"/>
+              <text x="34" y="22" text-anchor="middle" fill="#0b0b0d" font-family="Fraunces, Georgia, serif" font-style="italic" font-weight="500" font-size="14" letter-spacing="-0.5">SV</text>
+              <circle cx="30" cy="32" r="2" fill="#0b0b0d"/>
+            </svg>
+            <span>64</span>
+          </div>
+          <div class="slot">
+            <svg width="128" height="128" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v13-bg)"/>
+              <path d="M 13 36 C 15 26, 19 18, 24 14 L 22 20 C 20 26, 18 32, 15 36 Z" fill="#0b0b0d"/>
+              <text x="34" y="22" text-anchor="middle" fill="#0b0b0d" font-family="Fraunces, Georgia, serif" font-style="italic" font-weight="500" font-size="14" letter-spacing="-0.5">SV</text>
+              <circle cx="30" cy="32" r="2" fill="#0b0b0d"/>
+            </svg>
+            <span>128</span>
+          </div>
+        </div>
+        <div class="light-bg">
+          <svg width="48" height="48" viewBox="0 0 48 48">
+            <circle cx="24" cy="24" r="23.5" fill="url(#v13-bg)"/>
+            <path d="M 13 36 C 15 26, 19 18, 24 14 L 22 20 C 20 26, 18 32, 15 36 Z" fill="#0b0b0d"/>
+            <text x="34" y="22" text-anchor="middle" fill="#0b0b0d" font-family="Fraunces, Georgia, serif" font-style="italic" font-weight="500" font-size="14" letter-spacing="-0.5">SV</text>
+            <circle cx="30" cy="32" r="2" fill="#0b0b0d"/>
+          </svg>
+        </div>
+      </article>
+
+      <!-- ============ VARIANT 14: STACK ============ -->
+      <article class="variant">
+        <div class="variant-name">
+          <span class="num">14</span>
+          <span class="label">Stack</span>
+        </div>
+        <p class="variant-desc">
+          "S" ovanpå "V" stapellade vertikalt, båda i italic Fraunces. En
+          abstrakt vertikal monogram-komposition — spänstigt, editorialt,
+          uttrycker både svenska och voice på bara två rader.
+        </p>
+        <div class="sizes">
+          <div class="slot">
+            <svg width="16" height="16" viewBox="0 0 48 48">
+              <defs>
+                <radialGradient id="v14-bg" cx="30%" cy="30%" r="80%"><stop offset="0%" stop-color="#ffb96a"/><stop offset="70%" stop-color="#e6a85c"/><stop offset="100%" stop-color="#c88a3f"/></radialGradient>
+              </defs>
+              <circle cx="24" cy="24" r="23.5" fill="url(#v14-bg)"/>
+              <text x="24" y="22" text-anchor="middle" fill="#0b0b0d" font-family="Fraunces, Georgia, serif" font-style="italic" font-weight="600" font-size="18" font-variation-settings="'opsz' 72">S</text>
+              <text x="24" y="40" text-anchor="middle" fill="#0b0b0d" font-family="Fraunces, Georgia, serif" font-style="italic" font-weight="600" font-size="18" font-variation-settings="'opsz' 72">V</text>
+            </svg>
+            <span>16</span>
+          </div>
+          <div class="slot">
+            <svg width="32" height="32" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v14-bg)"/>
+              <text x="24" y="22" text-anchor="middle" fill="#0b0b0d" font-family="Fraunces, Georgia, serif" font-style="italic" font-weight="600" font-size="18" font-variation-settings="'opsz' 72">S</text>
+              <text x="24" y="40" text-anchor="middle" fill="#0b0b0d" font-family="Fraunces, Georgia, serif" font-style="italic" font-weight="600" font-size="18" font-variation-settings="'opsz' 72">V</text>
+            </svg>
+            <span>32</span>
+          </div>
+          <div class="slot">
+            <svg width="64" height="64" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v14-bg)"/>
+              <text x="24" y="22" text-anchor="middle" fill="#0b0b0d" font-family="Fraunces, Georgia, serif" font-style="italic" font-weight="600" font-size="18" font-variation-settings="'opsz' 72">S</text>
+              <text x="24" y="40" text-anchor="middle" fill="#0b0b0d" font-family="Fraunces, Georgia, serif" font-style="italic" font-weight="600" font-size="18" font-variation-settings="'opsz' 72">V</text>
+            </svg>
+            <span>64</span>
+          </div>
+          <div class="slot">
+            <svg width="128" height="128" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v14-bg)"/>
+              <text x="24" y="22" text-anchor="middle" fill="#0b0b0d" font-family="Fraunces, Georgia, serif" font-style="italic" font-weight="600" font-size="18" font-variation-settings="'opsz' 72">S</text>
+              <text x="24" y="40" text-anchor="middle" fill="#0b0b0d" font-family="Fraunces, Georgia, serif" font-style="italic" font-weight="600" font-size="18" font-variation-settings="'opsz' 72">V</text>
+            </svg>
+            <span>128</span>
+          </div>
+        </div>
+        <div class="light-bg">
+          <svg width="48" height="48" viewBox="0 0 48 48">
+            <circle cx="24" cy="24" r="23.5" fill="url(#v14-bg)"/>
+            <text x="24" y="22" text-anchor="middle" fill="#0b0b0d" font-family="Fraunces, Georgia, serif" font-style="italic" font-weight="600" font-size="18" font-variation-settings="'opsz' 72">S</text>
+            <text x="24" y="40" text-anchor="middle" fill="#0b0b0d" font-family="Fraunces, Georgia, serif" font-style="italic" font-weight="600" font-size="18" font-variation-settings="'opsz' 72">V</text>
+          </svg>
+        </div>
+      </article>
+
+      <!-- ============ VARIANT 15: S-WAVE ============ -->
+      <article class="variant">
+        <div class="variant-name">
+          <span class="num">15</span>
+          <span class="label">S-Wave</span>
+        </div>
+        <p class="variant-desc">
+          Ett stort svängt S som visuellt tecknas som en ljudvåg — S:et ÄR
+          själva sinuskurvan. Under: ett minimalistiskt V formerat av två
+          prickar (voice-activity-indicator).
+        </p>
+        <div class="sizes">
+          <div class="slot">
+            <svg width="16" height="16" viewBox="0 0 48 48">
+              <defs>
+                <radialGradient id="v15-bg" cx="30%" cy="30%" r="80%"><stop offset="0%" stop-color="#ffb96a"/><stop offset="70%" stop-color="#e6a85c"/><stop offset="100%" stop-color="#c88a3f"/></radialGradient>
+              </defs>
+              <circle cx="24" cy="24" r="23.5" fill="url(#v15-bg)"/>
+              <path d="M 13 15 C 13 8, 26 8, 26 17 C 26 22, 14 22, 14 28 C 14 36, 29 36, 35 30" stroke="#0b0b0d" stroke-width="4" stroke-linecap="round" fill="none"/>
+            </svg>
+            <span>16</span>
+          </div>
+          <div class="slot">
+            <svg width="32" height="32" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v15-bg)"/>
+              <path d="M 13 15 C 13 8, 26 8, 26 17 C 26 22, 14 22, 14 28 C 14 36, 29 36, 35 30" stroke="#0b0b0d" stroke-width="4" stroke-linecap="round" fill="none"/>
+            </svg>
+            <span>32</span>
+          </div>
+          <div class="slot">
+            <svg width="64" height="64" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v15-bg)"/>
+              <path d="M 13 15 C 13 8, 26 8, 26 17 C 26 22, 14 22, 14 28 C 14 36, 29 36, 35 30" stroke="#0b0b0d" stroke-width="4" stroke-linecap="round" fill="none"/>
+            </svg>
+            <span>64</span>
+          </div>
+          <div class="slot">
+            <svg width="128" height="128" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v15-bg)"/>
+              <path d="M 13 15 C 13 8, 26 8, 26 17 C 26 22, 14 22, 14 28 C 14 36, 29 36, 35 30" stroke="#0b0b0d" stroke-width="4" stroke-linecap="round" fill="none"/>
+            </svg>
+            <span>128</span>
+          </div>
+        </div>
+        <div class="light-bg">
+          <svg width="48" height="48" viewBox="0 0 48 48">
+            <circle cx="24" cy="24" r="23.5" fill="url(#v15-bg)"/>
+            <path d="M 13 15 C 13 8, 26 8, 26 17 C 26 22, 14 22, 14 28 C 14 36, 29 36, 35 30" stroke="#0b0b0d" stroke-width="4" stroke-linecap="round" fill="none"/>
+          </svg>
+        </div>
+      </article>
+
+      <!-- ============ VARIANT 16: SIGNAL+SV ============ -->
+      <article class="variant">
+        <div class="variant-name">
+          <span class="num">16</span>
+          <span class="label">Imprint</span>
+        </div>
+        <p class="variant-desc">
+          Stor "S" i italic Fraunces med "V" som en mindre exponent/underskrift
+          i övre höger — som ett förlagsmärke eller studio-print. Refererar
+          den editorial-disciplinen explicit.
+        </p>
+        <div class="sizes">
+          <div class="slot">
+            <svg width="16" height="16" viewBox="0 0 48 48">
+              <defs>
+                <radialGradient id="v16-bg" cx="30%" cy="30%" r="80%"><stop offset="0%" stop-color="#ffb96a"/><stop offset="70%" stop-color="#e6a85c"/><stop offset="100%" stop-color="#c88a3f"/></radialGradient>
+              </defs>
+              <circle cx="24" cy="24" r="23.5" fill="url(#v16-bg)"/>
+              <text x="22" y="36" text-anchor="middle" fill="#0b0b0d" font-family="Fraunces, Georgia, serif" font-style="italic" font-weight="500" font-size="32" font-variation-settings="'opsz' 144">S</text>
+              <text x="36" y="18" text-anchor="middle" fill="#0b0b0d" font-family="Fraunces, Georgia, serif" font-style="italic" font-weight="500" font-size="11">V</text>
+            </svg>
+            <span>16</span>
+          </div>
+          <div class="slot">
+            <svg width="32" height="32" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v16-bg)"/>
+              <text x="22" y="36" text-anchor="middle" fill="#0b0b0d" font-family="Fraunces, Georgia, serif" font-style="italic" font-weight="500" font-size="32" font-variation-settings="'opsz' 144">S</text>
+              <text x="36" y="18" text-anchor="middle" fill="#0b0b0d" font-family="Fraunces, Georgia, serif" font-style="italic" font-weight="500" font-size="11">V</text>
+            </svg>
+            <span>32</span>
+          </div>
+          <div class="slot">
+            <svg width="64" height="64" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v16-bg)"/>
+              <text x="22" y="36" text-anchor="middle" fill="#0b0b0d" font-family="Fraunces, Georgia, serif" font-style="italic" font-weight="500" font-size="32" font-variation-settings="'opsz' 144">S</text>
+              <text x="36" y="18" text-anchor="middle" fill="#0b0b0d" font-family="Fraunces, Georgia, serif" font-style="italic" font-weight="500" font-size="11">V</text>
+            </svg>
+            <span>64</span>
+          </div>
+          <div class="slot">
+            <svg width="128" height="128" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="23.5" fill="url(#v16-bg)"/>
+              <text x="22" y="36" text-anchor="middle" fill="#0b0b0d" font-family="Fraunces, Georgia, serif" font-style="italic" font-weight="500" font-size="32" font-variation-settings="'opsz' 144">S</text>
+              <text x="36" y="18" text-anchor="middle" fill="#0b0b0d" font-family="Fraunces, Georgia, serif" font-style="italic" font-weight="500" font-size="11">V</text>
+            </svg>
+            <span>128</span>
+          </div>
+        </div>
+        <div class="light-bg">
+          <svg width="48" height="48" viewBox="0 0 48 48">
+            <circle cx="24" cy="24" r="23.5" fill="url(#v16-bg)"/>
+            <text x="22" y="36" text-anchor="middle" fill="#0b0b0d" font-family="Fraunces, Georgia, serif" font-style="italic" font-weight="500" font-size="32" font-variation-settings="'opsz' 144">S</text>
+            <text x="36" y="18" text-anchor="middle" fill="#0b0b0d" font-family="Fraunces, Georgia, serif" font-style="italic" font-weight="500" font-size="11">V</text>
+          </svg>
+        </div>
+      </article>
+    </div>
+
+    <div class="footer-note">
+      välj en — säg bara numret (01–16) — så ersätter jag svoicelogo.tsx + windows-ikoner
+    </div>
+  </body>
+</html>

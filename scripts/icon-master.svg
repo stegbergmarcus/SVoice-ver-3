@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Echo-logotypen (variant 02 med rounded-square base).
+  Master-SVG för Windows-ikoner + tray. Rendera med ImageMagick via
+  scripts/generate-icons.ps1.
+
+  Design-principer:
+    - Rounded square, rx=10/48 ≈ 21% corner radius ("kantigare" än cirkel)
+    - Amber diagonal gradient (#ffb96a → #e6a85c → #c88a3f)
+    - Topp-vänster ivory-gloss för 3D
+    - Mörk center-prick + två koncentriska ringar = ekot av rösten
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffb96a"/>
+      <stop offset="70%" stop-color="#e6a85c"/>
+      <stop offset="100%" stop-color="#c88a3f"/>
+    </linearGradient>
+    <linearGradient id="gloss" x1="0%" y1="0%" x2="60%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <clipPath id="frame">
+      <rect x="0" y="0" width="48" height="48" rx="10" ry="10"/>
+    </clipPath>
+  </defs>
+
+  <!-- Amber-base (rounded square) -->
+  <rect x="0" y="0" width="48" height="48" rx="10" ry="10" fill="url(#bg)"/>
+
+  <!-- Ivory-gloss i topp-vänster -->
+  <rect x="0" y="0" width="48" height="48" rx="10" ry="10" fill="url(#gloss)"/>
+
+  <!-- Echo-mark, clippad till frame så inget läcker ut vid rundade hörn -->
+  <g clip-path="url(#frame)">
+    <circle cx="24" cy="24" r="3" fill="#0b0b0d"/>
+    <circle cx="24" cy="24" r="9"  stroke="#0b0b0d" stroke-width="2"   fill="none" opacity="0.85"/>
+    <circle cx="24" cy="24" r="15" stroke="#0b0b0d" stroke-width="1.6" fill="none" opacity="0.55"/>
+  </g>
+
+  <!-- Subtle inner-stroke för djup -->
+  <rect x="0.5" y="0.5" width="47" height="47" rx="9.5" ry="9.5"
+        fill="none" stroke="rgba(0,0,0,0.25)" stroke-width="0.5"/>
+</svg>

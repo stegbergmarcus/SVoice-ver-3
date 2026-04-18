@@ -5,14 +5,13 @@ interface Props {
 }
 
 /**
- * SVoice-logotypen — geometriskt S byggt av tre horisontella bars.
+ * SVoice-logotypen — "Echo".
  *
  * Komposition:
- *   - Cirkulär amber-gradient-base (editorial × studio-tema)
+ *   - Rounded square amber-gradient-base (editorial × studio-tema) — rx 10/48 ≈ 21%
  *   - Topp-vänster gloss för 3D-känsla
- *   - Tre parallella bars: kort-höger, lång-mitten, kort-vänster — bildar
- *     ett abstrakt S-mönster samtidigt som det antyder audio-meter
- *   - I recording-läge pulserar den mellersta bar:en i amber
+ *   - Central amber-prick + två koncentriska mörka ringar = ekot av rösten
+ *   - I recording-läge pulserar yttersta ringen
  */
 export default function SVoiceLogo({
   size = 48,
@@ -20,7 +19,6 @@ export default function SVoiceLogo({
   className,
 }: Props) {
   const uid = `svlogo-${useIdRef()}`;
-  const mark = `url(#${uid}-mark)`;
   return (
     <svg
       width={size}
@@ -31,51 +29,75 @@ export default function SVoiceLogo({
       aria-hidden
     >
       <defs>
-        <radialGradient id={`${uid}-bg`} cx="30%" cy="30%" r="80%">
+        <linearGradient id={`${uid}-bg`} x1="0%" y1="0%" x2="100%" y2="100%">
           <stop offset="0%" stopColor="#ffb96a" />
           <stop offset="70%" stopColor="#e6a85c" />
           <stop offset="100%" stopColor="#c88a3f" />
-        </radialGradient>
-        <linearGradient id={`${uid}-mark`} x1="0%" y1="0%" x2="0%" y2="100%">
-          <stop offset="0%" stopColor="#2d1608" stopOpacity="0.92" />
-          <stop offset="100%" stopColor="#0b0b0d" />
         </linearGradient>
         <linearGradient id={`${uid}-gloss`} x1="0%" y1="0%" x2="60%" y2="100%">
           <stop offset="0%" stopColor="#ffffff" stopOpacity="0.4" />
           <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
         </linearGradient>
+        <clipPath id={`${uid}-clip`}>
+          <rect x="0" y="0" width="48" height="48" rx="10" ry="10" />
+        </clipPath>
       </defs>
 
-      {/* Cirkulär base */}
-      <circle cx="24" cy="24" r="23.5" fill={`url(#${uid}-bg)`} />
+      {/* Rounded-square amber-base */}
+      <rect
+        x="0"
+        y="0"
+        width="48"
+        height="48"
+        rx="10"
+        ry="10"
+        fill={`url(#${uid}-bg)`}
+      />
 
-      {/* Top-left gloss */}
-      <path
-        d="M 24 0 A 24 24 0 0 0 0 24 L 0 0 Z"
+      {/* Top-left gloss, clipped till samma rounded square */}
+      <rect
+        x="0"
+        y="0"
+        width="48"
+        height="48"
+        rx="10"
+        ry="10"
         fill={`url(#${uid}-gloss)`}
       />
 
-      {/* Tre horisontella bars — bildar ett geometriskt S-mönster.
-          Kort+förskjuten höger, lång mitten, kort+förskjuten vänster.
-          Rundade ändar för mjukhet, men absolut raka linjer. */}
-      <rect x="17" y="13" width="18" height="4" rx="2" fill={mark} />
-      <rect
-        x="10"
-        y="22"
-        width="28"
-        height="4"
-        rx="2"
-        fill={mark}
-        className={recording ? "svlogo-pulse-bar" : ""}
-        style={{ transformOrigin: "24px 24px" }}
-      />
-      <rect x="13" y="31" width="18" height="4" rx="2" fill={mark} />
+      {/* Echo — center dot + två koncentriska ringar */}
+      <g clipPath={`url(#${uid}-clip)`}>
+        <circle cx="24" cy="24" r="3" fill="#0b0b0d" />
+        <circle
+          cx="24"
+          cy="24"
+          r="9"
+          stroke="#0b0b0d"
+          strokeWidth="2"
+          fill="none"
+          opacity="0.85"
+        />
+        <circle
+          cx="24"
+          cy="24"
+          r="15"
+          stroke="#0b0b0d"
+          strokeWidth="1.6"
+          fill="none"
+          opacity="0.55"
+          className={recording ? "svlogo-pulse-bar" : ""}
+          style={{ transformOrigin: "24px 24px" }}
+        />
+      </g>
 
-      {/* Subtle inner rand för djup */}
-      <circle
-        cx="24"
-        cy="24"
-        r="23"
+      {/* Subtle inner-stroke för djup */}
+      <rect
+        x="0.5"
+        y="0.5"
+        width="47"
+        height="47"
+        rx="9.5"
+        ry="9.5"
         fill="none"
         stroke="rgba(0,0,0,0.25)"
         strokeWidth="0.5"

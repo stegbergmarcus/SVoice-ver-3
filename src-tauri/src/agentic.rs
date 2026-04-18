@@ -13,7 +13,7 @@
 
 use serde::Serialize;
 use svoice_integrations::google::{tool_registry, GoogleClient};
-use svoice_llm::{tool_step, StepOutcome, ToolConversation, ToolResult};
+use svoice_llm::{tool_step_with_choice, StepOutcome, ToolConversation, ToolResult};
 use svoice_settings::Settings;
 use tauri::{AppHandle, Emitter};
 
@@ -164,13 +164,17 @@ Nuvarande tid: {now_iso} (tidszon: Europe/Stockholm, offset {offset}).\n\
 Riktlinjer:\n\
 - Om user säger 'imorgon kl 14', tolka som {tomorrow_iso}T14:00:00{offset}.\n\
 - Vid skapande av kalenderhändelser: ge default 60 minuter längd om inget annat anges.\n\
-- ANVÄND ALLTID web_search för realtidsinfo: väder, aktiekurser, valutor, sport, \
-senaste nyheter, dagens/aktuella händelser, priser, eller något som förändras ofta. \
-Gissa ALDRIG faktadata du inte kan verifiera — sök istället. Din träningsdata är \
-inaktuell för allt efter 2025; efter det datumet är web_search förstahandsval.\n\
-- När verktyg inte behövs (generella fakta, språkfrågor, resonemang), svara direkt.\n\
-- Efter ett verktyg kört klart, sammanfatta resultatet kort och naturligt på svenska \
-med källhänvisning när det är en webbsökning (ange URL/domän kort).\n\
+- KRITISKT: Om användaren ber om realtidsdata eller om du INTE kan vara säker på \
+att svaret stämmer idag, använd web_search. Din träningsdata är månader gammal — \
+aktiekurser, väder, nyheter, valutor, sport-resultat, priser, datum/händelser \
+efter träning har förändrats. Att gissa från minne är ett FEL när tool finns.\n\
+- Om användaren säger 'sök', 'googla', 'kolla upp', 'slå upp', 'leta', \
+'hitta info om', 'vad säger webben' eller liknande — det är en direkt instruktion \
+att använda web_search. Följ den.\n\
+- För resonemang, språk-frågor, matematik, kodförklaringar etc: svara direkt utan \
+verktyg. Onödig sökning är slöseri med tid.\n\
+- När verktyg använts, sammanfatta resultatet kort på svenska och ange källa kort \
+(t.ex. 'enligt smhi.se' eller 'enligt senaste från dn.se').\n\
 - Inga ursäkter, inga 'jag ska'; var direkt.",
         now_iso = now.format("%Y-%m-%dT%H:%M:%S"),
         tomorrow_iso = (now + chrono::Duration::days(1)).format("%Y-%m-%d"),
@@ -218,6 +222,22 @@ pub async fn run_agentic(
         .collect();
     let sys_prompt = system_prompt();
     let mut conv = ToolConversation::new(Some(sys_prompt.clone()), command.to_string());
+    // Heuristisk tool_choice: om kommandot tydligt indikerar realtidsdata
+    // (väder, aktier, nyheter, "just nu" etc) — tvinga Claude att använda
+    // web_search istället för att lita på auto-val. Claude 4.5 är annars
+    // benägen att svara från träningsdata trots system-prompt. För generella
+    // frågor (fakta, språk, resonemang) lämnar vi auto så Claude själv
+    // avgör — onödig websökning är slöseri med tokens och latens.
+    let forced_web_search = requires_realtime_lookup(command);
+    let initial_tool_choice = if forced_web_search && !tools.is_empty() {
+        tracing::info!("tool_choice: tvingar web_search för realtids-query");
+        Some(serde_json::json!({
+            "type": "tool",
+            "name": "web_search"
+        }))
+    } else {
+        None
+    };
     // Samla all text som Claude streamade till popupen — används för att spara
     // assistant-turnen i svoice_ipc::ACTIVE_CONVERSATION så nästa follow-up
     // ser hela konversationen (annars skickas bara user-turnen och Claude
@@ -225,7 +245,24 @@ pub async fn run_agentic(
     let mut assistant_accum = String::new();
 
     for round in 0..MAX_ROUNDS {
-        let outcome = tool_step(&req.api_key, &req.model, &mut conv, &tools, 1024, 0.3).await?;
+        // Bara round 0 får tvingad tool_choice. Efter första tool-resultat
+        // ska Claude kunna välja att svara i text (type=auto) annars fastnar
+        // loopen i en oändlig kedja av tool-calls.
+        let choice = if round == 0 {
+            initial_tool_choice.clone()
+        } else {
+            None
+        };
+        let outcome = tool_step_with_choice(
+            &req.api_key,
+            &req.model,
+            &mut conv,
+            &tools,
+            1024,
+            0.3,
+            choice,
+        )
+        .await?;
         match outcome {
             StepOutcome::Finished { text } => {
                 if !text.is_empty() {
@@ -305,6 +342,43 @@ pub async fn run_agentic(
     }
 
     anyhow::bail!("agentic-loop nådde max {MAX_ROUNDS} rounds utan att nå end_turn")
+}
+
+/// Heuristik för att *tvinga* web_search via tool_choice i round 0. Används
+/// som failsafe för fall där Claude annars skulle gissa från träningsdata
+/// trots system-promptens realtids-instruktion. LLM:er är generellt lata
+/// med tool-use — de underskattar sin egen kunskaps-cutoff.
+///
+/// Listan är avsiktligt kort: bara de signaler där det är entydigt
+/// olämpligt att svara från minne (väder, kurser, specifika datum).
+/// För mjuka fall ("sök efter X", "googla Y") förlitar vi oss på att
+/// Claude förstår naturligt språk — systempromten nämner explicit dessa
+/// trigger-ord. Om Claude ändå skulle svika lägger vi enkelt till
+/// keywords här senare.
+fn requires_realtime_lookup(command: &str) -> bool {
+    let c = command.to_lowercase();
+    const REALTIME_STEMS: &[&str] = &[
+        // Väder — alltid realtid
+        "väder",
+        "vädret",
+        "temperatur",
+        "prognos",
+        "regnar",
+        "snöar",
+        // Finans — minut-för-minut-data
+        "aktiekurs",
+        "börsen",
+        "bitcoin",
+        "växelkurs",
+        "valutakurs",
+        // Tidsspecifika signaler — "just nu", "idag" → behövs realtid
+        "just nu",
+        "idag",
+        "ikväll",
+        "senaste nyt",
+        "senaste nyheter",
+    ];
+    REALTIME_STEMS.iter().any(|stem| c.contains(stem))
 }
 
 /// Sätt system-prompten på den aktiva konversationen om den inte redan

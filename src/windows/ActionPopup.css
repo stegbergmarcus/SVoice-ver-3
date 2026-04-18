@@ -18,21 +18,24 @@ body,
 
 .action-popup-root {
   position: fixed;
-  inset: 16px;
+  inset: 0;
   display: grid;
   grid-template-rows: auto auto 1fr auto;
   gap: var(--space-4);
   padding: var(--space-6) var(--space-6) var(--space-5);
+  /* Card fyller hela webview-fönstret. Tidigare `inset: 16px` lämnade en 16 px
+   * band runt kortet där WebView2:s default-bakgrund (ljusgrå på Win11) syntes
+   * igenom trots `"transparent": true`. Utan insetet är hela popup-fönstret
+   * en solid card och ingen grå rand blir synlig. Vi tappar "floating card med
+   * skugga mot skrivbordet"-känslan, men det är vettigt trade-off för MVP. */
   background: linear-gradient(
     180deg,
-    rgba(19, 19, 22, 0.96) 0%,
-    rgba(13, 13, 15, 0.96) 100%
+    rgba(19, 19, 22, 0.98) 0%,
+    rgba(13, 13, 15, 0.98) 100%
   );
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 18px;
-  box-shadow:
-    0 32px 80px rgba(0, 0, 0, 0.55),
-    0 1px 0 rgba(255, 255, 255, 0.04) inset;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
   backdrop-filter: blur(20px) saturate(1.25);
   opacity: 0;
   transform: translateY(6px) scale(0.985);

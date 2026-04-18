@@ -22,7 +22,10 @@ export interface Settings {
   vad_threshold: number;
   action_llm_enabled: boolean;
   llm_polish_dictation: boolean;
-  llm_provider: LlmProviderChoice;
+  /** LLM-provider för action-popup (Insert-PTT → svar) */
+  action_llm_provider: LlmProviderChoice;
+  /** LLM-provider för dikterings-polering (efter RightCtrl-STT) */
+  dictation_llm_provider: LlmProviderChoice;
   anthropic_model: string;
   ollama_model: string;
   ollama_url: string;

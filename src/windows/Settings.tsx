@@ -762,24 +762,48 @@ export default function SettingsView() {
           </div>
           <div className="settings-section-body">
             <div className="field">
-              <label className="field-label">Provider</label>
+              <label className="field-label">Provider — action-popup (Insert)</label>
               <div className="segmented" role="tablist">
                 {(Object.keys(PROVIDER_LABELS) as LlmProviderChoice[]).map((p) => (
                   <button
-                    key={p}
+                    key={`action-${p}`}
                     type="button"
                     role="tab"
-                    aria-selected={draft.llm_provider === p}
-                    className={draft.llm_provider === p ? "active" : ""}
-                    onClick={() => setDraft({ ...draft, llm_provider: p })}
+                    aria-selected={draft.action_llm_provider === p}
+                    className={draft.action_llm_provider === p ? "active" : ""}
+                    onClick={() => setDraft({ ...draft, action_llm_provider: p })}
                   >
                     {PROVIDER_LABELS[p]}
                   </button>
                 ))}
               </div>
               <div className="field-help">
-                Auto försöker lokal Ollama först, fallback till Claude API om
-                den inte svarar på localhost:11434.
+                Svarar på röstkommandon i popup-fönstret. Claude krävs för
+                web_search/Google-verktyg (agentic-flow). Auto: Ollama först,
+                Claude som fallback.
+              </div>
+            </div>
+
+            <div className="field">
+              <label className="field-label">Provider — dikterings-polering (höger Ctrl)</label>
+              <div className="segmented" role="tablist">
+                {(Object.keys(PROVIDER_LABELS) as LlmProviderChoice[]).map((p) => (
+                  <button
+                    key={`dict-${p}`}
+                    type="button"
+                    role="tab"
+                    aria-selected={draft.dictation_llm_provider === p}
+                    className={draft.dictation_llm_provider === p ? "active" : ""}
+                    onClick={() => setDraft({ ...draft, dictation_llm_provider: p })}
+                  >
+                    {PROVIDER_LABELS[p]}
+                  </button>
+                ))}
+              </div>
+              <div className="field-help">
+                Används BARA om "LLM-polering av diktering" är på (Översikt-fliken).
+                Tips: snabb+billig (Groq) passar för rena grammatik-fixar medan
+                action-popup kan köras på Claude för tyngre resonemang.
               </div>
             </div>
 

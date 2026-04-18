@@ -126,6 +126,22 @@ pub async fn step(
     max_tokens: u32,
     temperature: f32,
 ) -> Result<StepOutcome, LlmError> {
+    step_with_choice(api_key, model, conv, tools, max_tokens, temperature, None).await
+}
+
+/// Som `step` men med explicit `tool_choice`. Passera `Some(json!({"type":
+/// "any"}))` för att tvinga Claude att använda något verktyg, eller
+/// `Some(json!({"type": "tool", "name": "web_search"}))` för att kräva
+/// specifikt verktyg. `None` = default `auto` (Claude avgör).
+pub async fn step_with_choice(
+    api_key: &str,
+    model: &str,
+    conv: &mut ToolConversation,
+    tools: &[serde_json::Value],
+    max_tokens: u32,
+    temperature: f32,
+    tool_choice: Option<serde_json::Value>,
+) -> Result<StepOutcome, LlmError> {
     let mut body = serde_json::json!({
         "model": model,
         "max_tokens": max_tokens,
@@ -135,6 +151,9 @@ pub async fn step(
     });
     if let Some(sys) = &conv.system {
         body["system"] = serde_json::json!(sys);
+    }
+    if let Some(choice) = tool_choice {
+        body["tool_choice"] = choice;
     }
 
     let client = reqwest::Client::new();

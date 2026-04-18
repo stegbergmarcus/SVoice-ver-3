@@ -106,9 +106,11 @@ pub fn capture_selection() -> Result<Option<String>, ClipboardError> {
     // När palette-hotkey (Ctrl+Shift+Space) eller action-PTT triggas håller
     // user fortfarande Ctrl + Shift + ev. andra modifiers nedtryckta. Om vi
     // skickar Ctrl+C direkt ser target-appen det som Ctrl+Shift+C (fel genväg
-    // i de flesta appar) eller ignorerar det helt. Vänta tills alla physical
-    // modifiers är släppta — max 250 ms så vi inte hänger vid t.ex. sticky keys.
-    wait_for_modifiers_released(Duration::from_millis(250));
+    // i de flesta appar) eller ignorerar det helt (som Notepad) och inget
+    // kopieras. Vänta tills alla physical modifiers är släppta — 600 ms
+    // räcker även för långsammare finger-release efter Ctrl+Shift+Space.
+    // Vid timeout fortsätter vi ändå för att undvika att hänga helt.
+    wait_for_modifiers_released(Duration::from_millis(600));
 
     let mut cb = arboard::Clipboard::new().map_err(|e| ClipboardError::Access(e.to_string()))?;
     // Spara nuvarande clipboard-innehåll (text only — bilder bevaras inte).

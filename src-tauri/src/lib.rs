@@ -484,6 +484,43 @@ pub fn run() {
                 });
             }
 
+            // Action-popup: stäng när user klickar utanför (focus lost).
+            // Förbättrad UX — inte bara Esc utan "klicka bort" som vanliga modaler.
+            // Konversations-state rensas också så nästa Insert-PTT börjar ny session.
+            if let Some(popup) = app.get_webview_window("action-popup") {
+                let popup_clone = popup.clone();
+                popup.on_window_event(move |ev| {
+                    if let tauri::WindowEvent::Focused(false) = ev {
+                        if popup_clone
+                            .is_visible()
+                            .ok()
+                            .unwrap_or(false)
+                        {
+                            let _ = popup_clone.hide();
+                            svoice_ipc::clear_active_conversation();
+                            tracing::debug!(
+                                "action-popup: stängd via click-outside (focus lost)"
+                            );
+                        }
+                    }
+                });
+            }
+
+            // Palette: samma click-outside-beteende.
+            if let Some(palette) = app.get_webview_window("palette") {
+                let palette_clone = palette.clone();
+                palette.on_window_event(move |ev| {
+                    if let tauri::WindowEvent::Focused(false) = ev {
+                        if palette_clone.is_visible().ok().unwrap_or(false) {
+                            let _ = palette_clone.hide();
+                            tracing::debug!(
+                                "palette: stängd via click-outside (focus lost)"
+                            );
+                        }
+                    }
+                });
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -765,9 +802,15 @@ fn perform_transcribe_and_inject(
 async fn polish_transcript(raw: &str, settings: &Settings) -> anyhow::Result<String> {
     use futures_util::StreamExt;
     let anthropic_key = svoice_secrets::get_anthropic_key().ok().flatten();
-    let llm = select_llm_provider(settings, anthropic_key.as_deref())
-        .await
-        .ok_or_else(|| anyhow::anyhow!("ingen LLM-provider konfigurerad för polering"))?;
+    // Dikterings-polering använder explicit `dictation_llm_provider` så user
+    // kan köra t.ex. snabb+billig Groq här och Claude för action-popup.
+    let llm = select_llm_provider(
+        settings.dictation_llm_provider,
+        settings,
+        anthropic_key.as_deref(),
+    )
+    .await
+    .ok_or_else(|| anyhow::anyhow!("ingen LLM-provider konfigurerad för polering"))?;
     let req = LlmRequest {
         system: Some(
             "Du är en svensk grammatik- och interpunktions-korrigerare. \
@@ -951,7 +994,11 @@ fn action_worker_loop(
 
                 // Bygg LLM-provider från den settings vi redan laddade ovan.
                 let anthropic_key = svoice_secrets::get_anthropic_key().ok().flatten();
-                let llm = rt.block_on(select_llm_provider(&current, anthropic_key.as_deref()));
+                let llm = rt.block_on(select_llm_provider(
+                    current.action_llm_provider,
+                    &current,
+                    anthropic_key.as_deref(),
+                ));
 
                 if let Err(e) = handle_action_released(
                     &app_handle,
@@ -1174,10 +1221,13 @@ fn handle_action_released(
     Ok(())
 }
 
-/// Väljer LLM-provider baserat på settings. Auto prövar Ollama först (snabb
-/// health-check mot localhost:11434) och fallback till Anthropic om det
-/// misslyckas. Uttryckligt val (Claude/Ollama/Groq) gör ingen fallback.
+/// Väljer LLM-provider baserat på `choice` + settings. Auto prövar Ollama
+/// först (snabb health-check mot localhost:11434) och fallback till
+/// Anthropic. Uttryckligt val (Claude/Ollama/Groq) gör ingen fallback.
+/// `choice` passeras explicit så caller kan använda olika providers för
+/// diktering vs action-popup (settings har två separata fält).
 async fn select_llm_provider(
+    choice: ProviderChoice,
     settings: &Settings,
     anthropic_key: Option<&str>,
 ) -> Option<Arc<dyn LlmProvider>> {
@@ -1205,7 +1255,7 @@ async fn select_llm_provider(
             })
     };
 
-    match settings.llm_provider {
+    match choice {
         ProviderChoice::Claude => build_anthropic(),
         ProviderChoice::Ollama => Some(build_ollama()),
         ProviderChoice::Groq => build_groq(),
@@ -1328,7 +1378,13 @@ async fn run_smart_function(app: AppHandle, id: String) -> Result<(), String> {
     // 6. Bygg LLM-provider.
     let settings = Settings::load();
     let anthropic_key = svoice_secrets::get_anthropic_key().ok().flatten();
-    let llm = match select_llm_provider(&settings, anthropic_key.as_deref()).await {
+    let llm = match select_llm_provider(
+        settings.action_llm_provider,
+        &settings,
+        anthropic_key.as_deref(),
+    )
+    .await
+    {
         Some(l) => l,
         None => {
             let msg = "Ingen LLM-provider konfigurerad. Lägg till API-nyckel (Claude/Groq) eller starta Ollama.".to_string();

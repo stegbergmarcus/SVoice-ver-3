@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Tray-rec-variant av Echo. Identisk layout men gradient pushad mot amber-hot
+  (#ffb96a → #ff9340) så tray-ikonen tydligt byter ton under inspelning.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffd08a"/>
+      <stop offset="70%" stop-color="#ff9340"/>
+      <stop offset="100%" stop-color="#c55a15"/>
+    </linearGradient>
+    <linearGradient id="gloss" x1="0%" y1="0%" x2="60%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <clipPath id="frame">
+      <rect x="0" y="0" width="48" height="48" rx="10" ry="10"/>
+    </clipPath>
+  </defs>
+  <rect x="0" y="0" width="48" height="48" rx="10" ry="10" fill="url(#bg)"/>
+  <rect x="0" y="0" width="48" height="48" rx="10" ry="10" fill="url(#gloss)"/>
+  <g clip-path="url(#frame)">
+    <circle cx="24" cy="24" r="3" fill="#0b0b0d"/>
+    <circle cx="24" cy="24" r="9"  stroke="#0b0b0d" stroke-width="2"   fill="none" opacity="0.9"/>
+    <circle cx="24" cy="24" r="15" stroke="#0b0b0d" stroke-width="1.6" fill="none" opacity="0.65"/>
+  </g>
+  <rect x="0.5" y="0.5" width="47" height="47" rx="9.5" ry="9.5"
+        fill="none" stroke="rgba(0,0,0,0.25)" stroke-width="0.5"/>
+</svg>
