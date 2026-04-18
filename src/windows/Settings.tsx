@@ -833,7 +833,14 @@ export default function SettingsView() {
               </div>
             </div>
 
-            <div className="field">
+            <div
+              className="field"
+              style={{
+                opacity: draft.llm_polish_dictation ? 1 : 0.45,
+                pointerEvents: draft.llm_polish_dictation ? "auto" : "none",
+              }}
+              aria-disabled={!draft.llm_polish_dictation}
+            >
               <label className="field-label">Provider — dikterings-polering (höger Ctrl)</label>
               <div className="segmented" role="tablist">
                 {(Object.keys(PROVIDER_LABELS) as LlmProviderChoice[]).map((p) => (
@@ -843,6 +850,7 @@ export default function SettingsView() {
                     role="tab"
                     aria-selected={draft.dictation_llm_provider === p}
                     className={draft.dictation_llm_provider === p ? "active" : ""}
+                    disabled={!draft.llm_polish_dictation}
                     onClick={() => setDraft({ ...draft, dictation_llm_provider: p })}
                   >
                     {PROVIDER_LABELS[p]}
@@ -850,9 +858,9 @@ export default function SettingsView() {
                 ))}
               </div>
               <div className="field-help">
-                Används BARA om "LLM-polering av diktering" är på (Översikt-fliken).
-                Tips: snabb+billig (Groq) passar för rena grammatik-fixar medan
-                action-popup kan köras på Claude för tyngre resonemang.
+                {draft.llm_polish_dictation
+                  ? "Tips: snabb+billig (Groq) passar för rena grammatik-fixar medan action-popup kan köras på Claude för tyngre resonemang."
+                  : 'Inaktiv — aktivera "LLM-polering av diktering" på Översikt-fliken först.'}
               </div>
             </div>
 

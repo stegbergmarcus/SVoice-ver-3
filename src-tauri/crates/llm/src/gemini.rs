@@ -197,9 +197,21 @@ impl GeminiClient {
         let status = resp.status();
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
+            // Plocka `error.message` ur Google-felbody så popup inte visar rå
+            // JSON. Specialfall 429 (RESOURCE_EXHAUSTED) — preview-modeller
+            // har snävare quota, vanlig felorsak i vardaglig use.
+            let short = short_error_message(&body);
+            let friendly = if status.as_u16() == 429 {
+                format!(
+                    "Gemini-kvoten slut för {}. Byt modell (t.ex. 2.5 Flash) eller vänta någon minut.",
+                    self.model
+                )
+            } else {
+                short.unwrap_or_else(|| body.clone())
+            };
             return Err(LlmError::Api {
                 status: status.as_u16(),
-                body,
+                body: friendly,
             });
         }
 
@@ -207,6 +219,16 @@ impl GeminiClient {
         let stream = sse_to_event_stream(byte_stream);
         Ok(Box::pin(stream))
     }
+}
+
+/// Plocka `error.message` ur Google-felbody. Om body inte är valid JSON
+/// eller saknar fältet: None — caller faller tillbaka till rå body.
+fn short_error_message(body: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(body).ok()?;
+    v.get("error")?
+        .get("message")?
+        .as_str()
+        .map(|s| s.to_string())
 }
 
 // ---------- SSE-parsing ----------
