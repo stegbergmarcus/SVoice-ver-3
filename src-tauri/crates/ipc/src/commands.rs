@@ -309,11 +309,14 @@ pub async fn google_connect(app: AppHandle) -> Result<(), String> {
         .as_deref()
         .filter(|s| !s.is_empty());
 
-    // Scopes: börja med Calendar + Gmail read-only. Full CRUD kommer senare.
+    // Scopes: Calendar läs+skriv, Gmail modify (läs + skapa drafts).
+    // GmailModify = läs + skapa drafts + arkivera/flytta; skickar INTE mail
+    // — för det krävs gmail.send, som vi medvetet utelämnar (alla drafts
+    // kräver manuell skicka-bekräftelse i Gmail-webben).
     let scopes = &[
         GoogleScope::CalendarReadonly,
         GoogleScope::CalendarEvents,
-        GoogleScope::GmailReadonly,
+        GoogleScope::GmailModify,
     ];
 
     let flow = GoogleOAuthFlow::start(client_id, client_secret, scopes)

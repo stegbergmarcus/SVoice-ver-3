@@ -1,0 +1,202 @@
+/* Command palette — centrerad modal med charcoal/amber-stil. */
+
+.palette-root {
+  position: fixed;
+  inset: 12px;
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  gap: 12px;
+  padding: 18px 20px 16px;
+  background: linear-gradient(
+    180deg,
+    rgba(19, 19, 22, 0.97) 0%,
+    rgba(13, 13, 15, 0.97) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  box-shadow:
+    0 32px 80px rgba(0, 0, 0, 0.55),
+    0 1px 0 rgba(255, 255, 255, 0.04) inset;
+  backdrop-filter: blur(20px) saturate(1.2);
+  opacity: 0;
+  transform: translateY(4px) scale(0.985);
+  transition: opacity 180ms cubic-bezier(0.2, 0.7, 0.2, 1),
+              transform 240ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  overflow: hidden;
+  color: #f3ede3;
+  font-family: "Instrument Sans", -apple-system, "Segoe UI", system-ui, sans-serif;
+}
+
+.palette-root.visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.palette-root::before {
+  content: "";
+  position: absolute;
+  top: -30%;
+  right: -10%;
+  width: 60%;
+  height: 70%;
+  background: radial-gradient(circle, rgba(230, 168, 92, 0.12), transparent 60%);
+  pointer-events: none;
+}
+
+.palette-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #9b958a;
+  font-family: "JetBrains Mono", Menlo, monospace;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  z-index: 1;
+}
+
+.palette-eyebrow {
+  color: #e6a85c;
+}
+
+.palette-input {
+  width: 100%;
+  padding: 12px 14px;
+  background: rgba(243, 237, 227, 0.05);
+  border: 1px solid rgba(243, 237, 227, 0.12);
+  border-radius: 10px;
+  color: #f3ede3;
+  font-family: inherit;
+  font-size: 15px;
+  outline: none;
+  transition: border-color 140ms ease, background 140ms ease;
+  z-index: 1;
+  box-sizing: border-box;
+}
+
+.palette-input:focus {
+  border-color: rgba(230, 168, 92, 0.4);
+  background: rgba(243, 237, 227, 0.08);
+}
+
+.palette-input::placeholder {
+  color: #5c5850;
+}
+
+.palette-list {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 1;
+  scrollbar-width: thin;
+}
+
+.palette-list::-webkit-scrollbar {
+  width: 6px;
+}
+.palette-list::-webkit-scrollbar-thumb {
+  background: rgba(243, 237, 227, 0.15);
+  border-radius: 3px;
+}
+
+.palette-item {
+  appearance: none;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.palette-item:hover,
+.palette-item.selected {
+  background: rgba(230, 168, 92, 0.1);
+  border-color: rgba(230, 168, 92, 0.3);
+}
+
+.palette-item-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.palette-item-name {
+  font-weight: 500;
+  font-size: 14px;
+  color: #f3ede3;
+}
+
+.palette-item-mode {
+  font-family: "JetBrains Mono", Menlo, monospace;
+  font-size: 9px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.palette-item-mode-transform {
+  background: rgba(230, 168, 92, 0.16);
+  color: #e6a85c;
+}
+
+.palette-item-mode-query {
+  background: rgba(123, 211, 126, 0.14);
+  color: #7bd37e;
+}
+
+.palette-item-desc {
+  font-size: 12px;
+  color: #9b958a;
+  line-height: 1.45;
+}
+
+.palette-empty {
+  padding: 24px 12px;
+  text-align: center;
+  color: #5c5850;
+  font-size: 13px;
+  font-style: italic;
+}
+
+.palette-footer {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #5c5850;
+  font-family: "JetBrains Mono", Menlo, monospace;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  z-index: 1;
+  padding-top: 6px;
+  border-top: 1px solid rgba(243, 237, 227, 0.06);
+}
+
+.palette-kbd {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(243, 237, 227, 0.07);
+  border: 1px solid rgba(243, 237, 227, 0.1);
+  color: #9b958a;
+  font-size: 10px;
+  margin: 0 4px;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  height: 100%;
+  overflow: hidden;
+}
