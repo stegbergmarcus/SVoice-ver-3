@@ -117,8 +117,18 @@ def main():
                     break
                 beam_size = req.get("beam_size", beam_size)
                 t0 = time.perf_counter()
+                # condition_on_previous_text=False förhindrar att Whisper
+                # "ger upp" mitt i transkription när den tror att tidigare
+                # text indikerar slut (har setts trunkera 20-sek-passager
+                # med naturliga pauser). no_speech_threshold=0.3 gör
+                # segment-filtret mindre aggressivt — standard 0.6 hoppar
+                # över segment med tysta delar som också innehåller tal.
                 segments, info = model.transcribe(
-                    audio, language=language, beam_size=beam_size
+                    audio,
+                    language=language,
+                    beam_size=beam_size,
+                    condition_on_previous_text=False,
+                    no_speech_threshold=0.3,
                 )
                 text = " ".join(s.text for s in segments).strip()
                 infer_ms = int((time.perf_counter() - t0) * 1000)

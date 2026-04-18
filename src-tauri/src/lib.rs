@@ -319,7 +319,11 @@ pub fn run() {
             // Audio-ownership: skapa ringen i setup-scope (Arc, Send+Sync).
             // AudioCapture (!Send pga cpal::Stream på Windows) skapas inuti
             // en egen "audio-owner"-tråd som håller streamen vid liv.
-            let ring = Arc::new(AudioRing::new(16000 * 30));
+            //
+            // 120 sek buffer = 3.84 MB (16kHz × 2 min × 4 bytes/f32). Tillåter
+            // långa dikteringar utan att börjar-tal skrivs över av slut-tal.
+            // Ökat från 30 sek efter rapport om trunkerade långa passager.
+            let ring = Arc::new(AudioRing::new(16000 * 120));
 
             // Audio-owner thread — skapar capture, parker forever.
             let audio_ring = ring.clone();
