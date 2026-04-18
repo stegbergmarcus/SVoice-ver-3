@@ -219,6 +219,7 @@ pub async fn action_apply(app: tauri::AppHandle, result: String) -> Result<(), S
         .map_err(|e| format!("paste failed: {e}"))?;
     // 4. Rensa follow-up-state så nästa Insert-PTT börjar helt från noll.
     clear_active_conversation();
+    ACTION_POPUP_STREAMING.store(false, std::sync::atomic::Ordering::SeqCst);
     tracing::info!("action-popup: result applied via clipboard, conversation cleared");
     Ok(())
 }
@@ -233,6 +234,7 @@ pub fn action_cancel(app: tauri::AppHandle) {
         let _ = win.hide();
     }
     clear_active_conversation();
+    ACTION_POPUP_STREAMING.store(false, std::sync::atomic::Ordering::SeqCst);
     tracing::debug!("action-popup: cancelled by user, conversation cleared");
 }
 
@@ -258,6 +260,13 @@ pub fn action_followup_stop() {
 pub static FOLLOWUP_START_REQUESTED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 pub static FOLLOWUP_STOP_REQUESTED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Sätts `true` från att första `action_llm_token` emittas tills 500 ms efter
+/// `action_llm_done`. Under denna period skippas click-outside-hide så user
+/// inte tappar ett pågående (eller nyss-levererat) svar genom att oavsiktligt
+/// klicka på skrivbordet.
+pub static ACTION_POPUP_STREAMING: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
 /// Lista alla tillgängliga mic-enheter (default-enheten listas först).

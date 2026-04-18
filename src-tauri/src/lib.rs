@@ -488,10 +488,20 @@ pub fn run() {
             // Action-popup: stäng när user klickar utanför (focus lost).
             // Förbättrad UX — inte bara Esc utan "klicka bort" som vanliga modaler.
             // Konversations-state rensas också så nästa Insert-PTT börjar ny session.
+            // Grace-period: om streaming pågår (eller just avslutats, ≤500 ms)
+            // ignoreras focus-lost så user inte av misstag stänger ett pågående svar.
             if let Some(popup) = app.get_webview_window("action-popup") {
                 let popup_clone = popup.clone();
                 popup.on_window_event(move |ev| {
                     if let tauri::WindowEvent::Focused(false) = ev {
+                        if svoice_ipc::ACTION_POPUP_STREAMING
+                            .load(Ordering::SeqCst)
+                        {
+                            tracing::debug!(
+                                "action-popup: focus-lost ignorerad — streaming pågår"
+                            );
+                            return;
+                        }
                         if popup_clone
                             .is_visible()
                             .ok()
@@ -634,6 +644,25 @@ fn emit_event<T: serde::Serialize + Clone>(app: &AppHandle, event: &str, payload
     if let Err(e) = app.emit(event, payload) {
         tracing::debug!("emit '{event}' misslyckades: {e}");
     }
+}
+
+/// Emittar ett `action_llm_token`-event och sätter streaming-flaggan true.
+/// Flaggan hindrar click-outside-hide under streaming.
+fn emit_action_token(app: &AppHandle, text: String) {
+    svoice_ipc::ACTION_POPUP_STREAMING.store(true, Ordering::SeqCst);
+    emit_event(app, EV_ACTION_LLM_TOKEN, ActionToken { text });
+}
+
+/// Emittar `action_llm_done` och schemalägger clear av streaming-flaggan
+/// 500 ms senare (grace-period så user inte råkar stänga popupen direkt).
+fn emit_action_done(app: &AppHandle) {
+    emit_event(app, EV_ACTION_LLM_DONE, ());
+    let app_clone = app.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        svoice_ipc::ACTION_POPUP_STREAMING.store(false, Ordering::SeqCst);
+        let _ = app_clone;
+    });
 }
 
 /// Visa main-fönstret (Settings) och ge det fokus. Anropas från tray-menyn
@@ -1241,7 +1270,7 @@ fn handle_action_released(
                     match chunk {
                         Ok(text) => {
                             assistant_accum.push_str(&text);
-                            emit_event(&app_clone, EV_ACTION_LLM_TOKEN, ActionToken { text });
+                            emit_action_token(&app_clone, text);
                         }
                         Err(e) => {
                             emit_event(
@@ -1260,7 +1289,7 @@ fn handle_action_released(
                 if !assistant_accum.is_empty() {
                     svoice_ipc::append_assistant_turn(assistant_accum);
                 }
-                emit_event(&app_clone, EV_ACTION_LLM_DONE, ());
+                emit_action_done(&app_clone);
             }
             Err(e) => {
                 emit_event(
@@ -1489,8 +1518,7 @@ async fn run_smart_function(app: AppHandle, id: String) -> Result<(), String> {
                 while let Some(chunk) = stream.next().await {
                     match chunk {
                         Ok(text) => {
-                            let _ = app_clone
-                                .emit(EV_ACTION_LLM_TOKEN, ActionToken { text });
+                            emit_action_token(&app_clone, text);
                         }
                         Err(e) => {
                             let _ = app_clone.emit(
@@ -1503,7 +1531,7 @@ async fn run_smart_function(app: AppHandle, id: String) -> Result<(), String> {
                         }
                     }
                 }
-                let _ = app_clone.emit(EV_ACTION_LLM_DONE, ());
+                emit_action_done(&app_clone);
             }
             Err(e) => {
                 let _ = app_clone.emit(

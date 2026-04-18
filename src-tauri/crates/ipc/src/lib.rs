@@ -7,5 +7,5 @@ pub use commands::{
     list_ollama_models, list_smart_functions, open_smart_functions_dir, pull_ollama_model,
     set_active_conversation, set_anthropic_key, set_gemini_key, set_groq_key, set_settings,
     snapshot_conversation, sync_autostart, ActiveConversation, GoogleStatus, InjectResult,
-    PttStateReport, FOLLOWUP_START_REQUESTED, FOLLOWUP_STOP_REQUESTED,
+    PttStateReport, ACTION_POPUP_STREAMING, FOLLOWUP_START_REQUESTED, FOLLOWUP_STOP_REQUESTED,
 };
