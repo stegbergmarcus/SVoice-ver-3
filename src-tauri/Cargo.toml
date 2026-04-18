@@ -36,6 +36,7 @@ svoice-settings = { path = "crates/settings" }
 svoice-llm = { path = "crates/llm" }
 svoice-secrets = { path = "crates/secrets" }
 svoice-smart-functions = { path = "crates/smart-functions" }
+svoice-updates = { path = "crates/updates" }
 futures-util = "0.3"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 windows = { workspace = true }
@@ -60,6 +61,7 @@ members = [
     "crates/settings",
     "crates/smart-functions",
     "crates/stt",
+    "crates/updates",
     "bins/stt-spike",
 ]
 
