@@ -390,6 +390,17 @@ pub fn run() {
                         let app_clone = app_handle.clone();
                         let model_clone = default_model.clone();
                         rt.spawn(async move {
+                            // RAII-guard: återställ flaggan även vid panic/early-
+                            // return så manuell download inte blockas permanent.
+                            struct AutoDownloadGuard;
+                            impl Drop for AutoDownloadGuard {
+                                fn drop(&mut self) {
+                                    svoice_ipc::STT_DOWNLOAD_IN_PROGRESS
+                                        .store(false, Ordering::SeqCst);
+                                }
+                            }
+                            let _guard = AutoDownloadGuard;
+
                             use tauri_plugin_notification::NotificationExt;
                             let _ = app_clone
                                 .notification()
@@ -412,10 +423,6 @@ pub fn run() {
                                     );
                                 })
                                 .await;
-                            // Rensa flaggan oavsett utfall — annars kan user
-                            // inte köra manuell download efter auto-fail.
-                            svoice_ipc::STT_DOWNLOAD_IN_PROGRESS
-                                .store(false, Ordering::SeqCst);
                             match result {
                                 Ok(()) => {
                                     let _ = app_clone.emit(

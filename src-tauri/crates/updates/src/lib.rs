@@ -96,6 +96,7 @@ pub async fn check_latest() -> Result<UpdateStatus, UpdateError> {
     );
     let client = reqwest::Client::builder()
         .user_agent(USER_AGENT)
+        .timeout(std::time::Duration::from_secs(15))
         .build()
         .map_err(|e| UpdateError::Http(e.to_string()))?;
 
@@ -150,9 +151,15 @@ pub async fn check_latest() -> Result<UpdateStatus, UpdateError> {
         .map(|a| a.browser_download_url);
 
     let notes = rel.body.map(|b| {
-        // Trunca långa release-notes till 2000 tecken.
+        // Trunca långa release-notes till ~2000 bytes men respektera
+        // UTF-8 char-boundaries så svenska å/ä/ö i notes inte panik:ar
+        // string-slicing.
         if b.len() > 2000 {
-            format!("{}…", &b[..2000])
+            let mut end = 2000;
+            while !b.is_char_boundary(end) && end > 0 {
+                end -= 1;
+            }
+            format!("{}…", &b[..end])
         } else {
             b
         }
@@ -194,5 +201,30 @@ mod tests {
     #[test]
     fn cache_path_ends_with_json() {
         assert!(cache_path().to_string_lossy().ends_with("update-check.json"));
+    }
+
+    #[test]
+    fn release_notes_truncation_respects_char_boundaries() {
+        // Skapa release-notes > 2000 bytes där byte 2000 råkar landa mitt
+        // i ett flerbyte-tecken (ö = 2 bytes i UTF-8). Utan char-boundary-
+        // hantering panik:ar string-slicing.
+        let mut body = String::new();
+        for _ in 0..500 {
+            body.push_str("aöaö"); // 4 chars, 6 bytes
+        }
+        assert!(body.len() > 2000);
+        // Simulera mapping-logiken i check_latest
+        let truncated = if body.len() > 2000 {
+            let mut end = 2000;
+            while !body.is_char_boundary(end) && end > 0 {
+                end -= 1;
+            }
+            format!("{}…", &body[..end])
+        } else {
+            body
+        };
+        // Ska inte panika — bara bekräfta att resultatet är valid UTF-8
+        // och slutar med ellipsen.
+        assert!(truncated.ends_with("…"));
     }
 }
