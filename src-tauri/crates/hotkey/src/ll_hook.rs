@@ -137,18 +137,31 @@ unsafe extern "system" fn hook_proc(code: i32, w_param: WPARAM, l_param: LPARAM)
                 state.registered.get(&vk).map(|entry| {
                     if pressed {
                         // Fire callback bara vid initial keydown, inte vid repeats.
-                        let initial = !entry.is_down.swap(true, Ordering::SeqCst);
-                        (initial.then(|| entry.callback.clone()), LlKeyEvent::Pressed)
+                        let was_down = entry.is_down.swap(true, Ordering::SeqCst);
+                        let initial = !was_down;
+                        (
+                            initial.then(|| entry.callback.clone()),
+                            LlKeyEvent::Pressed,
+                            was_down,
+                        )
                     } else {
                         let was_down = entry.is_down.swap(false, Ordering::SeqCst);
                         (
                             was_down.then(|| entry.callback.clone()),
                             LlKeyEvent::Released,
+                            was_down,
                         )
                     }
                 })
             };
-            if let Some((maybe_cb, ev)) = outcome {
+            if let Some((maybe_cb, ev, was_down)) = outcome {
+                tracing::debug!(
+                    "ll_hook: vk={:#04x} ev={:?} was_down={} fires_cb={}",
+                    vk,
+                    ev,
+                    was_down,
+                    maybe_cb.is_some()
+                );
                 if let Some(cb) = maybe_cb {
                     cb(ev);
                 }

@@ -174,6 +174,29 @@ pub fn run() {
         .setup(move |app| {
             tracing::info!("svoice-v3 tauri setup klar");
 
+            // Tvinga transparent background på popup/overlay/palette-webviews.
+            // Tauri's `"transparent": true` räcker inte alltid på Windows 11 DWM —
+            // WebView2 ritar en default (grå/svart) background innan användaren
+            // ser vår CSS. Kombinera tre ansatser för att tvinga genuin transparens:
+            //   1. set_background_color(Color(0,0,0,0)) berättar för webview:n att
+            //      INGEN backdrop ska ritas.
+            //   2. DWMWA_SYSTEMBACKDROP_TYPE=DWMSBT_NONE stänger Windows 11's
+            //      automatiska Mica/Acrylic/Tabbed backdrop-effekt.
+            //   3. DWMWA_USE_HOSTBACKDROPBRUSH=0 hindrar DWM från att rita en
+            //      host-backdrop-brush för parent-fönstret.
+            // Utan dessa visas en grå/svart fyrkant under popup-cardet på Win11.
+            for label in &["action-popup", "palette", "overlay"] {
+                if let Some(win) = app.get_webview_window(label) {
+                    if let Err(e) = win.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)))
+                    {
+                        tracing::debug!(
+                            "set_background_color misslyckades för {label}: {e} (ignoreras)"
+                        );
+                    }
+                    apply_dwm_transparency(&win, label);
+                }
+            }
+
             // Tray — main-fönstret är dolt by default, öppnas via meny eller
             // vänsterklick på tray-ikonen.
             let open_item =
@@ -395,6 +418,40 @@ pub fn run() {
                 Err(e) => tracing::error!("kunde inte registrera action-hotkey: {e}"),
             }
 
+            // Follow-up-poll-thread: frontend IPC action_followup_start/stop sätter
+            // atomiska flaggor (popup har ingen key-access via LL-hook när den är
+            // fokuserad eftersom WebView2/system-hookar filter:ar keydowns bort från
+            // systemhook-kedjan). Vi pollar flaggorna var 20 ms och skickar samma
+            // LlKeyEvent som LL-hook hade gjort, så action_worker_loop ser en identisk
+            // flow och follow-up-path triggas utan LL-hook-beroende.
+            let followup_tx = action_tx.clone();
+            std::thread::Builder::new()
+                .name("svoice-followup-poll".into())
+                .spawn(move || loop {
+                    if svoice_ipc::FOLLOWUP_START_REQUESTED
+                        .swap(false, Ordering::SeqCst)
+                    {
+                        if followup_tx.send(LlKeyEvent::Pressed).is_err() {
+                            tracing::warn!(
+                                "follow-up Pressed skickades men action-channel stängd"
+                            );
+                            break;
+                        }
+                    }
+                    if svoice_ipc::FOLLOWUP_STOP_REQUESTED
+                        .swap(false, Ordering::SeqCst)
+                    {
+                        if followup_tx.send(LlKeyEvent::Released).is_err() {
+                            tracing::warn!(
+                                "follow-up Released skickades men action-channel stängd"
+                            );
+                            break;
+                        }
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                })
+                .expect("kunde inte starta followup-poll-thread");
+
             let _ = app.get_webview_window("main");
 
             // Positionera overlay: centrerat horisontellt, ~60 px ovan botten
@@ -432,6 +489,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             svoice_ipc::action_apply,
             svoice_ipc::action_cancel,
+            svoice_ipc::action_followup_start,
+            svoice_ipc::action_followup_stop,
             svoice_ipc::check_hf_cached,
             svoice_ipc::clear_anthropic_key,
             svoice_ipc::clear_groq_key,
@@ -469,6 +528,65 @@ fn emit_error_toast(app: &AppHandle, title: &str, body: &str) {
     {
         tracing::debug!("kunde inte visa error-toast: {e}");
     }
+}
+
+/// Windows 11-specifik: stäng Mica/Acrylic system-backdrop på ett transparent-
+/// deklarerat fönster via `DwmSetWindowAttribute`. Utan detta ritar DWM en
+/// systembackdrop (grå/ljusgrå "glass") under webview:n trots
+/// `"transparent": true` i tauri.conf.json. Call:et är safe no-op på Win10
+/// (attributet ignoreras) så vi behöver inte gate:a på version.
+fn apply_dwm_transparency(win: &tauri::WebviewWindow, label: &str) {
+    #[cfg(windows)]
+    {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::Graphics::Dwm::{
+            DwmSetWindowAttribute, DWMSBT_NONE, DWMWA_SYSTEMBACKDROP_TYPE,
+            DWMWA_USE_HOSTBACKDROPBRUSH,
+        };
+
+        let hwnd = match win.hwnd() {
+            Ok(h) => HWND(h.0 as *mut _),
+            Err(e) => {
+                tracing::debug!("apply_dwm_transparency({label}): ingen HWND ({e})");
+                return;
+            }
+        };
+        // DWMSBT_NONE = 1 (Windows 11 build 22621+), betyder "rita ingen
+        // system-backdrop".
+        let backdrop: i32 = DWMSBT_NONE.0;
+        let r = unsafe {
+            DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_SYSTEMBACKDROP_TYPE,
+                &backdrop as *const _ as *const core::ffi::c_void,
+                std::mem::size_of::<i32>() as u32,
+            )
+        };
+        if r.is_err() {
+            tracing::debug!(
+                "DwmSetWindowAttribute(SYSTEMBACKDROP_TYPE) för {label}: {:?} (ignoreras på äldre Win)",
+                r
+            );
+        }
+        // DWMWA_USE_HOSTBACKDROPBRUSH = 17, värde 0 = inte använd host-backdrop.
+        let off: i32 = 0;
+        let r2 = unsafe {
+            DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_USE_HOSTBACKDROPBRUSH,
+                &off as *const _ as *const core::ffi::c_void,
+                std::mem::size_of::<i32>() as u32,
+            )
+        };
+        if r2.is_err() {
+            tracing::debug!(
+                "DwmSetWindowAttribute(USE_HOSTBACKDROPBRUSH) för {label}: {:?} (ignoreras)",
+                r2
+            );
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = (win, label);
 }
 
 fn emit_event<T: serde::Serialize + Clone>(app: &AppHandle, event: &str, payload: T) {
@@ -717,19 +835,31 @@ fn action_worker_loop(
                     tracing::debug!("action-PTT: skippas — dictation-PTT äger just nu");
                     continue;
                 }
-                // Spara target-HWND just nu, innan vi hinner öppna popup eller
-                // tappar fokus. Används av capture_selection (ser till att
-                // Ctrl+C skickas medan target är focused) och av paste_and_restore
-                // när user trycker Enter för transform-mode.
-                // Returnerar false om target är vår egen app — då skippas PTT
-                // helt (analogt med palette-hotkey beteendet).
-                if !remember_foreground_target() {
-                    tracing::debug!("action-PTT: target är vår egen app, skippar");
-                    PTT_OWNER.store(OWNER_NONE, Ordering::SeqCst);
-                    continue;
+
+                // Om popup redan är synlig: detta är en follow-up. Popupen själv
+                // är vår egen app, så remember_foreground_target returnerar false.
+                // Vi ska då INTE skippa — target-HWND från föregående turn
+                // ligger kvar i TARGET_HWND och återanvänds vid paste.
+                let popup_already_visible = app_handle
+                    .get_webview_window("action-popup")
+                    .and_then(|w| w.is_visible().ok())
+                    .unwrap_or(false);
+
+                if !popup_already_visible {
+                    // Fresh session: spara target-HWND medan target-appen har
+                    // fokus. Skippas om target är vår egen app (analogt med
+                    // palette-hotkey).
+                    if !remember_foreground_target() {
+                        tracing::debug!("action-PTT: target är vår egen app, skippar");
+                        PTT_OWNER.store(OWNER_NONE, Ordering::SeqCst);
+                        continue;
+                    }
                 }
                 ring.clear();
-                tracing::debug!("action-PTT: recording");
+                tracing::debug!(
+                    "action-PTT: recording (follow_up={})",
+                    popup_already_visible
+                );
                 emit_event(&app_handle, EV_PTT_STATE, PttState::Recording);
                 update_tray_for_state(&app_handle, PttState::Recording);
             }
@@ -751,31 +881,47 @@ fn action_worker_loop(
                 emit_event(&app_handle, EV_PTT_STATE, PttState::Processing);
                 update_tray_for_state(&app_handle, PttState::Processing);
 
-                // KRITISK ORDNING: fånga ev. markering INNAN popup öppnas.
-                // Popup.show() + set_focus() stjäl fokus från target-appen, så
-                // om capture_selection körs efter stjäls Ctrl+C av popup-
-                // webviewen och inget läses. Selection cachas tills
-                // handle_action_released kallas — då finns target-HWND sparad
-                // via remember_foreground_target i Pressed-grenen ovan.
-                std::thread::sleep(std::time::Duration::from_millis(40));
-                let captured_selection = match capture_selection() {
-                    Ok(sel) => sel,
-                    Err(e) => {
-                        tracing::warn!("capture_selection misslyckades: {e}");
-                        None
-                    }
-                };
-                if let Some(s) = &captured_selection {
-                    tracing::info!(
-                        "action: fångade selection ({} tecken)",
-                        s.chars().count()
-                    );
-                } else {
-                    tracing::info!("action: ingen markering");
-                }
+                // Follow-up-detection: om popupen fortfarande är synlig OCH
+                // vi har en aktiv konversation i state, tolka nya Insert-PTT
+                // som en uppföljningsfråga. Då skippas capture_selection (det
+                // ger ändå fel — popupen äger fokus) och nytt user-turn läggs
+                // till i existerande konversation.
+                let popup_visible = app_handle
+                    .get_webview_window("action-popup")
+                    .and_then(|w| w.is_visible().ok())
+                    .unwrap_or(false);
+                let has_active_conv = svoice_ipc::snapshot_conversation().is_some();
+                let is_follow_up = popup_visible && has_active_conv;
 
-                // Öppna popup-fönstret efter selection-fångsten så error-states
-                // syns även om STT eller LLM failar.
+                let captured_selection = if is_follow_up {
+                    tracing::info!("action: follow-up turn i pågående konversation");
+                    None
+                } else {
+                    // Fresh session — rensa ev. stale state och fånga ny selection.
+                    svoice_ipc::clear_active_conversation();
+                    // KRITISK ORDNING: fånga markering INNAN popup öppnas. Popup.show()
+                    // stjäl fokus från target-appen, så om capture_selection körs
+                    // efter stjäls Ctrl+C av popup-webviewen och inget läses.
+                    std::thread::sleep(std::time::Duration::from_millis(40));
+                    let sel = match capture_selection() {
+                        Ok(sel) => sel,
+                        Err(e) => {
+                            tracing::warn!("capture_selection misslyckades: {e}");
+                            None
+                        }
+                    };
+                    if let Some(s) = &sel {
+                        tracing::info!(
+                            "action: fångade selection ({} tecken)",
+                            s.chars().count()
+                        );
+                    } else {
+                        tracing::info!("action: ingen markering");
+                    }
+                    sel
+                };
+
+                // Öppna popup-fönstret. Redan synlig vid follow-up = no-op.
                 if let Some(win) = app_handle.get_webview_window("action-popup") {
                     let _ = win.show();
                     let _ = win.set_focus();
@@ -785,8 +931,14 @@ fn action_worker_loop(
                     EV_ACTION_POPUP_OPEN,
                     ActionPopupOpen {
                         selection: captured_selection.clone(),
-                        command: "lyssnar…".into(),
-                        mode: if captured_selection
+                        command: if is_follow_up {
+                            "uppföljning…".into()
+                        } else {
+                            "lyssnar…".into()
+                        },
+                        mode: if is_follow_up {
+                            "follow_up"
+                        } else if captured_selection
                             .as_ref()
                             .map_or(false, |s| !s.trim().is_empty())
                         {
@@ -809,6 +961,7 @@ fn action_worker_loop(
                     &llm,
                     &current,
                     captured_selection,
+                    is_follow_up,
                 ) {
                     tracing::error!("action-PTT fel: {e}");
                     emit_event(
@@ -837,11 +990,9 @@ fn handle_action_released(
     llm: &Option<Arc<dyn LlmProvider>>,
     settings: &Settings,
     selection: Option<String>,
+    is_follow_up: bool,
 ) -> anyhow::Result<()> {
     let vad_threshold = settings.vad_threshold;
-    // Selection fångades redan av caller (action_worker_loop) INNAN popup
-    // öppnades — annars hade Ctrl+C stjälpts av popup-webviewen. Här
-    // tar vi bara emot resultatet.
 
     // Transkribera user's röstkommando.
     let audio = ring.drain();
@@ -857,36 +1008,59 @@ fn handle_action_released(
     }
     tracing::info!("action: command = \"{}\"", command);
 
-    // 3. Bestäm mode baserat på om selection finns.
-    let mode: &'static str = if selection.as_ref().map_or(false, |s| !s.trim().is_empty()) {
+    // Bestäm mode. Vid follow-up använder vi samma mode som original-
+    // konversationen (vilket redan är inbakat i dess turns); vi räknar
+    // det som "query" för agentic-triggers-beslut men bygger LLM-req
+    // från stored conversation istället för scratch.
+    let mode: &'static str = if is_follow_up {
+        "query"
+    } else if selection.as_ref().map_or(false, |s| !s.trim().is_empty()) {
         "transform"
     } else {
         "query"
     };
 
-    // 4. Öppna popup-fönstret. Om det är dolt, visa det.
-    if let Some(win) = app_handle.get_webview_window("action-popup") {
-        let _ = win.show();
-        let _ = win.set_focus();
-    }
-
-    // 5. Emit open-event till popup-en.
+    // Emit popup-open-event med riktig command-text. Popup redan synlig
+    // (action_worker_loop öppnade den), bara uppdatera innehåll.
     emit_event(
         app_handle,
         EV_ACTION_POPUP_OPEN,
         ActionPopupOpen {
             selection: selection.clone(),
             command: command.clone(),
-            mode,
+            mode: if is_follow_up { "follow_up" } else { mode },
         },
     );
 
-    // 6a. Agentic path — försök tool-use-loop om kommandot ser ut att behöva
-    //     externa verktyg (Calendar/Gmail) OCH Google är ansluten. Annars
-    //     fallback till vanlig streaming nedan.
-    if mode == "query" && agentic::looks_agentic(&command, selection.as_deref()) {
-        if let Some(req) = agentic::prepare_agentic(settings) {
+    // Agentic path — alltid för NY session i query-mode om Anthropic-nyckel
+    // finns. Claude avgör själv via sin system-prompt om verktyg (web_search,
+    // calendar, gmail) behövs. Tidigare rule-based `looks_agentic`-heuristik
+    // var för spröd: svenska böjningar kastar om bokstavsordning (t.ex.
+    // "vädret" innehåller inte substrängen "väder" eftersom E och R är
+    // transponerade) så keyword-matching missade uppenbart-agentiska frågor.
+    // Extra tool-definitions kostar ~200 tokens per request — försumbart.
+    let prep = agentic::prepare_agentic(settings);
+    tracing::info!(
+        "agentic-gate: follow_up={} mode={} api_key_ok={}",
+        is_follow_up,
+        mode,
+        prep.is_some()
+    );
+    if !is_follow_up && mode == "query" && prep.is_some() {
+        let req = prep.expect("prep is_some just checked");
+        {
             tracing::info!("agentic flow triggas för command: \"{}\"", command);
+            // Spara en "tom" konversation så follow-up efter agentic kan
+            // bygga vidare som fri text (agentic-svar blir assistant-turn).
+            svoice_ipc::set_active_conversation(svoice_ipc::ActiveConversation {
+                system: None,
+                selection: selection.clone(),
+                turns: vec![TurnContent {
+                    role: Role::User,
+                    text: command.clone(),
+                }],
+                mode,
+            });
             let app_clone = app_handle.clone();
             let command_clone = command.clone();
             rt.spawn(async move {
@@ -910,12 +1084,10 @@ fn handle_action_released(
                 }
             });
             return Ok(());
-        } else {
-            tracing::debug!("agentic-triggers matchade men Google/API saknas — fallback till text");
         }
     }
 
-    // 6b. Kör LLM i bakgrunden; streama tokens.
+    // Vanlig streaming-path.
     let Some(llm) = llm.clone() else {
         emit_event(
             app_handle,
@@ -929,15 +1101,42 @@ fn handle_action_released(
         return Ok(());
     };
 
-    let llm_req = build_llm_request(mode, selection.as_deref(), &command);
+    // Bygg LLM-request. Follow-up återanvänder hela lagrade konversationen +
+    // appenderar nytt user-turn; ny session bygger turns via build_llm_request.
+    let llm_req = if is_follow_up {
+        // Append user-turn till stored conversation och hämta snapshot för LLM.
+        svoice_ipc::append_user_turn(command.clone());
+        let (system, turns) = svoice_ipc::snapshot_conversation().ok_or_else(|| {
+            anyhow::anyhow!("follow-up utan aktiv konversation (race?)")
+        })?;
+        LlmRequest {
+            system,
+            turns,
+            temperature: 0.3,
+            max_tokens: 1024,
+        }
+    } else {
+        let fresh = build_llm_request(mode, selection.as_deref(), &command);
+        // Spara i state så nästa Insert-PTT (follow-up) kan bygga vidare.
+        svoice_ipc::set_active_conversation(svoice_ipc::ActiveConversation {
+            system: fresh.system.clone(),
+            selection: selection.clone(),
+            turns: fresh.turns.clone(),
+            mode,
+        });
+        fresh
+    };
+
     let app_clone = app_handle.clone();
     let rt_clone = rt.clone();
     rt.spawn(async move {
+        let mut assistant_accum = String::new();
         match llm.complete_stream(llm_req).await {
             Ok(mut stream) => {
                 while let Some(chunk) = stream.next().await {
                     match chunk {
                         Ok(text) => {
+                            assistant_accum.push_str(&text);
                             emit_event(&app_clone, EV_ACTION_LLM_TOKEN, ActionToken { text });
                         }
                         Err(e) => {
@@ -951,6 +1150,11 @@ fn handle_action_released(
                             return;
                         }
                     }
+                }
+                // Spara assistant-turn så nästa follow-up ser hela
+                // konversationen inkl. detta svar.
+                if !assistant_accum.is_empty() {
+                    svoice_ipc::append_assistant_turn(assistant_accum);
                 }
                 emit_event(&app_clone, EV_ACTION_LLM_DONE, ());
             }

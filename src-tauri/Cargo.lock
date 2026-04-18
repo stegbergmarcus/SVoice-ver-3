@@ -4484,6 +4484,7 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "windows 0.60.0",
 ]
 
 [[package]]

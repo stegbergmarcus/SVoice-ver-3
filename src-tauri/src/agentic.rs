@@ -28,10 +28,13 @@ pub struct ToolCallEvent {
     pub summary: Option<String>,
 }
 
-/// Simpel heuristik: trigga agentic-flow om kommandot innehåller ord som
-/// rimligen kräver externa verktyg. Konservativt — föredrar false-negative
-/// (vanlig text-streaming fungerar alltid) över false-positive (onödig
-/// tool-loop på en enkel fråga).
+/// Simpel heuristik för att gissa om kommandot kräver externa verktyg.
+/// **Används inte längre i produktion** — handle_action_released triggar
+/// alltid agentic-flow i query-mode och låter Claude själv avgöra via
+/// sitt system-prompt. Heuristiken missade svenska böjningar (t.ex.
+/// "vädret" innehåller inte substrängen "väder"). Behålls för eventuell
+/// framtida rule-based fallback och täcks av enhetstester nedan.
+#[allow(dead_code)]
 pub fn looks_agentic(command: &str, selection: Option<&str>) -> bool {
     // Om user har markerat text i ett fönster, är det nästan alltid en
     // transform-request (omformulera/korrigera) — ingen tool-use.
@@ -39,6 +42,11 @@ pub fn looks_agentic(command: &str, selection: Option<&str>) -> bool {
         return false;
     }
     let c = command.to_lowercase();
+    tracing::debug!(
+        "looks_agentic: lowered_bytes={:?} chars={}",
+        c.as_bytes(),
+        c.chars().count()
+    );
     const KEYWORDS: &[&str] = &[
         // Kalender
         "kalender",
@@ -149,15 +157,20 @@ fn system_prompt() -> String {
     let offset = now.offset().to_string();
     format!(
         "Du är en svensk agentic assistent som hjälper användaren hantera Google Calendar och Gmail \
-via verktyg. Svara alltid på svenska.\n\
+via verktyg, och söker på webben för realtidsinfo. Svara alltid på svenska.\n\
 \n\
 Nuvarande tid: {now_iso} (tidszon: Europe/Stockholm, offset {offset}).\n\
 \n\
 Riktlinjer:\n\
 - Om user säger 'imorgon kl 14', tolka som {tomorrow_iso}T14:00:00{offset}.\n\
 - Vid skapande av kalenderhändelser: ge default 60 minuter längd om inget annat anges.\n\
-- När verktyg inte behövs, svara direkt i text. Använd verktyg endast när det faktiskt hjälper.\n\
-- Efter ett verktyg kört klart, sammanfatta resultatet kort och naturligt på svenska.\n\
+- ANVÄND ALLTID web_search för realtidsinfo: väder, aktiekurser, valutor, sport, \
+senaste nyheter, dagens/aktuella händelser, priser, eller något som förändras ofta. \
+Gissa ALDRIG faktadata du inte kan verifiera — sök istället. Din träningsdata är \
+inaktuell för allt efter 2025; efter det datumet är web_search förstahandsval.\n\
+- När verktyg inte behövs (generella fakta, språkfrågor, resonemang), svara direkt.\n\
+- Efter ett verktyg kört klart, sammanfatta resultatet kort och naturligt på svenska \
+med källhänvisning när det är en webbsökning (ange URL/domän kort).\n\
 - Inga ursäkter, inga 'jag ska'; var direkt.",
         now_iso = now.format("%Y-%m-%dT%H:%M:%S"),
         tomorrow_iso = (now + chrono::Duration::days(1)).format("%Y-%m-%d"),
@@ -203,15 +216,29 @@ pub async fn run_agentic(
             }
         })
         .collect();
-    let mut conv = ToolConversation::new(Some(system_prompt()), command.to_string());
+    let sys_prompt = system_prompt();
+    let mut conv = ToolConversation::new(Some(sys_prompt.clone()), command.to_string());
+    // Samla all text som Claude streamade till popupen — används för att spara
+    // assistant-turnen i svoice_ipc::ACTIVE_CONVERSATION så nästa follow-up
+    // ser hela konversationen (annars skickas bara user-turnen och Claude
+    // tappar context om vad som just sagts).
+    let mut assistant_accum = String::new();
 
     for round in 0..MAX_ROUNDS {
         let outcome = tool_step(&req.api_key, &req.model, &mut conv, &tools, 1024, 0.3).await?;
         match outcome {
             StepOutcome::Finished { text } => {
                 if !text.is_empty() {
+                    assistant_accum.push_str(&text);
                     let _ = app.emit(ev_token, serde_json::json!({ "text": text }));
                 }
+                // Spara final assistant-svar + sätt system-prompten på
+                // konversationen så follow-up-request kan byggas med full
+                // context + svenska/realtids-riktlinjer.
+                if !assistant_accum.is_empty() {
+                    svoice_ipc::append_assistant_turn(assistant_accum.clone());
+                }
+                ensure_conversation_system(&sys_prompt);
                 let _ = app.emit(ev_done, ());
                 return Ok(());
             }
@@ -220,8 +247,10 @@ pub async fn run_agentic(
                 partial_text,
                 assistant_blocks,
             } => {
-                // Om Claude sagt något innan tool_use, emittera det direkt.
+                // Om Claude sagt något innan tool_use, emittera det direkt
+                // och ackumulera så final turn sparas korrekt.
                 if !partial_text.is_empty() {
+                    assistant_accum.push_str(&partial_text);
                     let _ = app.emit(ev_token, serde_json::json!({ "text": partial_text }));
                 }
 
@@ -276,6 +305,20 @@ pub async fn run_agentic(
     }
 
     anyhow::bail!("agentic-loop nådde max {MAX_ROUNDS} rounds utan att nå end_turn")
+}
+
+/// Sätt system-prompten på den aktiva konversationen om den inte redan
+/// är satt. Anropas när agentic-flow klar så follow-up-request kan skickas
+/// med samma riktlinjer (svenska, realtids-direktiv) istället för ingen
+/// system-prompt alls.
+fn ensure_conversation_system(sys: &str) {
+    if let Ok(mut guard) = svoice_ipc::commands::ACTIVE_CONVERSATION.lock() {
+        if let Some(conv) = guard.as_mut() {
+            if conv.system.is_none() {
+                conv.system = Some(sys.to_string());
+            }
+        }
+    }
 }
 
 /// Kort läsbar beskrivning för UI-status vid tool-start.

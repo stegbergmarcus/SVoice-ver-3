@@ -1,13 +1,80 @@
 use serde::Serialize;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use svoice_audio::list_input_devices;
 use svoice_hotkey::PttState;
 use svoice_inject::paste_and_restore;
-use svoice_llm::{OllamaClient, OllamaModelInfo};
+use svoice_llm::{OllamaClient, OllamaModelInfo, Role, TurnContent};
 use svoice_settings::{ComputeMode, Settings};
 use svoice_stt::{PythonStt, SttConfig};
 use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_autostart::ManagerExt;
+
+/// State för pågående action-popup-konversation. Används för att hålla ihop
+/// follow-up-turns när user håller Insert igen medan popupen fortfarande är
+/// synlig. Rensas när popupen stängs (action_apply / action_cancel) — så
+/// varje ny popup-session börjar med tom context. `Mutex::new(None)` är
+/// const sedan Rust 1.63 så vi kan använda static utan OnceCell.
+#[derive(Debug, Clone)]
+pub struct ActiveConversation {
+    pub system: Option<String>,
+    pub selection: Option<String>,
+    pub turns: Vec<TurnContent>,
+    pub mode: &'static str,
+}
+
+pub static ACTIVE_CONVERSATION: Mutex<Option<ActiveConversation>> = Mutex::new(None);
+
+/// Hjälp-funktion så lib.rs och IPC-handlers kan rensa state på samma sätt.
+pub fn clear_active_conversation() {
+    if let Ok(mut guard) = ACTIVE_CONVERSATION.lock() {
+        *guard = None;
+    }
+}
+
+/// Lägger till en user-turn i den aktiva konversationen. Används av follow-up-
+/// flödet. Om ingen aktiv konversation finns är detta en no-op och false
+/// returneras — caller ska då bygga en ny konversation från scratch.
+pub fn append_user_turn(text: String) -> bool {
+    if let Ok(mut guard) = ACTIVE_CONVERSATION.lock() {
+        if let Some(conv) = guard.as_mut() {
+            conv.turns.push(TurnContent {
+                role: Role::User,
+                text,
+            });
+            return true;
+        }
+    }
+    false
+}
+
+/// Lägger till en assistant-turn efter stream är klar så nästa follow-up
+/// ser det fullständiga svaret i history.
+pub fn append_assistant_turn(text: String) {
+    if let Ok(mut guard) = ACTIVE_CONVERSATION.lock() {
+        if let Some(conv) = guard.as_mut() {
+            conv.turns.push(TurnContent {
+                role: Role::Assistant,
+                text,
+            });
+        }
+    }
+}
+
+/// Ersätter active konversation med en ny (fresh session). Används vid första
+/// turnen av en popup-session när vi just byggt system + selection + första
+/// user-turn. Returnerar en clone av turns för stream-konsumenten.
+pub fn set_active_conversation(conv: ActiveConversation) {
+    if let Ok(mut guard) = ACTIVE_CONVERSATION.lock() {
+        *guard = Some(conv);
+    }
+}
+
+/// Läs turns + system för en follow-up-request utan att hålla Mutex över await.
+pub fn snapshot_conversation() -> Option<(Option<String>, Vec<TurnContent>)> {
+    let guard = ACTIVE_CONVERSATION.lock().ok()?;
+    let conv = guard.as_ref()?;
+    Some((conv.system.clone(), conv.turns.clone()))
+}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -150,20 +217,48 @@ pub async fn action_apply(app: tauri::AppHandle, result: String) -> Result<(), S
         .await
         .map_err(|e| format!("join error: {e}"))?
         .map_err(|e| format!("paste failed: {e}"))?;
-    tracing::info!("action-popup: result applied via clipboard");
+    // 4. Rensa follow-up-state så nästa Insert-PTT börjar helt från noll.
+    clear_active_conversation();
+    tracing::info!("action-popup: result applied via clipboard, conversation cleared");
     Ok(())
 }
 
 /// Användaren avbröt action-popupen utan att applicera resultatet.
 /// Göm popup-fönstret oavsett frontend-state (säkerhetsnät).
+/// Rensar också konversations-state så nästa Insert-PTT börjar ny session.
 #[tauri::command]
 pub fn action_cancel(app: tauri::AppHandle) {
     use tauri::Manager;
     if let Some(win) = app.get_webview_window("action-popup") {
         let _ = win.hide();
     }
-    tracing::debug!("action-popup: cancelled by user");
+    clear_active_conversation();
+    tracing::debug!("action-popup: cancelled by user, conversation cleared");
 }
+
+/// Starta follow-up PTT från popup-frontend (Space-nedtryckning i popup-
+/// webview). När popup har fokus blockeras Insert-keyevent av
+/// WebView2/system-hookar — frontend→IPC-vägen är mer pålitlig.
+/// lib.rs läser en flagga och triggar action-worker Pressed-flow.
+#[tauri::command]
+pub fn action_followup_start() {
+    FOLLOWUP_START_REQUESTED.store(true, std::sync::atomic::Ordering::SeqCst);
+    tracing::debug!("action_followup_start IPC mottagen");
+}
+
+/// Släpp follow-up PTT (Space-release i popup).
+#[tauri::command]
+pub fn action_followup_stop() {
+    FOLLOWUP_STOP_REQUESTED.store(true, std::sync::atomic::Ordering::SeqCst);
+    tracing::debug!("action_followup_stop IPC mottagen");
+}
+
+/// Flaggor som lib.rs pollar i audio-owner-loopen. Enkelt mekanism för
+/// att crate-cross-trigger action-worker utan att ta IPC på audio-thread.
+pub static FOLLOWUP_START_REQUESTED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+pub static FOLLOWUP_STOP_REQUESTED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 /// Lista alla tillgängliga mic-enheter (default-enheten listas först).
 /// Används av Settings-UI:ets mikrofon-dropdown.

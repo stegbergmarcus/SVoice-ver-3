@@ -38,6 +38,7 @@ svoice-secrets = { path = "crates/secrets" }
 svoice-smart-functions = { path = "crates/smart-functions" }
 futures-util = "0.3"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+windows = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
@@ -89,6 +90,7 @@ windows = { version = "0.60", features = [
     "Win32_System_Memory",
     "Win32_System_Ole",
     "Win32_Graphics_Gdi",
+    "Win32_Graphics_Dwm",
 ] }
 arboard = "3"
 anyhow = "1"
