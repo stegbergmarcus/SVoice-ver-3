@@ -152,7 +152,10 @@ pub async fn step(
         });
     }
 
-    let json: serde_json::Value = resp.json().await.map_err(|e| LlmError::Protocol(e.to_string()))?;
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| LlmError::Protocol(e.to_string()))?;
     parse_response(json, conv)
 }
 

@@ -75,10 +75,7 @@ pub async fn search_messages(
 }
 
 /// Hämta metadata-nivå för ett meddelande (headers + snippet, ingen full body).
-pub async fn get_message(
-    client: &GoogleClient,
-    message_id: &str,
-) -> Result<Message, ClientError> {
+pub async fn get_message(client: &GoogleClient, message_id: &str) -> Result<Message, ClientError> {
     let url = format!(
         "{API_BASE}/messages/{message_id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date&metadataHeaders=To"
     );

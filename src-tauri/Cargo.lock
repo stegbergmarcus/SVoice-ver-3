@@ -4301,6 +4301,7 @@ dependencies = [
  "svoice-llm",
  "svoice-secrets",
  "svoice-settings",
+ "svoice-smart-functions",
  "svoice-stt",
  "tauri",
  "tauri-plugin-notification",
@@ -4345,6 +4346,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "svoice-smart-functions"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tracing",
+]
+
+[[package]]
 name = "svoice-stt"
 version = "0.1.0"
 dependencies = [
@@ -4380,6 +4393,7 @@ dependencies = [
  "svoice-llm",
  "svoice-secrets",
  "svoice-settings",
+ "svoice-smart-functions",
  "svoice-stt",
  "tauri",
  "tauri-build",

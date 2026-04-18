@@ -48,9 +48,12 @@ pub async fn list_events(
         max_results
     );
     let json = client.get(&url).await?;
-    let items = json.get("items").cloned().unwrap_or(serde_json::Value::Array(vec![]));
-    let events: Vec<CalendarEvent> = serde_json::from_value(items)
-        .map_err(|e| ClientError::ApiError {
+    let items = json
+        .get("items")
+        .cloned()
+        .unwrap_or(serde_json::Value::Array(vec![]));
+    let events: Vec<CalendarEvent> =
+        serde_json::from_value(items).map_err(|e| ClientError::ApiError {
             status: 0,
             body: format!("parse-fel: {e}"),
         })?;

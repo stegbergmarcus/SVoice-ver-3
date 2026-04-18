@@ -16,9 +16,7 @@ static PTT_OWNER: AtomicU8 = AtomicU8::new(OWNER_NONE);
 use futures_util::StreamExt;
 use svoice_audio::vad::trim_silence;
 use svoice_audio::{AudioCapture, AudioRing, VolumeMeter};
-use svoice_hotkey::{
-    register_hotkey, HotKey, LlCallback, LlKeyEvent, PttMachine, PttState,
-};
+use svoice_hotkey::{register_with_role, HotKey, LlCallback, LlKeyEvent, PttMachine, PttState};
 use svoice_inject::{capture_selection, inject, remember_foreground_target, InjectMethod};
 use svoice_llm::{AnthropicClient, LlmProvider, LlmRequest, OllamaClient, Role, TurnContent};
 use svoice_settings::{ComputeMode, LlmProvider as ProviderChoice, Settings};
@@ -119,6 +117,14 @@ pub fn run() {
                 tracing::error!("settings-migration fel: {e}");
             }
 
+            // Seeda smart-functions default-prompts. Idempotent — skriver bara
+            // filer som saknas.
+            if let Err(e) =
+                svoice_smart_functions::seed_defaults(&svoice_smart_functions::default_dir())
+            {
+                tracing::error!("smart-functions seed fel: {e}");
+            }
+
             // Läs användar-settings från disk (eller default).
             let user_settings = Settings::load();
             tracing::info!(
@@ -126,7 +132,11 @@ pub fn run() {
                 user_settings.stt_model,
                 user_settings.stt_compute_mode,
                 user_settings.vad_threshold,
-                if svoice_secrets::has_anthropic_key() { "****" } else { "none" },
+                if svoice_secrets::has_anthropic_key() {
+                    "****"
+                } else {
+                    "none"
+                },
             );
 
             // Bygg SttConfig.
@@ -155,7 +165,10 @@ pub fn run() {
                 }
                 let bundled_script = res_dir.join("python").join("stt_sidecar.py");
                 if bundled_script.exists() {
-                    tracing::info!("använder bundlat sidecar-script: {}", bundled_script.display());
+                    tracing::info!(
+                        "använder bundlat sidecar-script: {}",
+                        bundled_script.display()
+                    );
                     stt_config.script_path = bundled_script;
                 }
             }
@@ -240,7 +253,7 @@ pub fn run() {
                     tracing::warn!("PTT worker-channel stängd; tappar event {:?}", ev);
                 }
             });
-            match register_hotkey(dict_key, ptt_cb) {
+            match register_with_role("dictation", dict_key, ptt_cb) {
                 Ok(()) => tracing::info!("PTT aktiv: håll {:?} för att diktera", dict_key),
                 Err(e) => tracing::error!("kunde inte registrera dikterings-hotkey: {e}"),
             }
@@ -275,7 +288,7 @@ pub fn run() {
                     tracing::warn!("action worker-channel stängd; tappar event {:?}", ev);
                 }
             });
-            match register_hotkey(action_key, action_cb) {
+            match register_with_role("action", action_key, action_cb) {
                 Ok(()) => tracing::info!("Action-PTT aktiv: håll {:?} för LLM-popup", action_key),
                 Err(e) => tracing::error!("kunde inte registrera action-hotkey: {e}"),
             }
@@ -313,6 +326,8 @@ pub fn run() {
             svoice_ipc::has_anthropic_key,
             svoice_ipc::list_mic_devices,
             svoice_ipc::list_ollama_models,
+            svoice_ipc::list_smart_functions,
+            svoice_ipc::open_smart_functions_dir,
             svoice_ipc::pull_ollama_model,
             svoice_ipc::set_anthropic_key,
             svoice_ipc::set_settings,
@@ -354,7 +369,12 @@ fn ptt_worker_loop(
         // Simultan-PTT-lockout: ignorera dictation Pressed om action redan äger.
         if ev == LlKeyEvent::Pressed
             && PTT_OWNER
-                .compare_exchange(OWNER_NONE, OWNER_DICTATION, Ordering::SeqCst, Ordering::SeqCst)
+                .compare_exchange(
+                    OWNER_NONE,
+                    OWNER_DICTATION,
+                    Ordering::SeqCst,
+                    Ordering::SeqCst,
+                )
                 .is_err()
         {
             tracing::debug!("dictation-PTT: skippas — action-PTT äger just nu");
@@ -554,12 +574,7 @@ fn action_worker_loop(
             LlKeyEvent::Pressed => {
                 // Simultan-PTT-lockout: skippa om dictation äger just nu.
                 if PTT_OWNER
-                    .compare_exchange(
-                        OWNER_NONE,
-                        OWNER_ACTION,
-                        Ordering::SeqCst,
-                        Ordering::SeqCst,
-                    )
+                    .compare_exchange(OWNER_NONE, OWNER_ACTION, Ordering::SeqCst, Ordering::SeqCst)
                     .is_err()
                 {
                     tracing::debug!("action-PTT: skippas — dictation-PTT äger just nu");
@@ -609,14 +624,9 @@ fn action_worker_loop(
                 let anthropic_key = svoice_secrets::get_anthropic_key().ok().flatten();
                 let llm = rt.block_on(select_llm_provider(&current, anthropic_key.as_deref()));
 
-                if let Err(e) = handle_action_released(
-                    &app_handle,
-                    &ring,
-                    &stt,
-                    &rt,
-                    &llm,
-                    &current,
-                ) {
+                if let Err(e) =
+                    handle_action_released(&app_handle, &ring, &stt, &rt, &llm, &current)
+                {
                     tracing::error!("action-PTT fel: {e}");
                     emit_event(
                         &app_handle,
@@ -728,9 +738,7 @@ fn handle_action_released(
             });
             return Ok(());
         } else {
-            tracing::debug!(
-                "agentic-triggers matchade men Google/API saknas — fallback till text"
-            );
+            tracing::debug!("agentic-triggers matchade men Google/API saknas — fallback till text");
         }
     }
 
@@ -740,7 +748,9 @@ fn handle_action_released(
             app_handle,
             EV_ACTION_LLM_ERROR,
             ActionError {
-                message: "Ingen LLM-nyckel konfigurerad. Lägg till anthropic_api_key i inställningarna.".into(),
+                message:
+                    "Ingen LLM-nyckel konfigurerad. Lägg till anthropic_api_key i inställningarna."
+                        .into(),
             },
         );
         return Ok(());
@@ -795,14 +805,11 @@ async fn select_llm_provider(
     anthropic_key: Option<&str>,
 ) -> Option<Arc<dyn LlmProvider>> {
     let build_anthropic = || -> Option<Arc<dyn LlmProvider>> {
-        anthropic_key
-            .filter(|k| !k.is_empty())
-            .map(|key| {
-                Arc::new(
-                    AnthropicClient::new(key.to_string())
-                        .with_model(settings.anthropic_model.clone()),
-                ) as Arc<dyn LlmProvider>
-            })
+        anthropic_key.filter(|k| !k.is_empty()).map(|key| {
+            Arc::new(
+                AnthropicClient::new(key.to_string()).with_model(settings.anthropic_model.clone()),
+            ) as Arc<dyn LlmProvider>
+        })
     };
     let build_ollama = || -> Arc<dyn LlmProvider> {
         Arc::new(
@@ -818,7 +825,10 @@ async fn select_llm_provider(
             let ollama = OllamaClient::new(settings.ollama_model.clone())
                 .with_base_url(settings.ollama_url.clone());
             if ollama.is_healthy().await {
-                tracing::info!("action-LLM: använder lokal Ollama ({})", settings.ollama_model);
+                tracing::info!(
+                    "action-LLM: använder lokal Ollama ({})",
+                    settings.ollama_model
+                );
                 Some(Arc::new(ollama))
             } else {
                 tracing::info!("action-LLM: Ollama otillgänglig, faller tillbaka till Anthropic");

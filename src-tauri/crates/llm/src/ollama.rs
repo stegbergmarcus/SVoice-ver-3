@@ -34,9 +34,7 @@ impl OllamaClient {
         Self {
             base_url: DEFAULT_URL.into(),
             model: model.into(),
-            client: reqwest::Client::builder()
-                .build()
-                .expect("reqwest client"),
+            client: reqwest::Client::builder().build().expect("reqwest client"),
         }
     }
 
@@ -50,7 +48,9 @@ impl OllamaClient {
     pub async fn is_healthy(&self) -> bool {
         match tokio::time::timeout(
             HEALTH_TIMEOUT,
-            self.client.get(format!("{}/api/tags", self.base_url)).send(),
+            self.client
+                .get(format!("{}/api/tags", self.base_url))
+                .send(),
         )
         .await
         {
@@ -294,7 +294,11 @@ fn ndjson_content_deltas(
 ) -> Pin<Box<dyn Stream<Item = Result<String, LlmError>> + Send>> {
     use std::collections::VecDeque;
     let stream = futures_util::stream::unfold(
-        (byte_stream.boxed(), String::new(), VecDeque::<Result<String, LlmError>>::new()),
+        (
+            byte_stream.boxed(),
+            String::new(),
+            VecDeque::<Result<String, LlmError>>::new(),
+        ),
         |(mut bs, mut buf, mut out)| async move {
             loop {
                 if let Some(item) = out.pop_front() {

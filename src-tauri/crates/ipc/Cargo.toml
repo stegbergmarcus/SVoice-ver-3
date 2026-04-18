@@ -22,4 +22,5 @@ svoice-integrations = { path = "../integrations" }
 svoice-llm = { path = "../llm" }
 svoice-secrets = { path = "../secrets" }
 svoice-settings = { path = "../settings" }
+svoice-smart-functions = { path = "../smart-functions" }
 svoice-stt = { path = "../stt" }

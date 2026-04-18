@@ -28,16 +28,38 @@ pub fn get_settings() -> Settings {
 }
 
 /// Skriv settings till disk. Om STT-fält ändrats triggas hot-reload så
-/// modell-byte träder i kraft utan app-restart.
+/// modell-byte träder i kraft utan app-restart. Hotkey-ändringar re-bindas
+/// live via svoice_hotkey::rebind_role — ingen restart behövs.
 #[tauri::command]
 pub async fn set_settings(
     settings: Settings,
     stt: State<'_, Arc<PythonStt>>,
 ) -> Result<(), String> {
+    // Läs gammal version för att detektera hotkey-ändringar.
+    let old = Settings::load();
+
     // Spara först så hot-reload-loop:en i workers ser ny disk-version.
     settings
         .save()
         .map_err(|e| format!("kunde inte spara settings: {e}"))?;
+
+    // Hot-reload hotkeys om de ändrats. Fallback till default om user råkat
+    // sätta båda samma (validering sker också i setup, men vi skyddar här).
+    let (d_new, a_new) = if settings.dictation_hotkey == settings.action_hotkey {
+        tracing::warn!("dictation_hotkey == action_hotkey — faller tillbaka till default");
+        (
+            svoice_hotkey::HotKey::RightCtrl,
+            svoice_hotkey::HotKey::Insert,
+        )
+    } else {
+        (settings.dictation_hotkey, settings.action_hotkey)
+    };
+    if let Err(e) = svoice_hotkey::rebind_role("dictation", old.dictation_hotkey, d_new) {
+        tracing::error!("kunde inte rebinda dictation-hotkey: {e}");
+    }
+    if let Err(e) = svoice_hotkey::rebind_role("action", old.action_hotkey, a_new) {
+        tracing::error!("kunde inte rebinda action-hotkey: {e}");
+    }
 
     // Bygg SttConfig från ny settings och be PythonStt reload om det ändrats.
     // reload_config returnerar false om config är identisk med befintlig =>
@@ -175,10 +197,7 @@ pub async fn pull_ollama_model(app: AppHandle, model: String) -> Result<(), Stri
         })
         .await
         .map_err(|e| format!("ollama pull failed: {e}"))?;
-    let _ = app.emit(
-        "ollama_pull_done",
-        serde_json::json!({ "model": model }),
-    );
+    let _ = app.emit("ollama_pull_done", serde_json::json!({ "model": model }));
 
     // OS-notifikation — user kan ha stängt Settings-fönstret.
     use tauri_plugin_notification::NotificationExt;
@@ -214,15 +233,13 @@ pub fn set_anthropic_key(key: String) -> Result<(), String> {
     if trimmed.is_empty() {
         return Err("nyckel får inte vara tom — använd clear-kommandot istället".into());
     }
-    svoice_secrets::set_anthropic_key(trimmed)
-        .map_err(|e| format!("kunde inte spara nyckel: {e}"))
+    svoice_secrets::set_anthropic_key(trimmed).map_err(|e| format!("kunde inte spara nyckel: {e}"))
 }
 
 /// Radera Anthropic API-nyckeln ur Credential Manager. No-op om den saknas.
 #[tauri::command]
 pub fn clear_anthropic_key() -> Result<(), String> {
-    svoice_secrets::delete_anthropic_key()
-        .map_err(|e| format!("kunde inte radera nyckel: {e}"))
+    svoice_secrets::delete_anthropic_key().map_err(|e| format!("kunde inte radera nyckel: {e}"))
 }
 
 // ───────── Google OAuth ─────────
@@ -281,7 +298,10 @@ pub async fn google_connect(app: AppHandle) -> Result<(), String> {
         .open_url(&flow.auth_url, None::<&str>)
         .map_err(|e| format!("kunde inte öppna browser: {e}"))?;
 
-    tracing::info!("OAuth-flow startad; väntar på callback på port {}", flow.port);
+    tracing::info!(
+        "OAuth-flow startad; väntar på callback på port {}",
+        flow.port
+    );
 
     let tokens = flow
         .finalize()
@@ -303,4 +323,27 @@ pub async fn google_connect(app: AppHandle) -> Result<(), String> {
 pub fn google_disconnect() -> Result<(), String> {
     svoice_integrations::google::oauth::disconnect()
         .map_err(|e| format!("kunde inte koppla från: {e}"))
+}
+
+// ───────── Smart functions ─────────
+
+/// Returnera alla användar-definierade smart-functions från
+/// `%APPDATA%/svoice-v3/smart_functions/`. Ogiltiga JSON-filer skippas.
+#[tauri::command]
+pub fn list_smart_functions() -> Vec<svoice_smart_functions::SmartFunction> {
+    svoice_smart_functions::list().unwrap_or_default()
+}
+
+/// Öppna smart-functions-mappen i Explorer så user kan redigera JSON-filer.
+#[tauri::command]
+pub fn open_smart_functions_dir(app: AppHandle) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let dir = svoice_smart_functions::default_dir();
+    // Säkerställ att mappen finns innan vi försöker öppna.
+    if !dir.exists() {
+        std::fs::create_dir_all(&dir).map_err(|e| format!("kunde inte skapa mapp: {e}"))?;
+    }
+    app.opener()
+        .open_path(dir.to_string_lossy(), None::<&str>)
+        .map_err(|e| format!("kunde inte öppna mappen: {e}"))
 }

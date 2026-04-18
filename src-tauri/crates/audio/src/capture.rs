@@ -101,9 +101,16 @@ impl AudioCapture {
             }
             other => return Err(CaptureError::UnsupportedFormat(other)),
         };
-        stream.play().map_err(|e| CaptureError::Cpal(e.to_string()))?;
+        stream
+            .play()
+            .map_err(|e| CaptureError::Cpal(e.to_string()))?;
 
-        Ok(Self { _stream: stream, ring, sample_rate, channels })
+        Ok(Self {
+            _stream: stream,
+            ring,
+            sample_rate,
+            channels,
+        })
     }
 }
 
@@ -115,12 +122,7 @@ fn rms_f32(samples: &[f32]) -> f32 {
     (sum_sq / samples.len() as f32).sqrt().clamp(0.0, 1.0)
 }
 
-fn maybe_emit_rms(
-    last: &AtomicU64,
-    min_interval: Duration,
-    cb: &RmsCallback,
-    rms: f32,
-) {
+fn maybe_emit_rms(last: &AtomicU64, min_interval: Duration, cb: &RmsCallback, rms: f32) {
     let now_ns = now_monotonic_ns();
     let last_ns = last.load(Ordering::Relaxed);
     if now_ns.saturating_sub(last_ns) < min_interval.as_nanos() as u64 {

@@ -106,7 +106,10 @@ mod tests {
     fn set_then_get_roundtrips() {
         cleanup();
         set_anthropic_key("sk-ant-abc123").unwrap();
-        assert_eq!(get_anthropic_key().unwrap().as_deref(), Some("sk-ant-abc123"));
+        assert_eq!(
+            get_anthropic_key().unwrap().as_deref(),
+            Some("sk-ant-abc123")
+        );
         cleanup();
     }
 

@@ -93,6 +93,15 @@ struct KeyEntry {
 static STATE: OnceLock<Mutex<HookState>> = OnceLock::new();
 static HOOK_HANDLE: OnceLock<Mutex<Option<HookHandle>>> = OnceLock::new();
 
+/// Callbacks cachade per logisk "role" (t.ex. "dictation", "action") så vi
+/// kan re-binda keys vid settings-ändring utan att caller-koden behöver hålla
+/// sina egna referenser.
+static ROLE_CALLBACKS: OnceLock<Mutex<HashMap<String, LlCallback>>> = OnceLock::new();
+
+fn role_slot() -> &'static Mutex<HashMap<String, LlCallback>> {
+    ROLE_CALLBACKS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 fn state_slot() -> &'static Mutex<HookState> {
     STATE.get_or_init(|| {
         Mutex::new(HookState {
@@ -132,7 +141,10 @@ unsafe extern "system" fn hook_proc(code: i32, w_param: WPARAM, l_param: LPARAM)
                         (initial.then(|| entry.callback.clone()), LlKeyEvent::Pressed)
                     } else {
                         let was_down = entry.is_down.swap(false, Ordering::SeqCst);
-                        (was_down.then(|| entry.callback.clone()), LlKeyEvent::Released)
+                        (
+                            was_down.then(|| entry.callback.clone()),
+                            LlKeyEvent::Released,
+                        )
                     }
                 })
             };
@@ -180,6 +192,47 @@ pub fn register_hotkey(key: HotKey, callback: LlCallback) -> Result<(), LlHookEr
 /// Bakåt-kompatibel wrapper — används av befintlig dikterings-kod i iter 2.
 pub fn install_rctrl_hook(callback: LlCallback) -> Result<(), LlHookError> {
     register_hotkey(HotKey::RightCtrl, callback)
+}
+
+/// Ta bort en tidigare registrerad hotkey. Hooken är kvar för övriga keys.
+/// No-op om `key` inte är registrerad.
+pub fn unregister_hotkey(key: HotKey) {
+    let mut state = state_slot().lock().unwrap();
+    if state.registered.remove(&key.vk_code()).is_some() {
+        tracing::info!("hotkey avregistrerad: {:?}", key);
+    }
+}
+
+/// Registrera en hotkey OCH cacha callback under en logisk "role" så den kan
+/// re-bindas senare via `rebind_role`. Används av setup-koden vid app-start.
+pub fn register_with_role(
+    role: &str,
+    key: HotKey,
+    callback: LlCallback,
+) -> Result<(), LlHookError> {
+    role_slot()
+        .lock()
+        .unwrap()
+        .insert(role.to_string(), callback.clone());
+    register_hotkey(key, callback)
+}
+
+/// Byt key för en tidigare `register_with_role`-registrerad role.
+/// No-op om `old_key == new_key`. Returnerar `Err` bara om `register_hotkey`
+/// för new_key failar (ovanligt — hooken är redan installerad).
+pub fn rebind_role(role: &str, old_key: HotKey, new_key: HotKey) -> Result<(), LlHookError> {
+    if old_key == new_key {
+        return Ok(());
+    }
+    let cb_opt = role_slot().lock().unwrap().get(role).cloned();
+    let Some(cb) = cb_opt else {
+        tracing::warn!("rebind_role: ingen callback cachad för role '{role}'");
+        return Ok(());
+    };
+    unregister_hotkey(old_key);
+    register_hotkey(new_key, cb)?;
+    tracing::info!("role '{role}' rebundet: {:?} → {:?}", old_key, new_key);
+    Ok(())
 }
 
 /// Avinstallerar hooken och clear:ar alla registrerade callbacks.

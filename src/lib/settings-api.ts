@@ -35,6 +35,17 @@ export interface GoogleStatus {
   client_id_configured: boolean;
 }
 
+export type SmartMode = "transform" | "query";
+
+export interface SmartFunction {
+  id: string;
+  name: string;
+  description: string;
+  mode: SmartMode;
+  system: string;
+  user_template: string;
+}
+
 export interface OllamaModelInfo {
   name: string;
   size: number;
@@ -94,4 +105,12 @@ export async function googleConnect(): Promise<void> {
 
 export async function googleDisconnect(): Promise<void> {
   await invoke<void>("google_disconnect");
+}
+
+export async function listSmartFunctions(): Promise<SmartFunction[]> {
+  return invoke<SmartFunction[]>("list_smart_functions");
+}
+
+export async function openSmartFunctionsDir(): Promise<void> {
+  await invoke<void>("open_smart_functions_dir");
 }

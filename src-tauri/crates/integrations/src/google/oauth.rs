@@ -18,8 +18,8 @@ use std::time::Duration;
 
 use oauth2::basic::BasicClient;
 use oauth2::{
-    AuthUrl, AuthorizationCode, ClientId, CsrfToken, EndpointNotSet, EndpointSet, PkceCodeChallenge,
-    PkceCodeVerifier, RedirectUrl, RefreshToken, Scope, TokenResponse, TokenUrl,
+    AuthUrl, AuthorizationCode, ClientId, CsrfToken, EndpointNotSet, EndpointSet,
+    PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, RefreshToken, Scope, TokenResponse, TokenUrl,
 };
 use serde::{Deserialize, Serialize};
 
@@ -95,10 +95,7 @@ type OauthClient =
 impl GoogleOAuthFlow {
     /// Initiera flow. Binder lokal port + genererar auth-URL. Efter detta ska
     /// caller öppna `auth_url` i browsern och sedan anropa `finalize().await`.
-    pub async fn start(
-        client_id: &str,
-        scopes: &[GoogleScope],
-    ) -> Result<Self, GoogleAuthError> {
+    pub async fn start(client_id: &str, scopes: &[GoogleScope]) -> Result<Self, GoogleAuthError> {
         let server = callback_server::start().await?;
         let port = server.port;
         let redirect_url = format!("http://127.0.0.1:{port}/callback");
@@ -144,8 +141,8 @@ impl GoogleOAuthFlow {
     /// Vänta på callback från browsern, verifiera state, byt code mot tokens.
     /// Timeout 5 min.
     pub async fn finalize(self) -> Result<GoogleTokens, GoogleAuthError> {
-        let cb = callback_server::wait_for_callback(self.callback, Duration::from_secs(300))
-            .await?;
+        let cb =
+            callback_server::wait_for_callback(self.callback, Duration::from_secs(300)).await?;
 
         if cb.state != *self.csrf_token.secret() {
             return Err(GoogleAuthError::StateMismatch);

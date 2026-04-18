@@ -19,7 +19,9 @@ pub enum InjectError {
     #[cfg(windows)]
     #[error(transparent)]
     Clipboard(#[from] ClipboardError),
-    #[error("båda injektionsvägarna misslyckades (send_input: {send_input}, clipboard: {clipboard})")]
+    #[error(
+        "båda injektionsvägarna misslyckades (send_input: {send_input}, clipboard: {clipboard})"
+    )]
     BothFailed {
         send_input: String,
         clipboard: String,
