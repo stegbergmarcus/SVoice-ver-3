@@ -55,6 +55,15 @@ export interface UpdateStatus {
   checked_at: number;
 }
 
+export interface SttModelDownloadProgress {
+  model: string;
+  status: string;
+}
+
+export async function downloadSttModel(model: string): Promise<void> {
+  await invoke<void>("download_stt_model", { model });
+}
+
 export async function checkForUpdates(): Promise<UpdateStatus> {
   return invoke<UpdateStatus>("check_for_updates");
 }

@@ -8,6 +8,7 @@ import {
   clearAnthropicKey,
   clearGeminiKey,
   clearGroqKey,
+  downloadSttModel,
   getSettings,
   googleConnect,
   googleConnectionStatus,
@@ -32,6 +33,7 @@ import {
   type PullProgress,
   type Settings,
   type SmartFunction,
+  type SttModelDownloadProgress,
   type SttProviderChoice,
   type UpdateStatus,
 } from "../lib/settings-api";
@@ -212,6 +214,11 @@ export default function SettingsView() {
   const [ollamaOnline, setOllamaOnline] = useState(false);
   const [pullState, setPullState] = useState<PullProgress | null>(null);
   const [sttCached, setSttCached] = useState<Record<string, boolean>>({});
+  const [sttDownload, setSttDownload] = useState<{
+    model: string;
+    status: string;
+    done: boolean;
+  } | null>(null);
   const [keyStored, setKeyStored] = useState(false);
   const [keyDraft, setKeyDraft] = useState<string | null>(null); // null=orört, ""=rensa, annars=ny nyckel
   const [groqKeyStored, setGroqKeyStored] = useState(false);
@@ -299,9 +306,33 @@ export default function SettingsView() {
       setTimeout(() => setPullState(null), 2500);
       refreshOllama();
     });
+    const unSttProgress = listen<SttModelDownloadProgress>(
+      "stt_model_download_progress",
+      (ev) => {
+        setSttDownload({
+          model: ev.payload.model,
+          status: ev.payload.status,
+          done: false,
+        });
+      },
+    );
+    const unSttDone = listen<{ model: string }>(
+      "stt_model_download_done",
+      (ev) => {
+        setSttDownload({ model: ev.payload.model, status: "klar", done: true });
+        setTimeout(() => setSttDownload(null), 2500);
+        // Re-check HF-cache så dropdown-prefix uppdateras.
+        MODELS.forEach(async (m) => {
+          const cached = await checkHfCached(m.id).catch(() => false);
+          setSttCached((prev) => ({ ...prev, [m.id]: cached }));
+        });
+      },
+    );
     return () => {
       unProgress.then((fn) => fn());
       unDone.then((fn) => fn());
+      unSttProgress.then((fn) => fn());
+      unSttDone.then((fn) => fn());
     };
   }, []);
 
@@ -319,6 +350,16 @@ export default function SettingsView() {
     } catch (e) {
       setPullState(null);
       setError(`pull misslyckades: ${e}`);
+    }
+  }
+
+  async function handleDownloadStt(model: string) {
+    setSttDownload({ model, status: "startar…", done: false });
+    try {
+      await downloadSttModel(model);
+    } catch (e) {
+      setError(`STT-download misslyckades: ${e}`);
+      setSttDownload(null);
     }
   }
 
@@ -852,33 +893,69 @@ export default function SettingsView() {
                   <label className="field-label" htmlFor="model">
                     Lokal modell
                   </label>
-                  <select
-                    id="model"
-                    className="select"
-                    value={draft.stt_model}
-                    onChange={(e) => setDraft({ ...draft, stt_model: e.target.value })}
-                  >
-                    {MODELS.map((m) => {
-                      const cached = sttCached[m.id];
-                      const prefix = cached === undefined ? "…" : cached ? "✓" : "↓";
+                  <div className="field-with-action">
+                    <select
+                      id="model"
+                      className="select"
+                      value={draft.stt_model}
+                      onChange={(e) => setDraft({ ...draft, stt_model: e.target.value })}
+                    >
+                      {MODELS.map((m) => {
+                        const cached = sttCached[m.id];
+                        const prefix = cached === undefined ? "…" : cached ? "✓" : "↓";
+                        return (
+                          <option key={m.id} value={m.id}>
+                            {prefix} {m.label} — {m.note}
+                          </option>
+                        );
+                      })}
+                    </select>
+                    {(() => {
+                      const cached = sttCached[draft.stt_model];
+                      const downloading =
+                        sttDownload &&
+                        sttDownload.model === draft.stt_model &&
+                        !sttDownload.done;
+                      if (cached === undefined) return null;
+                      if (downloading) return null;
+                      if (cached) return <span className="field-badge ok">✓ nedladdad</span>;
                       return (
-                        <option key={m.id} value={m.id}>
-                          {prefix} {m.label} — {m.note}
-                        </option>
+                        <button
+                          type="button"
+                          className="btn btn-primary btn-compact"
+                          onClick={() => handleDownloadStt(draft.stt_model)}
+                        >
+                          Ladda ner
+                        </button>
                       );
-                    })}
-                  </select>
-                  {sttCached[draft.stt_model] === false && (
-                    <div className="field-help" style={{ color: "var(--accent)" }}>
-                      Inte cachad — första PTT efter spara laddar ner modellen (~
-                      {draft.stt_model.includes("large")
-                        ? "3 GB"
-                        : draft.stt_model.includes("medium")
-                          ? "1.5 GB"
-                          : "150 MB"}
-                      , tar 1-3 min).
+                    })()}
+                  </div>
+
+                  {sttDownload && sttDownload.model === draft.stt_model && (
+                    <div className="download-progress">
+                      <div className="download-progress-label">
+                        <span>{sttDownload.status}</span>
+                      </div>
+                      <div className="download-progress-bar">
+                        <div
+                          className="download-progress-fill"
+                          style={{ width: sttDownload.done ? "100%" : "45%" }}
+                        />
+                      </div>
                     </div>
                   )}
+
+                  <div className="field-help">
+                    Rekommenderat minimum-VRAM: Base 1 GB · Medium 4 GB · Large 6 GB.
+                    CPU-fallback funkar men är 5-10× långsammare.
+                    {sttCached[draft.stt_model] === false && !sttDownload && (
+                      <>
+                        {" "}
+                        Modellen är inte nedladdad — klicka "Ladda ner" innan första
+                        användning (Base ~150 MB · Medium ~1,5 GB · Large ~3 GB).
+                      </>
+                    )}
+                  </div>
                 </div>
 
                 <div className="field">
