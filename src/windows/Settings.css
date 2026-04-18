@@ -768,58 +768,60 @@
   color: var(--ink-primary, #f3ede3);
 }
 
-/* Tab-navigation i Settings-panelen — horisontella editorial-tabs med
-   amber-markering på aktiv flik. */
+/* Tab-navigation i Settings-panelen — horisontell rad av tydliga pill-tabs.
+   Placerad som vanlig flex-child (inte sticky) så den inte hamnar bakom
+   panelens padding. */
 .settings-tabs {
   display: flex;
-  gap: 4px;
-  padding: 6px;
-  background: rgba(26, 22, 21, 0.6);
-  border: 1px solid rgba(243, 237, 227, 0.08);
-  border-radius: 14px;
-  overflow-x: auto;
-  scrollbar-width: none;
-  position: sticky;
-  top: 0;
-  z-index: 3;
-  backdrop-filter: blur(12px);
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+  flex-shrink: 0;
 }
-.settings-tabs::-webkit-scrollbar { display: none; }
 
 .settings-tab {
   appearance: none;
-  flex: 1;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
   gap: 8px;
-  padding: 10px 16px;
-  background: transparent;
-  border: 1px solid transparent;
+  padding: 11px 18px;
+  min-height: 40px;
+  background: rgba(243, 237, 227, 0.04);
+  border: 1px solid rgba(243, 237, 227, 0.1);
   border-radius: 10px;
-  color: #9b958a;
+  color: #c9c2b6;
   font: inherit;
   font-size: 13px;
   font-weight: 500;
   letter-spacing: 0.01em;
   white-space: nowrap;
   cursor: pointer;
-  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease,
+    transform 140ms ease;
 }
 .settings-tab:hover {
-  background: rgba(243, 237, 227, 0.05);
-  color: #e0d9cc;
+  background: rgba(243, 237, 227, 0.08);
+  color: #f3ede3;
+  border-color: rgba(243, 237, 227, 0.2);
+  transform: translateY(-1px);
 }
 .settings-tab.active {
-  background: rgba(230, 168, 92, 0.14);
-  color: #e6a85c;
-  border-color: rgba(230, 168, 92, 0.35);
+  background: rgba(230, 168, 92, 0.18);
+  color: #ffc987;
+  border-color: rgba(230, 168, 92, 0.5);
   font-weight: 600;
+  box-shadow: 0 1px 0 rgba(230, 168, 92, 0.2),
+              0 0 16px rgba(230, 168, 92, 0.08);
 }
 .settings-tab-icon {
-  font-size: 13px;
-  opacity: 0.85;
+  font-size: 14px;
+  opacity: 0.9;
 }
 .settings-tab.active .settings-tab-icon {
   opacity: 1;
+}
+.settings-tab-label {
+  display: inline-block;
 }
