@@ -107,8 +107,8 @@ pub fn capture_selection() -> Result<Option<String>, ClipboardError> {
     // user fortfarande Ctrl + Shift + ev. andra modifiers nedtryckta. Om vi
     // skickar Ctrl+C direkt ser target-appen det som Ctrl+Shift+C (fel genväg
     // i de flesta appar) eller ignorerar det helt. Vänta tills alla physical
-    // modifiers är släppta — max 200 ms så vi inte hänger vid t.ex. sticky keys.
-    wait_for_modifiers_released(Duration::from_millis(200));
+    // modifiers är släppta — max 250 ms så vi inte hänger vid t.ex. sticky keys.
+    wait_for_modifiers_released(Duration::from_millis(250));
 
     let mut cb = arboard::Clipboard::new().map_err(|e| ClipboardError::Access(e.to_string()))?;
     // Spara nuvarande clipboard-innehåll (text only — bilder bevaras inte).
@@ -123,11 +123,12 @@ pub fn capture_selection() -> Result<Option<String>, ClipboardError> {
     sleep(Duration::from_millis(15));
 
     send_ctrl_c()?;
-    // Låt Windows propagera Ctrl+C till target och att den skriver till clipboard.
-    // 120 ms: webbläsare / Electron-apps kan vara långsammare än native Win32.
-    sleep(Duration::from_millis(120));
 
-    let after = cb.get_text().ok();
+    // Polla clipboard tills sentinel ersätts — långsammare webviews (Claude
+    // Chat, Slack, VS Code) kan ta 200-400 ms, native Win32 under 30 ms.
+    // Fast sleep på 120 ms skulle antingen slöa snabba targets eller missa
+    // långsamma. Polling ger bäst-fallet + 500 ms tak.
+    let after = poll_clipboard_change(&mut cb, sentinel, Duration::from_millis(500));
 
     // Återställ ursprungligt clipboard (eller lämna tomt om inget fanns).
     match &original {
@@ -205,6 +206,39 @@ fn wait_for_modifiers_released(timeout: Duration) {
                 timeout
             );
             return;
+        }
+        sleep(Duration::from_millis(10));
+    }
+}
+
+/// Polla clipboard tills innehållet inte längre matchar `sentinel`, eller
+/// timeout. Native Win32-appar skriver under 30 ms, webviews (Chrome,
+/// Electron, Slack, Claude Chat) tar 150-400 ms. Returnerar sista läsningen —
+/// None om kommandot misslyckades eller värdet aldrig ändrades.
+fn poll_clipboard_change(
+    cb: &mut arboard::Clipboard,
+    sentinel: &str,
+    timeout: Duration,
+) -> Option<String> {
+    let start = std::time::Instant::now();
+    loop {
+        let current = cb.get_text().ok();
+        match current.as_deref() {
+            Some(t) if t != sentinel && !t.is_empty() => {
+                tracing::debug!(
+                    "capture_selection: clipboard ändrades efter {:?}",
+                    start.elapsed()
+                );
+                return current;
+            }
+            _ => {}
+        }
+        if start.elapsed() >= timeout {
+            tracing::debug!(
+                "capture_selection: timeout efter {:?}, ingen markering fångad",
+                timeout
+            );
+            return current;
         }
         sleep(Duration::from_millis(10));
     }

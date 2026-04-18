@@ -717,6 +717,17 @@ fn action_worker_loop(
                     tracing::debug!("action-PTT: skippas — dictation-PTT äger just nu");
                     continue;
                 }
+                // Spara target-HWND just nu, innan vi hinner öppna popup eller
+                // tappar fokus. Används av capture_selection (ser till att
+                // Ctrl+C skickas medan target är focused) och av paste_and_restore
+                // när user trycker Enter för transform-mode.
+                // Returnerar false om target är vår egen app — då skippas PTT
+                // helt (analogt med palette-hotkey beteendet).
+                if !remember_foreground_target() {
+                    tracing::debug!("action-PTT: target är vår egen app, skippar");
+                    PTT_OWNER.store(OWNER_NONE, Ordering::SeqCst);
+                    continue;
+                }
                 ring.clear();
                 tracing::debug!("action-PTT: recording");
                 emit_event(&app_handle, EV_PTT_STATE, PttState::Recording);
@@ -740,9 +751,31 @@ fn action_worker_loop(
                 emit_event(&app_handle, EV_PTT_STATE, PttState::Processing);
                 update_tray_for_state(&app_handle, PttState::Processing);
 
-                // Öppna popup-fönstret tidigt så error-states syns även om
-                // STT eller LLM failar innan popupen fick sitt vanliga
-                // `action_popup_open`-event.
+                // KRITISK ORDNING: fånga ev. markering INNAN popup öppnas.
+                // Popup.show() + set_focus() stjäl fokus från target-appen, så
+                // om capture_selection körs efter stjäls Ctrl+C av popup-
+                // webviewen och inget läses. Selection cachas tills
+                // handle_action_released kallas — då finns target-HWND sparad
+                // via remember_foreground_target i Pressed-grenen ovan.
+                std::thread::sleep(std::time::Duration::from_millis(40));
+                let captured_selection = match capture_selection() {
+                    Ok(sel) => sel,
+                    Err(e) => {
+                        tracing::warn!("capture_selection misslyckades: {e}");
+                        None
+                    }
+                };
+                if let Some(s) = &captured_selection {
+                    tracing::info!(
+                        "action: fångade selection ({} tecken)",
+                        s.chars().count()
+                    );
+                } else {
+                    tracing::info!("action: ingen markering");
+                }
+
+                // Öppna popup-fönstret efter selection-fångsten så error-states
+                // syns även om STT eller LLM failar.
                 if let Some(win) = app_handle.get_webview_window("action-popup") {
                     let _ = win.show();
                     let _ = win.set_focus();
@@ -751,9 +784,16 @@ fn action_worker_loop(
                     &app_handle,
                     EV_ACTION_POPUP_OPEN,
                     ActionPopupOpen {
-                        selection: None,
+                        selection: captured_selection.clone(),
                         command: "lyssnar…".into(),
-                        mode: "query",
+                        mode: if captured_selection
+                            .as_ref()
+                            .map_or(false, |s| !s.trim().is_empty())
+                        {
+                            "transform"
+                        } else {
+                            "query"
+                        },
                     },
                 );
 
@@ -761,9 +801,15 @@ fn action_worker_loop(
                 let anthropic_key = svoice_secrets::get_anthropic_key().ok().flatten();
                 let llm = rt.block_on(select_llm_provider(&current, anthropic_key.as_deref()));
 
-                if let Err(e) =
-                    handle_action_released(&app_handle, &ring, &stt, &rt, &llm, &current)
-                {
+                if let Err(e) = handle_action_released(
+                    &app_handle,
+                    &ring,
+                    &stt,
+                    &rt,
+                    &llm,
+                    &current,
+                    captured_selection,
+                ) {
                     tracing::error!("action-PTT fel: {e}");
                     emit_event(
                         &app_handle,
@@ -790,25 +836,14 @@ fn handle_action_released(
     rt: &Arc<tokio::runtime::Runtime>,
     llm: &Option<Arc<dyn LlmProvider>>,
     settings: &Settings,
+    selection: Option<String>,
 ) -> anyhow::Result<()> {
     let vad_threshold = settings.vad_threshold;
-    // 1. Fånga markering i aktivt fönster via clipboard-snapshot.
-    //    Görs FÖRST innan vi transkriberar — target-fönstret har fortfarande fokus.
-    std::thread::sleep(std::time::Duration::from_millis(40));
-    let selection = match capture_selection() {
-        Ok(sel) => sel,
-        Err(e) => {
-            tracing::warn!("capture_selection misslyckades: {e}");
-            None
-        }
-    };
-    if let Some(s) = &selection {
-        tracing::info!("action: fångade selection ({} tecken)", s.chars().count());
-    } else {
-        tracing::info!("action: ingen markering");
-    }
+    // Selection fångades redan av caller (action_worker_loop) INNAN popup
+    // öppnades — annars hade Ctrl+C stjälpts av popup-webviewen. Här
+    // tar vi bara emot resultatet.
 
-    // 2. Transkribera user's röstkommando.
+    // Transkribera user's röstkommando.
     let audio = ring.drain();
     let (start, end) = trim_silence(&audio, 16000, vad_threshold);
     let segment = &audio[start..end];

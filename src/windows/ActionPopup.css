@@ -3,6 +3,19 @@
  * Tar fokus så Enter/Escape fungerar direkt.
  */
 
+/* Popup-webviewen är `transparent: true` i tauri.conf.json — men utan
+ * explicit transparent body tecknas en default-bakgrund (ljusgrå/svart
+ * beroende på OS-tema) bakom själva popup-rutan i det 16 px insetet. */
+html,
+body,
+#action-popup-root {
+  margin: 0;
+  padding: 0;
+  background: transparent !important;
+  height: 100%;
+  overflow: hidden;
+}
+
 .action-popup-root {
   position: fixed;
   inset: 16px;
