@@ -64,17 +64,30 @@ impl PythonStt {
     /// graceful; nästa transcribe spawnar ny sidecar med ny config.
     ///
     /// Om `new_config` är identisk med befintlig config blir det en no-op.
+    ///
+    /// **Viktigt:** `python_path`, `python_args` och `script_path` *bevaras*
+    /// från befintlig config. De är deployment-detaljer som bestäms av
+    /// main-setupen (bundlad runtime i installerad MSI vs `py` i dev) och
+    /// ska inte skrivas över av IPC-callers som byggt en `SttConfig::default()`.
+    /// Innan denna merge skrevs bundled-paths över vid varje settings-save →
+    /// reload → fail vid nästa spawn ("can't open file .../resources/python/...").
     pub async fn reload_config(&self, new_config: SttConfig) -> Result<bool, SttError> {
         let mut current_cfg = self.config.lock().await;
-        if *current_cfg == new_config {
-            return Ok(false); // ingen ändring
+        let merged = SttConfig {
+            python_path: current_cfg.python_path.clone(),
+            python_args: current_cfg.python_args.clone(),
+            script_path: current_cfg.script_path.clone(),
+            ..new_config
+        };
+        if *current_cfg == merged {
+            return Ok(false); // ingen relevant ändring
         }
         tracing::info!(
             "STT reload: model {} → {}, device {} → {}",
             current_cfg.model,
-            new_config.model,
+            merged.model,
             current_cfg.device,
-            new_config.device
+            merged.device
         );
         // Shutdown nuvarande sidecar om den finns.
         let mut sc_guard = self.sidecar.lock().await;
@@ -82,7 +95,7 @@ impl PythonStt {
             // sc.shutdown konsumerar sc — best effort.
             let _ = sc.shutdown().await;
         }
-        *current_cfg = new_config;
+        *current_cfg = merged;
         Ok(true)
     }
 

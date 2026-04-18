@@ -59,6 +59,13 @@ pub struct Settings {
     /// apps — kan extraheras från binären. Kopieras från samma
     /// OAuth-client i Google Cloud som client_id.
     pub google_oauth_client_secret: Option<String>,
+
+    /// Om true: appen läggs i Windows startup-registret så den startar
+    /// automatiskt vid inloggning, tyst i tray (main-fönstret är dolt
+    /// by default så ingen UI flashar upp). Appliceras via
+    /// `tauri-plugin-autostart` → HKCU\...\Run. Idempotent: vid app-start
+    /// synkas registret mot detta värde.
+    pub autostart: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
@@ -105,6 +112,7 @@ impl Default for Settings {
             action_hotkey: HotKey::Insert,
             google_oauth_client_id: None,
             google_oauth_client_secret: None,
+            autostart: false,
         }
     }
 }

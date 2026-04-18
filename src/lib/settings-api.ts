@@ -34,6 +34,7 @@ export interface Settings {
   action_hotkey: HotKeyChoice;
   google_oauth_client_id: string | null;
   google_oauth_client_secret: string | null;
+  autostart: boolean;
 }
 
 export interface GoogleStatus {

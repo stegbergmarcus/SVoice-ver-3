@@ -7,6 +7,7 @@ use svoice_llm::{OllamaClient, OllamaModelInfo};
 use svoice_settings::{ComputeMode, Settings};
 use svoice_stt::{PythonStt, SttConfig};
 use tauri::{AppHandle, Emitter, State};
+use tauri_plugin_autostart::ManagerExt;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -32,6 +33,7 @@ pub fn get_settings() -> Settings {
 /// live via svoice_hotkey::rebind_role — ingen restart behövs.
 #[tauri::command]
 pub async fn set_settings(
+    app: AppHandle,
     settings: Settings,
     stt: State<'_, Arc<PythonStt>>,
 ) -> Result<(), String> {
@@ -77,14 +79,46 @@ pub async fn set_settings(
         }
         ComputeMode::Auto => {}
     }
-    // Path-resolution: preservera ev. bundlad runtime-path om den redan är satt.
-    // set_settings kan inte komma åt AppHandle::resource_dir lätt här, så vi
-    // lämnar default paths — main lib.rs setup sätter paths vid app-start
-    // och reload_config jämför bara relevanta fields (model, device, compute).
-    // Om user byter modell är det vad som matters.
+    // Path-resolution: reload_config() bevarar python_path / python_args /
+    // script_path från den befintliga configen så de defaults som sätts här
+    // (dev-fallback) inte skriver över bundled-runtime-pathen som lib.rs
+    // setupen har satt vid app-start. Settings-hot-reload rör bara
+    // model / device / compute_type / language / beam_size.
     if let Err(e) = stt.reload_config(stt_config).await {
         tracing::warn!("stt reload misslyckades: {e}");
         // Rapportera inte som fel — settings är sparade, reload är best-effort.
+    }
+
+    // Synk autostart mot Windows startup-registret. Idempotent: bara skriv
+    // om current state skiljer sig från önskad. Fel loggas men rapporteras
+    // inte — settings är redan sparade på disk.
+    if let Err(e) = sync_autostart(&app, settings.autostart) {
+        tracing::warn!("autostart-sync misslyckades: {e}");
+    }
+
+    Ok(())
+}
+
+/// Synka Windows startup-registret mot `desired`. Idempotent och
+/// exponerad på crate-nivå så lib.rs setup kan anropa den vid app-start
+/// (om user flyttade binären etc. kan registret peka på fel path och
+/// behöver skrivas om).
+pub fn sync_autostart(app: &AppHandle, desired: bool) -> Result<(), String> {
+    let mgr = app.autolaunch();
+    let currently = mgr
+        .is_enabled()
+        .map_err(|e| format!("autolaunch is_enabled: {e}"))?;
+    if currently == desired {
+        return Ok(());
+    }
+    if desired {
+        mgr.enable()
+            .map_err(|e| format!("autolaunch enable: {e}"))?;
+        tracing::info!("autostart aktiverad i Windows registret");
+    } else {
+        mgr.disable()
+            .map_err(|e| format!("autolaunch disable: {e}"))?;
+        tracing::info!("autostart inaktiverad i Windows registret");
     }
     Ok(())
 }

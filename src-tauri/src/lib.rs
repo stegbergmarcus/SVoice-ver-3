@@ -135,6 +135,13 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
+        // Autostart: låter user lägga till/ta bort app från Windows startup.
+        // Args tomma — vid start är main-fönstret dolt (tauri.conf.json) så
+        // appen hamnar tyst i tray. LaunchAgent är bara macOS-relevant, vi
+        // kör Windows men trait kräver att en variant anges.
+        .plugin(tauri_plugin_autostart::Builder::new()
+            .app_name("SVoice 3")
+            .build())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_shortcut(palette_shortcut)
@@ -213,6 +220,15 @@ pub fn run() {
 
             // Läs användar-settings från disk (eller default).
             let user_settings = Settings::load();
+
+            // Synka Windows startup-registret mot user-settings.autostart.
+            // Körs idempotent varje app-start så registry inte spretar från
+            // settings.json (t.ex. om user avinstallerat + ominstallerat till
+            // annan path — gamla entry pekar fel och måste skrivas om).
+            if let Err(e) = svoice_ipc::commands::sync_autostart(app.handle(), user_settings.autostart) {
+                tracing::warn!("autostart-sync vid start misslyckades: {e}");
+            }
+
             tracing::info!(
                 "settings: model={}, compute={:?}, vad={:.3}, anthropic_key={}",
                 user_settings.stt_model,

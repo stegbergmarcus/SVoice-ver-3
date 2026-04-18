@@ -5,8 +5,8 @@ use std::time::Duration;
 
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
-    VIRTUAL_KEY, VK_C, VK_CONTROL, VK_V,
+    GetAsyncKeyState, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS,
+    KEYEVENTF_KEYUP, VIRTUAL_KEY, VK_C, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT, VK_V,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     GetForegroundWindow, GetWindowThreadProcessId, SetForegroundWindow,
@@ -103,6 +103,13 @@ fn send_ctrl_key(key: VIRTUAL_KEY) -> Result<(), ClipboardError> {
 /// Returnerar Some(selection) om text finns markerad, None om ingen markering
 /// (dvs clipboard ändrades inte efter Ctrl+C).
 pub fn capture_selection() -> Result<Option<String>, ClipboardError> {
+    // När palette-hotkey (Ctrl+Shift+Space) eller action-PTT triggas håller
+    // user fortfarande Ctrl + Shift + ev. andra modifiers nedtryckta. Om vi
+    // skickar Ctrl+C direkt ser target-appen det som Ctrl+Shift+C (fel genväg
+    // i de flesta appar) eller ignorerar det helt. Vänta tills alla physical
+    // modifiers är släppta — max 200 ms så vi inte hänger vid t.ex. sticky keys.
+    wait_for_modifiers_released(Duration::from_millis(200));
+
     let mut cb = arboard::Clipboard::new().map_err(|e| ClipboardError::Access(e.to_string()))?;
     // Spara nuvarande clipboard-innehåll (text only — bilder bevaras inte).
     let original = cb.get_text().ok();
@@ -117,7 +124,8 @@ pub fn capture_selection() -> Result<Option<String>, ClipboardError> {
 
     send_ctrl_c()?;
     // Låt Windows propagera Ctrl+C till target och att den skriver till clipboard.
-    sleep(Duration::from_millis(80));
+    // 120 ms: webbläsare / Electron-apps kan vara långsammare än native Win32.
+    sleep(Duration::from_millis(120));
 
     let after = cb.get_text().ok();
 
@@ -170,6 +178,36 @@ pub fn paste_and_restore(new_text: &str) -> Result<(), ClipboardError> {
         let _ = cb.set_text(text);
     }
     Ok(())
+}
+
+/// Returnerar `true` om någon av Ctrl / Shift / Alt / Win fortfarande är
+/// fysiskt nedtryckt. Bit 0x8000 är "is currently down" enligt GetAsyncKeyState.
+fn any_modifier_held() -> bool {
+    const KEYS: &[VIRTUAL_KEY] = &[VK_CONTROL, VK_SHIFT, VK_MENU, VK_LWIN, VK_RWIN];
+    for &vk in KEYS {
+        let state = unsafe { GetAsyncKeyState(vk.0 as i32) };
+        if (state as u16) & 0x8000 != 0 {
+            return true;
+        }
+    }
+    false
+}
+
+/// Polla upp till `timeout` på att user släpper alla modifier-keys, så vår
+/// syntetiserade Ctrl+C når target som ren Ctrl+C istället för Ctrl+Shift+C etc.
+/// Poll-intervallet är 10 ms vilket ger snabb respons utan att bränna CPU.
+fn wait_for_modifiers_released(timeout: Duration) {
+    let start = std::time::Instant::now();
+    while any_modifier_held() {
+        if start.elapsed() >= timeout {
+            tracing::debug!(
+                "wait_for_modifiers_released: timeout efter {:?}, fortsätter ändå",
+                timeout
+            );
+            return;
+        }
+        sleep(Duration::from_millis(10));
+    }
 }
 
 fn make_vk(vk: VIRTUAL_KEY, key_up: bool) -> INPUT {

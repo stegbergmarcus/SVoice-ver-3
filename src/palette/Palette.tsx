@@ -14,6 +14,7 @@ export default function Palette() {
   const [fns, setFns] = useState<SmartFunction[]>([]);
   const [selected, setSelected] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   // Filter + lägg top-match först.
   const filtered = useMemo(() => {
@@ -30,6 +31,16 @@ export default function Palette() {
   useEffect(() => {
     setSelected(0);
   }, [query, visible]);
+
+  // Scrolla det valda item:et in i view när pilarna flyttar urvalet.
+  // `block: "nearest"` gör att listan bara scrollar precis så mycket som
+  // behövs, inte hoppar till mitten av viewport varje pilklick.
+  useEffect(() => {
+    const el = itemRefs.current[selected];
+    if (el) {
+      el.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+  }, [selected]);
 
   // Lyssna på palette_open-event (triggas från backend via hotkey).
   useEffect(() => {
@@ -124,6 +135,9 @@ export default function Palette() {
           filtered.map((fn, i) => (
             <button
               key={fn.id}
+              ref={(el) => {
+                itemRefs.current[i] = el;
+              }}
               type="button"
               className={`palette-item${i === selected ? " selected" : ""}`}
               onMouseEnter={() => setSelected(i)}

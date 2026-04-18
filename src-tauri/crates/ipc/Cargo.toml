@@ -11,6 +11,7 @@ path = "src/lib.rs"
 tauri = { workspace = true }
 tauri-plugin-notification = { workspace = true }
 tauri-plugin-opener = { workspace = true }
+tauri-plugin-autostart = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }

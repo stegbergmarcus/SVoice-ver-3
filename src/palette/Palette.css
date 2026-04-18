@@ -85,19 +85,37 @@
 
 .palette-list {
   overflow-y: auto;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: 4px;
+  padding-right: 4px;
   z-index: 1;
+  /* Firefox: thin scrollbar med amber-thumb mot subtilt mörkt spår. */
   scrollbar-width: thin;
+  scrollbar-color: rgba(230, 168, 92, 0.28) rgba(243, 237, 227, 0.04);
 }
 
+/* Chromium / WebView2: samma färgsätt som amber-accent för konsistens. */
 .palette-list::-webkit-scrollbar {
-  width: 6px;
+  width: 8px;
+}
+.palette-list::-webkit-scrollbar-track {
+  background: rgba(243, 237, 227, 0.03);
+  border-radius: 4px;
+  margin: 2px 0;
 }
 .palette-list::-webkit-scrollbar-thumb {
-  background: rgba(243, 237, 227, 0.15);
-  border-radius: 3px;
+  background: rgba(230, 168, 92, 0.28);
+  border-radius: 4px;
+  border: 1px solid rgba(230, 168, 92, 0.1);
+  transition: background 160ms ease;
+}
+.palette-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(230, 168, 92, 0.5);
+}
+.palette-list::-webkit-scrollbar-thumb:active {
+  background: rgba(230, 168, 92, 0.65);
 }
 
 .palette-item {

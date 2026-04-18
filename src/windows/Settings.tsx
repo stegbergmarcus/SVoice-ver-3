@@ -556,6 +556,12 @@ export default function SettingsView() {
               value={draft.llm_polish_dictation}
               onChange={(v) => setDraft({ ...draft, llm_polish_dictation: v })}
             />
+            <ToggleRow
+              label="Starta automatiskt med Windows"
+              help="Lägger SVoice i Windows startup-registret så den startar tyst i tray vid inloggning. Inget fönster öppnas — tray-ikonen är ingången."
+              value={draft.autostart}
+              onChange={(v) => setDraft({ ...draft, autostart: v })}
+            />
           </div>
         </article>
 
