@@ -34,6 +34,7 @@ svoice-settings = { path = "crates/settings" }
 svoice-llm = { path = "crates/llm" }
 svoice-secrets = { path = "crates/secrets" }
 futures-util = "0.3"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 
 [dev-dependencies]
 tempfile = "3"
