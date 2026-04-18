@@ -12,8 +12,18 @@ use super::gmail;
 
 /// Alla verktyg SVoice exponerar för Claude. Returnerar serde_json::Value
 /// som matchar Anthropic tool-use-schemat (skickas som `tools`-array).
+///
+/// Blandar client-tools (Google — våra handlers) med server-tools
+/// (web_search — Anthropic sköter själv, dispatcher ignorerar dem).
 pub fn all_tools_json() -> Vec<serde_json::Value> {
     vec![
+        // Server-tool: Claude söker webben via Anthropics egen infra.
+        // max_uses=5 begränsar kostnad per request (cirka $0.05).
+        json!({
+            "type": "web_search_20250305",
+            "name": "web_search",
+            "max_uses": 5
+        }),
         json!({
             "name": "list_calendar_events",
             "description": "Lista kommande events i användarens primära Google Calendar mellan två tidpunkter. Använd ISO 8601 med tidszon.",
@@ -149,10 +159,25 @@ mod tests {
     fn all_tools_have_required_fields() {
         for tool in all_tools_json() {
             assert!(tool["name"].is_string());
+            // Server-tools (type=...) har inget input_schema. Client-tools
+            // (Google) kräver description + input_schema med type=object.
+            if tool.get("type").is_some() {
+                continue;
+            }
             assert!(tool["description"].is_string());
             assert!(tool["input_schema"]["type"] == "object");
             assert!(tool["input_schema"]["properties"].is_object());
         }
+    }
+
+    #[test]
+    fn web_search_is_server_tool() {
+        let tools = all_tools_json();
+        let web = tools.iter().find(|t| t["name"] == "web_search");
+        assert!(web.is_some(), "web_search saknas i registry");
+        let w = web.unwrap();
+        assert_eq!(w["type"], "web_search_20250305");
+        assert!(w["max_uses"].is_number());
     }
 
     #[test]

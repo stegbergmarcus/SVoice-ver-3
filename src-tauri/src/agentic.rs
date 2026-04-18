@@ -13,7 +13,7 @@
 
 use serde::Serialize;
 use svoice_integrations::google::{tool_registry, GoogleClient};
-use svoice_llm::{tool_step, StepOutcome, ToolConversation, ToolDef, ToolResult};
+use svoice_llm::{tool_step, StepOutcome, ToolConversation, ToolResult};
 use svoice_settings::Settings;
 use tauri::{AppHandle, Emitter};
 
@@ -77,6 +77,19 @@ pub fn looks_agentic(command: &str, selection: Option<&str>) -> bool {
         "läs mailet",
         "sök mail",
         "från marcus",
+        // Webbsökning
+        "sök",
+        "slå upp",
+        "kolla upp",
+        "googla",
+        "vad är",
+        "vem är",
+        "när var",
+        "hur många",
+        "aktuell",
+        "senaste nyheter",
+        "väder",
+        "priset på",
         "har jag fått",
         "senaste mailet",
         "oläst",
@@ -87,35 +100,44 @@ pub fn looks_agentic(command: &str, selection: Option<&str>) -> bool {
 pub struct AgenticRequirements {
     pub api_key: String,
     pub model: String,
+    /// Google-anslutning är optional — om saknas skickas bara web_search-
+    /// verktyget till Claude (inga Calendar/Gmail-verktyg).
+    pub google: Option<GoogleRequirements>,
+}
+
+pub struct GoogleRequirements {
     pub client_id: String,
     pub client_secret: Option<String>,
     pub refresh_token: String,
 }
 
-/// Samla allt som behövs för agentic flow. Returnerar None om något saknas
-/// (då fallback:ar caller till vanlig streaming).
+/// Samla allt som behövs för agentic flow. Returnerar None om Anthropic-
+/// nyckel saknas (utan Claude går det inte att köra agentic alls).
+/// Google-anslutning är optional.
 pub fn prepare_agentic(settings: &Settings) -> Option<AgenticRequirements> {
     let api_key = svoice_secrets::get_anthropic_key().ok().flatten()?;
     if api_key.is_empty() {
         return None;
     }
-    let client_id = settings
-        .google_oauth_client_id
-        .as_deref()
-        .filter(|s| !s.is_empty())?
-        .to_string();
-    let client_secret = settings
-        .google_oauth_client_secret
-        .as_deref()
-        .filter(|s| !s.is_empty())
-        .map(String::from);
-    let refresh_token = svoice_secrets::get_google_refresh_token().ok().flatten()?;
+    let google = match (
+        settings.google_oauth_client_id.as_deref().filter(|s| !s.is_empty()),
+        svoice_secrets::get_google_refresh_token().ok().flatten(),
+    ) {
+        (Some(cid), Some(refresh)) => Some(GoogleRequirements {
+            client_id: cid.to_string(),
+            client_secret: settings
+                .google_oauth_client_secret
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .map(String::from),
+            refresh_token: refresh,
+        }),
+        _ => None,
+    };
     Some(AgenticRequirements {
         api_key,
         model: settings.anthropic_model.clone(),
-        client_id,
-        client_secret,
-        refresh_token,
+        google,
     })
 }
 
@@ -143,11 +165,8 @@ Riktlinjer:\n\
     )
 }
 
-fn tools_from_registry() -> Vec<ToolDef> {
+fn tools_from_registry() -> Vec<serde_json::Value> {
     tool_registry::all_tools_json()
-        .into_iter()
-        .filter_map(|v| serde_json::from_value(v).ok())
-        .collect()
 }
 
 /// Kör hela agentic-flödet. Emittar `action_llm_token` för slut-text så
@@ -163,8 +182,27 @@ pub async fn run_agentic(
     ev_token: &'static str,
     ev_done: &'static str,
 ) -> anyhow::Result<()> {
-    let google = GoogleClient::new(req.client_id, req.client_secret, req.refresh_token);
-    let tools = tools_from_registry();
+    // Bygg Google-client om ansluten. Filtrera bort Google-tools ur registry
+    // om inte — så Claude inte försöker anropa Calendar/Gmail utan tokens.
+    let google_client = req.google.as_ref().map(|g| {
+        GoogleClient::new(
+            g.client_id.clone(),
+            g.client_secret.clone(),
+            g.refresh_token.clone(),
+        )
+    });
+    let tools: Vec<serde_json::Value> = tools_from_registry()
+        .into_iter()
+        .filter(|t| {
+            // Behåll server-tools + Google-tools endast om Google är anslutna.
+            if t.get("type").is_some() {
+                // Server-tool (web_search) — alltid tillgängligt.
+                true
+            } else {
+                google_client.is_some()
+            }
+        })
+        .collect();
     let mut conv = ToolConversation::new(Some(system_prompt()), command.to_string());
 
     for round in 0..MAX_ROUNDS {
@@ -197,8 +235,8 @@ pub async fn run_agentic(
                             summary: short_summary_of_input(&call.name, &call.input),
                         },
                     );
-                    let (content, is_error, summary) =
-                        match tool_registry::execute(&google, &call.name, &call.input).await {
+                    let (content, is_error, summary) = match google_client.as_ref() {
+                        Some(g) => match tool_registry::execute(g, &call.name, &call.input).await {
                             Ok(text) => {
                                 let s = short_summary_of_result(&call.name, &text);
                                 (text, false, s)
@@ -207,7 +245,15 @@ pub async fn run_agentic(
                                 let err_json = format!("{{\"error\":\"{}\"}}", e);
                                 (err_json, true, Some(format!("fel: {e}")))
                             }
-                        };
+                        },
+                        None => {
+                            let err = format!(
+                                "{{\"error\":\"Google-anslutning saknas för {}\"}}",
+                                call.name
+                            );
+                            (err, true, Some("Google ej ansluten".into()))
+                        }
+                    };
                     let _ = app.emit(
                         EV_ACTION_TOOL_CALL,
                         ToolCallEvent {
@@ -298,9 +344,19 @@ mod tests {
     }
 
     #[test]
-    fn heuristic_false_on_plain_question() {
-        assert!(!looks_agentic("vad är huvudstaden i Sverige", None));
+    fn heuristic_triggers_on_web_search_words() {
+        // Web search-keywords triggar agentic flöde.
+        assert!(looks_agentic("vad är huvudstaden i Sverige", None));
+        assert!(looks_agentic("slå upp priset på bitcoin", None));
+        assert!(looks_agentic("googla senaste nyheter om AI", None));
+    }
+
+    #[test]
+    fn heuristic_false_on_non_agentic_commands() {
+        // Enkla kommandon utan tool-behov triggar inte agentic.
         assert!(!looks_agentic("översätt detta till engelska", None));
+        assert!(!looks_agentic("skriv en dikt om hösten", None));
+        assert!(!looks_agentic("förklara rekursion", None));
     }
 
     #[test]

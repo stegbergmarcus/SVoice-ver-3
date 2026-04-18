@@ -113,11 +113,16 @@ impl ToolConversation {
 }
 
 /// Kör ett varv i tool-use-loopen. Non-streaming: hela svaret parsas på en gång.
+///
+/// `tools` är en raw JSON-array som kan blanda client-tools (med `input_schema`)
+/// och Anthropics server-side tools (t.ex. `{"type": "web_search_20250305",
+/// "name": "web_search", "max_uses": 5}`). Server-tools hanteras transparent
+/// av Anthropic — våra handlers triggas inte för dem.
 pub async fn step(
     api_key: &str,
     model: &str,
     conv: &mut ToolConversation,
-    tools: &[ToolDef],
+    tools: &[serde_json::Value],
     max_tokens: u32,
     temperature: f32,
 ) -> Result<StepOutcome, LlmError> {

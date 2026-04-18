@@ -124,10 +124,12 @@
   position: relative;
   z-index: 2;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: var(--space-10) var(--space-10) var(--space-12);
   display: flex;
   flex-direction: column;
   gap: var(--space-8);
+  min-width: 0;
 }
 
 .settings-panel-header {
@@ -164,12 +166,13 @@
 
 .settings-section {
   display: grid;
-  grid-template-columns: 180px 1fr;
+  grid-template-columns: 180px minmax(0, 1fr);
   gap: var(--space-8);
   padding-top: var(--space-5);
   opacity: 0;
   transform: translateY(12px);
   animation: fade-up var(--dur-slow) var(--ease-out) forwards;
+  min-width: 0;
 }
 
 .settings-section:nth-child(1) { animation-delay: 80ms; }
@@ -240,6 +243,9 @@
   font-size: 14px;
   color: var(--ink-primary);
   outline: none;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   transition: border-color var(--dur-fast) var(--ease-out),
               background var(--dur-fast) var(--ease-out),
               box-shadow var(--dur-base) var(--ease-out);
