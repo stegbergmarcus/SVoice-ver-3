@@ -166,27 +166,44 @@ pub async fn set_settings(
     Ok(())
 }
 
-/// Synka Windows startup-registret mot `desired`. Idempotent och
-/// exponerad på crate-nivå så lib.rs setup kan anropa den vid app-start
-/// (om user flyttade binären etc. kan registret peka på fel path och
-/// behöver skrivas om).
+/// Synka Windows startup-registret mot `desired`. När `desired=true` kör vi
+/// alltid disable + enable (force-rewrite) även om plugin rapporterar
+/// `is_enabled=true` — för annars kan registry-entryn peka på en gammal
+/// install-path (från tidigare installation till annan mapp) och SVoice
+/// startar inte vid inloggning efter reinstall. `enable()` på
+/// `tauri-plugin-autostart` skriver fullständig path till nuvarande exe,
+/// så rewrite garanterar aktuell path.
+///
+/// Exponerad på crate-nivå så lib.rs setup kan anropa den vid app-start
+/// (idempotent: no-op om desired=false och registry redan är tom).
 pub fn sync_autostart(app: &AppHandle, desired: bool) -> Result<(), String> {
     let mgr = app.autolaunch();
     let currently = mgr
         .is_enabled()
         .map_err(|e| format!("autolaunch is_enabled: {e}"))?;
-    if currently == desired {
+
+    if !desired {
+        // User vill ha autostart av — disable om entry finns, annars no-op.
+        if currently {
+            mgr.disable()
+                .map_err(|e| format!("autolaunch disable: {e}"))?;
+            tracing::info!("autostart inaktiverad i Windows registret");
+        }
         return Ok(());
     }
-    if desired {
-        mgr.enable()
-            .map_err(|e| format!("autolaunch enable: {e}"))?;
-        tracing::info!("autostart aktiverad i Windows registret");
-    } else {
+
+    // desired=true: force-rewrite så registry alltid pekar på aktuell exe-path.
+    // Om registry redan är rätt är detta en ~1ms no-op.
+    if currently {
+        // disable först så enable nedan skriver en fresh entry med rätt path.
         mgr.disable()
-            .map_err(|e| format!("autolaunch disable: {e}"))?;
-        tracing::info!("autostart inaktiverad i Windows registret");
+            .map_err(|e| format!("autolaunch disable för rewrite: {e}"))?;
     }
+    mgr.enable()
+        .map_err(|e| format!("autolaunch enable: {e}"))?;
+    tracing::info!(
+        "autostart aktiverad/reinforce:ad i Windows registret (currently_was={currently})"
+    );
     Ok(())
 }
 
