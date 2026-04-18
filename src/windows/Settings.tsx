@@ -113,7 +113,7 @@ const GROQ_STT_MODELS: Array<{ id: string; label: string; note: string }> = [
   { id: "whisper-large-v3", label: "Whisper Large v3", note: "högst kvalitet" },
 ];
 
-type TabId = "overview" | "audio" | "llm" | "integrations" | "hotkeys";
+type TabId = "overview" | "audio" | "llm" | "integrations" | "hotkeys" | "help";
 
 const TABS: Array<{ id: TabId; label: string; icon: string }> = [
   { id: "overview", label: "Översikt", icon: "◆" },
@@ -121,6 +121,7 @@ const TABS: Array<{ id: TabId; label: string; icon: string }> = [
   { id: "llm", label: "Action-popup", icon: "❋" },
   { id: "integrations", label: "Integrationer", icon: "⊕" },
   { id: "hotkeys", label: "Snabbkommandon", icon: "⌘" },
+  { id: "help", label: "Hjälp", icon: "?" },
 ];
 
 const GROQ_LLM_MODELS: Array<{ id: string; label: string; note: string }> = [
@@ -1720,6 +1721,358 @@ export default function SettingsView() {
                   : "Aktivera polering ovan för att välja provider."}
               </div>
             </div>
+          </div>
+        </article>
+
+        </>)}
+
+        {activeTab === "help" && (<>
+
+        {/* Sektion 1 — Så fungerar appen */}
+        <article className="settings-section" style={{ gridTemplateColumns: "180px minmax(0, 1fr)" }}>
+          <div className="settings-section-label">
+            <h2>Så fungerar appen</h2>
+            <p>
+              SVoice kör i bakgrunden (tray-ikon) och lyssnar på två tangenter.
+              Allt sker utan att byta app eller fönster.
+            </p>
+          </div>
+          <div className="settings-section-body">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div style={{ padding: "14px 16px", background: "rgba(243,237,227,0.02)", border: "1px solid rgba(243,237,227,0.06)", borderRadius: 10 }}>
+                <div style={{ fontWeight: 500, marginBottom: 6 }}>Diktering — Höger Ctrl</div>
+                <div className="field-help" style={{ marginBottom: 0 }}>
+                  Håll tangenten, prata, släpp. Whisper-modellen transkriberar och
+                  texten injiceras där markören står — i vilket textfält som helst.
+                  Kräver ingen nätuppkoppling med lokal STT.
+                </div>
+              </div>
+              <div style={{ padding: "14px 16px", background: "rgba(243,237,227,0.02)", border: "1px solid rgba(243,237,227,0.06)", borderRadius: 10 }}>
+                <div style={{ fontWeight: 500, marginBottom: 6 }}>Action-popup — Insert</div>
+                <div className="field-help" style={{ marginBottom: 0 }}>
+                  Håll tangenten, ge ett kommando, släpp. Har du markerad text tolkas
+                  det som en transformations-uppgift ("gör mer formellt"). Utan
+                  markering är det Q&amp;A eller kalender/mail-kommandon.
+                </div>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        {/* Sektion 2 — Första uppsättning */}
+        <article className="settings-section" style={{ gridTemplateColumns: "180px minmax(0, 1fr)" }}>
+          <div className="settings-section-label">
+            <h2>Första uppsättning</h2>
+            <p>Följ stegen i ordning — diktering fungerar utan API-nyckel.</p>
+          </div>
+          <div className="settings-section-body">
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {[
+                {
+                  n: "1",
+                  title: "Välj mikrofon",
+                  hint: 'Diktering-fliken → Audio. Lämna tomt för Windows systemstandard.',
+                },
+                {
+                  n: "2",
+                  title: "Välj och ladda ner STT-modell",
+                  hint: 'Diktering-fliken → Transkribering → välj "KB-Whisper Base" → klicka Ladda ner (~150 MB). Base räcker för de flesta.',
+                },
+                {
+                  n: "3",
+                  title: "Lägg till API-nyckel för AI-funktioner (valfritt)",
+                  hint: 'Action-popup-fliken → välj provider → klistra in nyckel. Se "Skaffa API-nycklar" nedan.',
+                },
+                {
+                  n: "4",
+                  title: "Koppla Google-konto (valfritt)",
+                  hint: 'Integrationer-fliken → fyll i OAuth client-ID + secret → Anslut. Ger kalender- och mail-röststyrning. Se "Google OAuth" nedan.',
+                },
+              ].map((it) => (
+                <div key={it.n} style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+                  <span style={{
+                    flexShrink: 0,
+                    width: 22,
+                    height: 22,
+                    borderRadius: 11,
+                    background: "rgba(212,169,85,0.14)",
+                    border: "1px solid rgba(212,169,85,0.3)",
+                    color: "#d4a955",
+                    fontSize: 11,
+                    fontWeight: 600,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}>{it.n}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 500, marginBottom: 2 }}>{it.title}</div>
+                    <div className="field-help" style={{ marginBottom: 0 }}>{it.hint}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </article>
+
+        {/* Sektion 3 — Skaffa API-nycklar */}
+        <article className="settings-section" style={{ gridTemplateColumns: "180px minmax(0, 1fr)" }}>
+          <div className="settings-section-label">
+            <h2>Skaffa API-nycklar</h2>
+            <p>Fyra providers — Ollama kräver ingen nyckel alls.</p>
+          </div>
+          <div className="settings-section-body">
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+
+              {/* Anthropic */}
+              <div style={{ padding: "14px 16px", background: "rgba(243,237,227,0.02)", border: "1px solid rgba(243,237,227,0.06)", borderRadius: 10 }}>
+                <div style={{ fontWeight: 500, marginBottom: 8 }}>Anthropic (Claude)</div>
+                <ol style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 4 }}>
+                  <li className="field-help" style={{ marginBottom: 0 }}>
+                    Gå till{" "}
+                    <a href="https://console.anthropic.com" target="_blank" rel="noreferrer" style={{ color: "var(--color-amber, #d4a955)" }}>
+                      console.anthropic.com
+                    </a>{" "}
+                    → Skapa konto / logga in
+                  </li>
+                  <li className="field-help" style={{ marginBottom: 0 }}>Settings → API Keys → "Create Key"</li>
+                  <li className="field-help" style={{ marginBottom: 0 }}>
+                    Kopiera nyckeln (sk-ant-…) → Settings → Action-popup → Anthropic API-nyckel
+                  </li>
+                </ol>
+                <div className="field-help" style={{ marginTop: 8, marginBottom: 0 }}>
+                  Kostnad: ~$0.003/1K input-tokens för Sonnet 4.5. Bäst för: agentic tool-use, tung resonemang.
+                </div>
+              </div>
+
+              {/* Gemini */}
+              <div style={{ padding: "14px 16px", background: "rgba(243,237,227,0.02)", border: "1px solid rgba(243,237,227,0.06)", borderRadius: 10 }}>
+                <div style={{ fontWeight: 500, marginBottom: 8 }}>Google Gemini</div>
+                <ol style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 4 }}>
+                  <li className="field-help" style={{ marginBottom: 0 }}>
+                    Gå till{" "}
+                    <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" style={{ color: "var(--color-amber, #d4a955)" }}>
+                      aistudio.google.com/apikey
+                    </a>{" "}
+                    → logga in med Google-konto
+                  </li>
+                  <li className="field-help" style={{ marginBottom: 0 }}>"Create API key" → välj projekt eller skapa nytt</li>
+                  <li className="field-help" style={{ marginBottom: 0 }}>
+                    Kopiera nyckeln (AI…) → Settings → Action-popup → Gemini API-nyckel
+                  </li>
+                </ol>
+                <div className="field-help" style={{ marginTop: 8, marginBottom: 0 }}>
+                  Gratis-tier: 10 RPM, 250 RPD för 2.5 Flash. Bäst för: realtidsdata via Google Search-grounding, kalender/mail via function-calling.
+                </div>
+              </div>
+
+              {/* Groq */}
+              <div style={{ padding: "14px 16px", background: "rgba(243,237,227,0.02)", border: "1px solid rgba(243,237,227,0.06)", borderRadius: 10 }}>
+                <div style={{ fontWeight: 500, marginBottom: 8 }}>Groq (gratis-tier)</div>
+                <ol style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 4 }}>
+                  <li className="field-help" style={{ marginBottom: 0 }}>
+                    Gå till{" "}
+                    <a href="https://console.groq.com/keys" target="_blank" rel="noreferrer" style={{ color: "var(--color-amber, #d4a955)" }}>
+                      console.groq.com/keys
+                    </a>{" "}
+                    → Skapa konto (gratis)
+                  </li>
+                  <li className="field-help" style={{ marginBottom: 0 }}>"Create API Key" → kopiera nyckeln (gsk_…)</li>
+                  <li className="field-help" style={{ marginBottom: 0 }}>
+                    Klistra in → Settings → Action-popup → Groq API-nyckel
+                  </li>
+                </ol>
+                <div className="field-help" style={{ marginTop: 8, marginBottom: 0 }}>
+                  Gratis-tier: 30 RPM för de flesta modeller. Bäst för: snabb + billig grammatikpolering av diktering.
+                </div>
+              </div>
+
+              {/* Ollama */}
+              <div style={{ padding: "14px 16px", background: "rgba(243,237,227,0.02)", border: "1px solid rgba(243,237,227,0.06)", borderRadius: 10 }}>
+                <div style={{ fontWeight: 500, marginBottom: 8 }}>Ollama (lokalt, ingen nyckel)</div>
+                <ol style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 4 }}>
+                  <li className="field-help" style={{ marginBottom: 0 }}>
+                    Ladda ner{" "}
+                    <a href="https://ollama.com" target="_blank" rel="noreferrer" style={{ color: "var(--color-amber, #d4a955)" }}>
+                      ollama.com
+                    </a>{" "}
+                    och installera
+                  </li>
+                  <li className="field-help" style={{ marginBottom: 0 }}>Starta Ollama-appen (kör i bakgrunden som server på port 11434)</li>
+                  <li className="field-help" style={{ marginBottom: 0 }}>
+                    Settings → Action-popup → Ollama-modell → välj modell → klicka "Ladda ner"
+                  </li>
+                </ol>
+                <div className="field-help" style={{ marginTop: 8, marginBottom: 0 }}>
+                  Ingen API-nyckel. Allt lokalt. Bäst för: privat/offline, ingen molnkoppling.
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </article>
+
+        {/* Sektion 4 — Google OAuth */}
+        <article className="settings-section" style={{ gridTemplateColumns: "180px minmax(0, 1fr)" }}>
+          <div className="settings-section-label">
+            <h2>Google OAuth (kalender + mail)</h2>
+            <p>Kräver ett eget Google Cloud-projekt. Tar ~10 minuter.</p>
+          </div>
+          <div className="settings-section-body">
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {[
+                { n: "1", text: <>Gå till{" "}<a href="https://console.cloud.google.com" target="_blank" rel="noreferrer" style={{ color: "var(--color-amber, #d4a955)" }}>console.cloud.google.com</a></> },
+                { n: "2", text: "Skapa ett nytt projekt (eller använd befintligt)" },
+                { n: "3", text: 'APIs & Services → Library → aktivera "Google Calendar API" och "Gmail API"' },
+                { n: "4", text: 'APIs & Services → OAuth consent screen → välj "External" (om personligt konto), fyll i obligatoriska fält. Lägg till din e-post som test-user.' },
+                { n: "5", text: 'APIs & Services → Credentials → "Create Credentials" → OAuth client ID → Application type: Desktop app' },
+                { n: "6", text: "Kopiera Client ID och Client secret" },
+                { n: "7", text: "Settings → Integrationer → klistra in båda fälten → Spara" },
+                { n: "8", text: 'Klicka "Anslut Google-konto" → godkänn i browsern' },
+              ].map((it) => (
+                <div key={it.n} style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+                  <span style={{
+                    flexShrink: 0,
+                    width: 22,
+                    height: 22,
+                    borderRadius: 11,
+                    background: "rgba(212,169,85,0.14)",
+                    border: "1px solid rgba(212,169,85,0.3)",
+                    color: "#d4a955",
+                    fontSize: 11,
+                    fontWeight: 600,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}>{it.n}</span>
+                  <div className="field-help" style={{ marginBottom: 0, flex: 1, minWidth: 0, paddingTop: 3 }}>{it.text}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ marginTop: 14, padding: "12px 14px", background: "rgba(212,169,85,0.06)", border: "1px solid rgba(212,169,85,0.18)", borderRadius: 10 }}>
+              <div style={{ fontWeight: 500, marginBottom: 6 }}>Efter anslutning kan du säga:</div>
+              <div className="field-help" style={{ marginBottom: 0, lineHeight: 1.8 }}>
+                "Vad har jag i kalendern imorgon?" &nbsp;·&nbsp; "Boka möte fredag 14" &nbsp;·&nbsp;
+                "Sök mail från X" &nbsp;·&nbsp; "Skicka mail till Y om Z" (skapar utkast, skickas inte)
+              </div>
+            </div>
+          </div>
+        </article>
+
+        {/* Sektion 5 — Röstkommandon exempel */}
+        <article className="settings-section" style={{ gridTemplateColumns: "180px minmax(0, 1fr)" }}>
+          <div className="settings-section-label">
+            <h2>Röstkommandon — exempel</h2>
+            <p>Vanliga fraser att prova direkt.</p>
+          </div>
+          <div className="settings-section-body">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+
+              <div style={{ padding: "14px 16px", background: "rgba(243,237,227,0.02)", border: "1px solid rgba(243,237,227,0.06)", borderRadius: 10 }}>
+                <div style={{ fontWeight: 500, marginBottom: 8 }}>Diktering (Höger Ctrl)</div>
+                <div className="field-help" style={{ marginBottom: 0, lineHeight: 1.8 }}>
+                  Håll ner → prata → släpp → text injiceras där markören står
+                </div>
+              </div>
+
+              <div style={{ padding: "14px 16px", background: "rgba(243,237,227,0.02)", border: "1px solid rgba(243,237,227,0.06)", borderRadius: 10 }}>
+                <div style={{ fontWeight: 500, marginBottom: 8 }}>Action-popup (Insert) — utan markering</div>
+                <div className="field-help" style={{ marginBottom: 0, lineHeight: 1.8 }}>
+                  "Vad är huvudstaden i Belgien?"<br />
+                  "Vad är vädret i Stockholm just nu?"<br />
+                  "Boka möte imorgon 14" <span style={{ opacity: 0.6 }}>(Google ansluten)</span><br />
+                  "Sök mail från Anna" <span style={{ opacity: 0.6 }}>(Google ansluten)</span>
+                </div>
+              </div>
+
+              <div style={{ gridColumn: "1 / -1", padding: "14px 16px", background: "rgba(243,237,227,0.02)", border: "1px solid rgba(243,237,227,0.06)", borderRadius: 10 }}>
+                <div style={{ fontWeight: 500, marginBottom: 8 }}>Action-popup (Insert) — med markerad text (transformation)</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 24px" }}>
+                  {["Gör detta mer formellt", "Översätt till engelska", "Kortare", "Rätta grammatiken"].map((ex) => (
+                    <div key={ex} className="field-help" style={{ marginBottom: 0 }}>{ex}</div>
+                  ))}
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </article>
+
+        {/* Sektion 6 — Vanliga frågor */}
+        <article className="settings-section" style={{ gridTemplateColumns: "180px minmax(0, 1fr)" }}>
+          <div className="settings-section-label">
+            <h2>Vanliga frågor</h2>
+          </div>
+          <div className="settings-section-body">
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {[
+                {
+                  q: "Min modell är inte nedladdad — vad händer?",
+                  a: "Första appstart laddar ner KB-Whisper Base automatiskt (~150 MB). Annars: Diktering-fliken → Transkribering → Ladda ner.",
+                },
+                {
+                  q: 'Gemini säger 429 "quota exceeded"',
+                  a: "Byt till stabila gemini-2.5-flash eller vänta tills midnatt PT (~09:00 svensk tid). Gratis-tier för 3 Preview är snävare.",
+                },
+                {
+                  q: "Kan jag ändra Insert-tangenten?",
+                  a: "Ja, Snabbkommandon-fliken.",
+                },
+                {
+                  q: "Klipps långa inspelningar?",
+                  a: "Ringbuffer är 120 sek (2 min). Om du behöver längre, öppna issue eller ändra i src-tauri/src/lib.rs rad 322.",
+                },
+                {
+                  q: "Skickas min data nånstans?",
+                  a: "Lokal STT (KB-Whisper) sker på din dator. API-providers (Anthropic/Google/Groq) ser bara det du säger i popupen. Audio finns bara i RAM, aldrig disk.",
+                },
+              ].map((it) => (
+                <details
+                  key={it.q}
+                  style={{
+                    padding: "10px 14px",
+                    background: "rgba(243,237,227,0.02)",
+                    border: "1px solid rgba(243,237,227,0.06)",
+                    borderRadius: 10,
+                  }}
+                >
+                  <summary style={{ fontWeight: 500, cursor: "pointer", userSelect: "none", listStyle: "none" }}>
+                    {it.q}
+                  </summary>
+                  <div className="field-help" style={{ marginTop: 8, marginBottom: 0 }}>{it.a}</div>
+                </details>
+              ))}
+            </div>
+          </div>
+        </article>
+
+        {/* Sektion 7 — Hotkey-snabböversikt */}
+        <article className="settings-section" style={{ gridTemplateColumns: "180px minmax(0, 1fr)" }}>
+          <div className="settings-section-label">
+            <h2>Tangentöversikt</h2>
+          </div>
+          <div className="settings-section-body">
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: "left", paddingBottom: 8, paddingRight: 24, fontWeight: 500, fontSize: 12, color: "var(--ink-tertiary)", borderBottom: "1px solid rgba(243,237,227,0.08)" }}>Tangent</th>
+                  <th style={{ textAlign: "left", paddingBottom: 8, fontWeight: 500, fontSize: 12, color: "var(--ink-tertiary)", borderBottom: "1px solid rgba(243,237,227,0.08)" }}>Funktion</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  { key: "Höger Ctrl (håll)", fn: "Diktering" },
+                  { key: "Insert (håll)", fn: "Action-popup" },
+                  { key: "Ctrl+Shift+Space", fn: "Smart-function palette" },
+                  { key: "Esc (i popup)", fn: "Stäng popup" },
+                  { key: "Enter (i popup)", fn: "Applicera svar (klistra in)" },
+                ].map((row) => (
+                  <tr key={row.key}>
+                    <td style={{ padding: "8px 24px 8px 0", fontFamily: "var(--font-mono)", fontSize: 12, color: "#d4a955", verticalAlign: "top" }}>{row.key}</td>
+                    <td className="field-help" style={{ padding: "8px 0", marginBottom: 0, verticalAlign: "top" }}>{row.fn}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </article>
 
