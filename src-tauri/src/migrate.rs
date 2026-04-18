@@ -38,14 +38,18 @@ pub fn migrate_anthropic_key(settings_path: &Path) -> anyhow::Result<()> {
             tracing::info!("migrerat anthropic_api_key till Windows Credential Manager");
         }
         Err(e) => {
-            tracing::error!("keyring-migrering misslyckades: {e} — klartext kvar tills nästa försök");
+            tracing::error!(
+                "keyring-migrering misslyckades: {e} — klartext kvar tills nästa försök"
+            );
         }
     }
     Ok(())
 }
 
 fn write_atomic(path: &Path, value: &serde_json::Value) -> anyhow::Result<()> {
-    let parent = path.parent().ok_or_else(|| anyhow::anyhow!("invalid path"))?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("invalid path"))?;
     let tmp = parent.join("settings.json.tmp");
     let json = serde_json::to_string_pretty(value)?;
     std::fs::write(&tmp, json)?;
@@ -88,7 +92,10 @@ mod tests {
         let after: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert!(after.get("anthropic_api_key").is_none());
-        assert_eq!(after.get("stt_model").and_then(|v| v.as_str()), Some("whisper"));
+        assert_eq!(
+            after.get("stt_model").and_then(|v| v.as_str()),
+            Some("whisper")
+        );
 
         cleanup_keyring();
     }

@@ -69,7 +69,9 @@ enum SseEvent {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum Delta {
-    TextDelta { text: String },
+    TextDelta {
+        text: String,
+    },
     #[serde(other)]
     Other,
 }
@@ -155,7 +157,11 @@ fn sse_text_deltas(
 
     // Enklare: använd futures::stream::unfold med en mutable state.
     let stream = futures_util::stream::unfold(
-        (byte_stream.boxed(), String::new(), VecDeque::<Result<String, LlmError>>::new()),
+        (
+            byte_stream.boxed(),
+            String::new(),
+            VecDeque::<Result<String, LlmError>>::new(),
+        ),
         |(mut bs, mut pending_buf, mut out_queue)| async move {
             loop {
                 if let Some(item) = out_queue.pop_front() {
@@ -172,7 +178,10 @@ fn sse_text_deltas(
                         continue;
                     }
                     Some(Err(e)) => {
-                        return Some((Err(LlmError::Http(e.to_string())), (bs, pending_buf, out_queue)));
+                        return Some((
+                            Err(LlmError::Http(e.to_string())),
+                            (bs, pending_buf, out_queue),
+                        ));
                     }
                     Some(Ok(bytes)) => {
                         pending_buf.push_str(&String::from_utf8_lossy(&bytes));

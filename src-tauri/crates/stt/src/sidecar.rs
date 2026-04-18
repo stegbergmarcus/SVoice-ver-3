@@ -60,7 +60,9 @@ impl Sidecar {
         // Vänta på ready-svar
         match this.read_response().await? {
             SttResponse::Ready => Ok(this),
-            other => Err(SidecarError::Protocol(format!("förväntade Ready, fick {other:?}"))),
+            other => Err(SidecarError::Protocol(format!(
+                "förväntade Ready, fick {other:?}"
+            ))),
         }
     }
 

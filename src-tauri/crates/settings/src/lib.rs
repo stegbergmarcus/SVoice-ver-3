@@ -89,7 +89,9 @@ pub enum ComputeMode {
 impl Settings {
     pub fn path() -> PathBuf {
         let appdata = std::env::var("APPDATA").expect("APPDATA");
-        PathBuf::from(appdata).join("svoice-v3").join("settings.json")
+        PathBuf::from(appdata)
+            .join("svoice-v3")
+            .join("settings.json")
     }
 
     pub fn load() -> Self {
@@ -155,12 +157,18 @@ mod tests {
         assert_eq!(original.ollama_model, restored.ollama_model);
         assert_eq!(original.dictation_hotkey, restored.dictation_hotkey);
         assert_eq!(original.action_hotkey, restored.action_hotkey);
-        assert_eq!(original.google_oauth_client_id, restored.google_oauth_client_id);
+        assert_eq!(
+            original.google_oauth_client_id,
+            restored.google_oauth_client_id
+        );
     }
 
     #[test]
     fn compute_mode_serializes_snake_case() {
-        assert_eq!(serde_json::to_string(&ComputeMode::Auto).unwrap(), "\"auto\"");
+        assert_eq!(
+            serde_json::to_string(&ComputeMode::Auto).unwrap(),
+            "\"auto\""
+        );
         assert_eq!(serde_json::to_string(&ComputeMode::Cpu).unwrap(), "\"cpu\"");
         assert_eq!(serde_json::to_string(&ComputeMode::Gpu).unwrap(), "\"gpu\"");
     }

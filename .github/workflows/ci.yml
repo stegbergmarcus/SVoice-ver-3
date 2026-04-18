@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Avbryt pågående run om ny push kommer på samma ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend deps
+        run: pnpm install --frozen-lockfile
+
+      - name: TypeScript check
+        run: pnpm tsc --noEmit
+
+      - name: Frontend build
+        run: pnpm build
+
+      - name: Cargo fmt check
+        working-directory: src-tauri
+        run: cargo fmt --all --check
+
+      - name: Cargo check
+        working-directory: src-tauri
+        run: cargo check --workspace --all-targets
+
+      - name: Cargo clippy
+        working-directory: src-tauri
+        run: cargo clippy --workspace --all-targets -- -D warnings
+        continue-on-error: true # Clippy är strikt; varningarna blockerar inte än.
+
+      # Tester körs lokalt av utvecklaren; keyring-crates kräver interaktiv
+      # Windows-session som GitHub runners saknar. Se
+      # docs/superpowers/plans/2026-04-17-remaining-work-roadmap.md för plan
+      # kring framtida CI-test-kategorisering.

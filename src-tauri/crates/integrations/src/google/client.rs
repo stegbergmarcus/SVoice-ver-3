@@ -18,10 +18,7 @@ pub enum ClientError {
     #[error("reqwest: {0}")]
     Http(#[from] reqwest::Error),
     #[error("google-API returnerade {status}: {body}")]
-    ApiError {
-        status: u16,
-        body: String,
-    },
+    ApiError { status: u16, body: String },
 }
 
 pub struct GoogleClient {
@@ -71,7 +68,8 @@ impl GoogleClient {
 
     /// GET med auto-refresh vid 401.
     pub async fn get(&self, url: &str) -> Result<serde_json::Value, ClientError> {
-        self.request_json(reqwest::Method::GET, url, None::<&()>).await
+        self.request_json(reqwest::Method::GET, url, None::<&()>)
+            .await
     }
 
     /// POST JSON med auto-refresh vid 401.
@@ -80,7 +78,8 @@ impl GoogleClient {
         url: &str,
         body: &B,
     ) -> Result<serde_json::Value, ClientError> {
-        self.request_json(reqwest::Method::POST, url, Some(body)).await
+        self.request_json(reqwest::Method::POST, url, Some(body))
+            .await
     }
 
     async fn request_json<B: Serialize + ?Sized>(

@@ -40,7 +40,9 @@ pub fn remember_foreground_target() -> bool {
     let mut win_pid: u32 = 0;
     unsafe { GetWindowThreadProcessId(hwnd, Some(&mut win_pid)) };
     if win_pid == our_pid {
-        tracing::debug!("remember_foreground_target: fönstret är vårt eget (pid {our_pid}) — skippar");
+        tracing::debug!(
+            "remember_foreground_target: fönstret är vårt eget (pid {our_pid}) — skippar"
+        );
         return false;
     }
     TARGET_HWND.store(hwnd.0 as isize, Ordering::SeqCst);

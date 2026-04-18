@@ -9,6 +9,6 @@ pub use register::{is_key_down, register_ptt, HotkeyCallback, HotkeyError, Regis
 
 #[cfg(windows)]
 pub use ll_hook::{
-    install_rctrl_hook, register_hotkey, uninstall_hook, HotKey, LlCallback, LlHookError,
-    LlKeyEvent,
+    install_rctrl_hook, rebind_role, register_hotkey, register_with_role, uninstall_hook,
+    unregister_hotkey, HotKey, LlCallback, LlHookError, LlKeyEvent,
 };

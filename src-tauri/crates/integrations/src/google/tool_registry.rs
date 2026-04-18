@@ -161,10 +161,7 @@ mod tests {
         // matchen med en no-op client är inte möjlig, så vi hoppar över
         // actually kalling execute. Test nedan kollar bara tool-namnen finns.
         let tools = all_tools_json();
-        let names: Vec<&str> = tools
-            .iter()
-            .filter_map(|t| t["name"].as_str())
-            .collect();
+        let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
         assert!(names.contains(&"list_calendar_events"));
         assert!(names.contains(&"create_calendar_event"));
         assert!(names.contains(&"search_emails"));

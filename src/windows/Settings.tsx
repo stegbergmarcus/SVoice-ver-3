@@ -11,6 +11,8 @@ import {
   hasAnthropicKey,
   listMicDevices,
   listOllamaModels,
+  listSmartFunctions,
+  openSmartFunctionsDir,
   pullOllamaModel,
   setAnthropicKey,
   setSettings,
@@ -21,6 +23,7 @@ import {
   type OllamaModelInfo,
   type PullProgress,
   type Settings,
+  type SmartFunction,
 } from "../lib/settings-api";
 import "./Settings.css";
 
@@ -133,6 +136,7 @@ export default function SettingsView() {
     client_id_configured: false,
   });
   const [googleBusy, setGoogleBusy] = useState(false);
+  const [smartFns, setSmartFns] = useState<SmartFunction[]>([]);
 
   // Refresh Ollama-modell-listan (t.ex. efter lyckad pull).
   async function refreshOllama() {
@@ -165,6 +169,7 @@ export default function SettingsView() {
       .catch(() =>
         setGoogleStatus({ connected: false, client_id_configured: false }),
       );
+    listSmartFunctions().then(setSmartFns).catch(() => setSmartFns([]));
     // Kolla HF-cache-status för alla listade STT-modeller i bakgrunden.
     Promise.all(
       MODELS.map(async (m) => ({
@@ -711,9 +716,9 @@ export default function SettingsView() {
             </div>
             <div
               className="field-help"
-              style={{ marginTop: 8, fontStyle: "italic", opacity: 0.8 }}
+              style={{ marginTop: 8, fontStyle: "italic", opacity: 0.7 }}
             >
-              ⚠ Kräver omstart för att träda i kraft.
+              Hot-reload aktivt — ändringen träder i kraft direkt när du sparar.
             </div>
           </div>
         </article>
@@ -827,6 +832,93 @@ export default function SettingsView() {
                     ? "Klick öppnar browser för godkännande. Scopes: Calendar (läs/skriv) + Gmail (läs)."
                     : "Fyll i client-ID ovan och spara inställningarna, sedan kan du ansluta."}
               </div>
+            </div>
+          </div>
+        </article>
+
+        {/* Smart-functions */}
+        <article className="settings-section">
+          <div className="settings-section-label">
+            <h2>Smart-functions</h2>
+            <p>
+              Återanvändbara prompts för vanliga redigeringsuppgifter. Appen
+              seedar 5 svenska defaults första gången. Du kan redigera eller
+              lägga till egna som JSON-filer.
+            </p>
+          </div>
+          <div className="settings-section-body">
+            {smartFns.length === 0 ? (
+              <div className="field-help" style={{ fontStyle: "italic" }}>
+                Inga smart-functions hittades. Starta om appen så seedas
+                defaults.
+              </div>
+            ) : (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 10,
+                  marginBottom: 16,
+                }}
+              >
+                {smartFns.map((sf) => (
+                  <div
+                    key={sf.id}
+                    style={{
+                      padding: "12px 14px",
+                      background: "rgba(243, 237, 227, 0.03)",
+                      border: "1px solid rgba(243, 237, 227, 0.06)",
+                      borderRadius: 10,
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        marginBottom: 4,
+                      }}
+                    >
+                      <span style={{ fontWeight: 500 }}>{sf.name}</span>
+                      <span
+                        style={{
+                          fontSize: 10,
+                          padding: "2px 7px",
+                          borderRadius: 4,
+                          background:
+                            sf.mode === "transform"
+                              ? "rgba(212, 169, 85, 0.16)"
+                              : "rgba(123, 211, 126, 0.14)",
+                          color:
+                            sf.mode === "transform" ? "#d4a955" : "#7bd37e",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.06em",
+                          fontFamily: "var(--font-mono)",
+                        }}
+                      >
+                        {sf.mode}
+                      </span>
+                    </div>
+                    <div
+                      className="field-help"
+                      style={{ marginBottom: 0, marginTop: 0 }}
+                    >
+                      {sf.description}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => openSmartFunctionsDir()}
+            >
+              Öppna mappen i Explorer
+            </button>
+            <div className="field-help" style={{ marginTop: 6 }}>
+              Command palette (Ctrl+Shift+Space) för att snabb-triggern smart-functions
+              kommer i senare iter.
             </div>
           </div>
         </article>

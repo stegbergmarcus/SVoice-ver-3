@@ -1,6 +1,6 @@
 pub mod engine;
-pub mod sidecar;
 pub mod protocol;
+pub mod sidecar;
 
 pub use sidecar::Sidecar;
 

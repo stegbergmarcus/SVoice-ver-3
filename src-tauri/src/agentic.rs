@@ -41,14 +41,45 @@ pub fn looks_agentic(command: &str, selection: Option<&str>) -> bool {
     let c = command.to_lowercase();
     const KEYWORDS: &[&str] = &[
         // Kalender
-        "kalender", "kalendern", "boka", "möte", "mötet", "mötes", "möten",
-        "schemalägg", "schema", "träff", "inboka", "avboka", "flytta mötet",
-        "nästa möte", "idag", "imorgon", "i övermorgon", "denna vecka",
-        "nästa vecka", "vad har jag", "vad händer", "när är",
+        "kalender",
+        "kalendern",
+        "boka",
+        "möte",
+        "mötet",
+        "mötes",
+        "möten",
+        "schemalägg",
+        "schema",
+        "träff",
+        "inboka",
+        "avboka",
+        "flytta mötet",
+        "nästa möte",
+        "idag",
+        "imorgon",
+        "i övermorgon",
+        "denna vecka",
+        "nästa vecka",
+        "vad har jag",
+        "vad händer",
+        "när är",
         // Gmail
-        "mail", "mejl", "mejlet", "mailet", "maila", "mejla", "svara på",
-        "skicka mail", "inkorgen", "inkorg", "läs mailet", "sök mail",
-        "från marcus", "har jag fått", "senaste mailet", "oläst",
+        "mail",
+        "mejl",
+        "mejlet",
+        "mailet",
+        "maila",
+        "mejla",
+        "svara på",
+        "skicka mail",
+        "inkorgen",
+        "inkorg",
+        "läs mailet",
+        "sök mail",
+        "från marcus",
+        "har jag fått",
+        "senaste mailet",
+        "oläst",
     ];
     KEYWORDS.iter().any(|kw| c.contains(kw))
 }
@@ -146,10 +177,7 @@ pub async fn run_agentic(
             } => {
                 // Om Claude sagt något innan tool_use, emittera det direkt.
                 if !partial_text.is_empty() {
-                    let _ = app.emit(
-                        ev_token,
-                        serde_json::json!({ "text": partial_text }),
-                    );
+                    let _ = app.emit(ev_token, serde_json::json!({ "text": partial_text }));
                 }
 
                 let mut results: Vec<ToolResult> = Vec::with_capacity(calls.len());
@@ -222,9 +250,9 @@ fn short_summary_of_input(tool: &str, input: &serde_json::Value) -> Option<Strin
 fn short_summary_of_result(tool: &str, json_text: &str) -> Option<String> {
     let parsed: serde_json::Value = serde_json::from_str(json_text).ok()?;
     match tool {
-        "list_calendar_events" | "search_emails" => parsed
-            .as_array()
-            .map(|a| format!("{} träffar", a.len())),
+        "list_calendar_events" | "search_emails" => {
+            parsed.as_array().map(|a| format!("{} träffar", a.len()))
+        }
         "create_calendar_event" => parsed
             .get("htmlLink")
             .and_then(|v| v.as_str())
