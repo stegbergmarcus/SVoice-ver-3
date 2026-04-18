@@ -46,6 +46,23 @@ export interface GoogleStatus {
   client_id_configured: boolean;
 }
 
+export interface UpdateStatus {
+  current_version: string;
+  latest_version: string | null;
+  available: boolean;
+  download_url: string | null;
+  release_notes: string | null;
+  checked_at: number;
+}
+
+export async function checkForUpdates(): Promise<UpdateStatus> {
+  return invoke<UpdateStatus>("check_for_updates");
+}
+
+export async function checkForUpdatesCached(): Promise<UpdateStatus> {
+  return invoke<UpdateStatus>("check_for_updates_cached");
+}
+
 export type SmartMode = "transform" | "query";
 
 export interface SmartFunction {

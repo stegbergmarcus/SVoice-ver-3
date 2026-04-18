@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import SVoiceLogo from "../components/SVoiceLogo";
 import {
+  checkForUpdates,
+  checkForUpdatesCached,
   checkHfCached,
   clearAnthropicKey,
   clearGeminiKey,
@@ -26,11 +28,12 @@ import {
   type GoogleStatus,
   type HotKeyChoice,
   type LlmProviderChoice,
-  type SttProviderChoice,
   type OllamaModelInfo,
   type PullProgress,
   type Settings,
   type SmartFunction,
+  type SttProviderChoice,
+  type UpdateStatus,
 } from "../lib/settings-api";
 import "./Settings.css";
 
@@ -222,6 +225,9 @@ export default function SettingsView() {
   });
   const [googleBusy, setGoogleBusy] = useState(false);
   const [smartFns, setSmartFns] = useState<SmartFunction[]>([]);
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
+  const [updateChecking, setUpdateChecking] = useState(false);
+  const [updateError, setUpdateError] = useState<string | null>(null);
 
   // Refresh Ollama-modell-listan (t.ex. efter lyckad pull).
   async function refreshOllama() {
@@ -261,6 +267,9 @@ export default function SettingsView() {
         setGoogleStatus({ connected: false, client_id_configured: false }),
       );
     listSmartFunctions().then(setSmartFns).catch(() => setSmartFns([]));
+    checkForUpdatesCached()
+      .then(setUpdateStatus)
+      .catch((e) => console.debug("[settings] update-check (cached) failed:", e));
     // Kolla HF-cache-status för alla listade STT-modeller i bakgrunden.
     Promise.all(
       MODELS.map(async (m) => ({
@@ -404,6 +413,19 @@ export default function SettingsView() {
       setError(String(e));
     } finally {
       setGoogleBusy(false);
+    }
+  }
+
+  async function handleCheckUpdates() {
+    setUpdateChecking(true);
+    setUpdateError(null);
+    try {
+      const status = await checkForUpdates();
+      setUpdateStatus(status);
+    } catch (e) {
+      setUpdateError(String(e));
+    } finally {
+      setUpdateChecking(false);
     }
   }
 
@@ -573,6 +595,115 @@ export default function SettingsView() {
                   </div>
                 ));
               })()}
+            </div>
+          </div>
+        </article>
+
+        <article className="settings-section">
+          <div className="settings-section-label">
+            <h2>Version</h2>
+            <p>
+              SVoice 3 uppdateras via nya MSI-installer från GitHub Releases.
+              Auto-check körs en gång per dygn.
+            </p>
+          </div>
+          <div className="settings-section-body">
+            <div
+              style={{
+                padding: "14px 16px",
+                background: updateStatus?.available
+                  ? "rgba(212, 169, 85, 0.08)"
+                  : "rgba(243, 237, 227, 0.02)",
+                border: updateStatus?.available
+                  ? "1px solid rgba(212, 169, 85, 0.28)"
+                  : "1px solid rgba(243, 237, 227, 0.06)",
+                borderRadius: 12,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  marginBottom: 6,
+                }}
+              >
+                <span
+                  style={{
+                    width: 10,
+                    height: 10,
+                    borderRadius: 5,
+                    background: updateStatus?.available
+                      ? "#d4a955"
+                      : updateStatus
+                        ? "#7bd37e"
+                        : "rgba(243, 237, 227, 0.3)",
+                  }}
+                />
+                <div style={{ fontWeight: 500 }}>
+                  {updateStatus?.available
+                    ? `Ny version ${updateStatus.latest_version} tillgänglig`
+                    : updateStatus
+                      ? `Version ${updateStatus.current_version} (senaste)`
+                      : "Kontrollerar version…"}
+                </div>
+                <div style={{ flex: 1 }} />
+                {updateStatus?.available && updateStatus.download_url && (
+                  <a
+                    href={updateStatus.download_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn btn-primary btn-compact"
+                    style={{ textDecoration: "none" }}
+                  >
+                    Ladda ner
+                  </a>
+                )}
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-compact"
+                  onClick={handleCheckUpdates}
+                  disabled={updateChecking}
+                >
+                  {updateChecking ? "Söker…" : "Sök uppdateringar"}
+                </button>
+              </div>
+              {updateError && (
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: "var(--danger)",
+                    marginTop: 6,
+                  }}
+                >
+                  {updateError}
+                </div>
+              )}
+              {updateStatus?.release_notes && updateStatus.available && (
+                <details style={{ marginTop: 10 }}>
+                  <summary
+                    style={{
+                      fontSize: 12,
+                      color: "var(--ink-tertiary)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Visa release-notes
+                  </summary>
+                  <pre
+                    style={{
+                      marginTop: 6,
+                      fontSize: 12,
+                      lineHeight: 1.5,
+                      whiteSpace: "pre-wrap",
+                      color: "var(--ink-secondary)",
+                      fontFamily: "var(--font-sans)",
+                    }}
+                  >
+                    {updateStatus.release_notes}
+                  </pre>
+                </details>
+              )}
             </div>
           </div>
         </article>
