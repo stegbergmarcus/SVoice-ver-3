@@ -76,6 +76,16 @@ const GROQ_STT_MODELS: Array<{ id: string; label: string; note: string }> = [
   { id: "whisper-large-v3", label: "Whisper Large v3", note: "högst kvalitet" },
 ];
 
+type TabId = "overview" | "audio" | "llm" | "integrations" | "hotkeys";
+
+const TABS: Array<{ id: TabId; label: string; icon: string }> = [
+  { id: "overview", label: "Översikt", icon: "◆" },
+  { id: "audio", label: "Ljud & STT", icon: "◉" },
+  { id: "llm", label: "Action-LLM", icon: "❋" },
+  { id: "integrations", label: "Integrationer", icon: "⊕" },
+  { id: "hotkeys", label: "Snabbkommandon", icon: "⌘" },
+];
+
 const GROQ_LLM_MODELS: Array<{ id: string; label: string; note: string }> = [
   { id: "llama-3.3-70b-versatile", label: "Llama 3.3 70B", note: "balans · stark på svenska" },
   { id: "openai/gpt-oss-120b", label: "GPT-OSS 120B", note: "toppresonemang · OpenAI-öppen" },
@@ -171,6 +181,7 @@ export default function SettingsView() {
   const [keyDraft, setKeyDraft] = useState<string | null>(null); // null=orört, ""=rensa, annars=ny nyckel
   const [groqKeyStored, setGroqKeyStored] = useState(false);
   const [groqKeyDraft, setGroqKeyDraft] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [googleStatus, setGoogleStatus] = useState<GoogleStatus>({
     connected: false,
     client_id_configured: false,
@@ -406,6 +417,25 @@ export default function SettingsView() {
           </div>
         </header>
 
+        <nav className="settings-tabs" role="tablist">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === t.id}
+              className={`settings-tab${activeTab === t.id ? " active" : ""}`}
+              onClick={() => setActiveTab(t.id)}
+            >
+              <span className="settings-tab-icon" aria-hidden>
+                {t.icon}
+              </span>
+              <span className="settings-tab-label">{t.label}</span>
+            </button>
+          ))}
+        </nav>
+
+        {activeTab === "overview" && (<>
         {/* Kom igång — onboarding-checklist */}
         <article
           className="settings-section"
@@ -529,6 +559,9 @@ export default function SettingsView() {
           </div>
         </article>
 
+        </>)}
+
+        {activeTab === "audio" && (<>
         {/* Audio */}
         <article className="settings-section">
           <div className="settings-section-label">
@@ -709,6 +742,9 @@ export default function SettingsView() {
           </div>
         </article>
 
+        </>)}
+
+        {activeTab === "llm" && (<>
         {/* Action-LLM (iter 3) */}
         <article className="settings-section">
           <div className="settings-section-label">
@@ -939,6 +975,9 @@ export default function SettingsView() {
           </div>
         </article>
 
+        </>)}
+
+        {activeTab === "hotkeys" && (<>
         {/* Snabbkommandon */}
         <article className="settings-section">
           <div className="settings-section-label">
@@ -1008,6 +1047,9 @@ export default function SettingsView() {
           </div>
         </article>
 
+        </>)}
+
+        {activeTab === "integrations" && (<>
         {/* Integrationer */}
         <article className="settings-section">
           <div className="settings-section-label">
@@ -1234,7 +1276,10 @@ export default function SettingsView() {
           </div>
         </article>
 
-        {/* Röstdetektion */}
+        </>)}
+
+        {activeTab === "audio" && (<>
+        {/* Röstdetektion — del av Ljud & STT-fliken */}
         <article className="settings-section">
           <div className="settings-section-label">
             <h2>Tystnadströskel</h2>
@@ -1305,6 +1350,8 @@ export default function SettingsView() {
             </div>
           </div>
         </article>
+
+        </>)}
 
         {/* Footer — fade in endast vid osparade ändringar */}
         <footer className={`settings-footer${dirty ? " visible" : ""}`}>
