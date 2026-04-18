@@ -1418,7 +1418,232 @@ git add src/lib/settings-api.ts src/windows/Settings.tsx
 git commit -m "feat(stt): Ladda-ner-knapp + progressbar för KB-Whisper-modeller"
 ```
 
-### Task 4.5: Ta bort modeller från Tauri-bundle
+### Task 4.5: Byt default-modell till Base + auto-download vid app-start
+
+**Files:**
+- Modify: `src-tauri/crates/settings/src/lib.rs` (default)
+- Modify: `src-tauri/src/lib.rs` (auto-download-spawn i setup)
+
+- [ ] **Step 1: Byt default-modell till Base**
+
+I `src-tauri/crates/settings/src/lib.rs`, i `impl Default for Settings`, ändra:
+```rust
+stt_model: "KBLab/kb-whisper-base".into(),
+```
+(Från `"KBLab/kb-whisper-large"`.)
+
+Samma rad i `Default`-implementationen av `SttConfig` i `src-tauri/crates/stt/src/engine.rs` (om default refererar till Large): ändra till Base där också.
+
+- [ ] **Step 2: Uppdatera defaults_match_spec-testet**
+
+I `src-tauri/crates/settings/src/lib.rs` tests-modulen, uppdatera:
+```rust
+assert_eq!(s.stt_model, "KBLab/kb-whisper-base");
+```
+
+- [ ] **Step 3: Lägg till auto-download-flagga + spawn i lib.rs setup**
+
+I `src-tauri/src/lib.rs`, lägg till statisk flagga nära top (efter `PALETTE_SELECTION`):
+```rust
+/// Sätts true medan STT-modell-download pågår (auto vid start eller
+/// manuell via Settings). Used för att undvika race om user klickar
+/// "Ladda ner" medan auto-download redan kör.
+static STT_DOWNLOAD_IN_PROGRESS: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+```
+
+I `setup()`-closuren, efter att `stt` är managed och `rt` finns, lägg till (före follow-up-poll-thread spawn):
+
+```rust
+// Auto-download av default-STT-modell vid första app-start om den inte
+// redan är cachad. Gör det bara om STT är aktiverat (annars behövs
+// modellen inte ändå) och gatar på STT_DOWNLOAD_IN_PROGRESS så manuell
+// Settings-download inte krockar.
+if user_settings.stt_enabled {
+    let default_model = Settings::default().stt_model;
+    if !svoice_ipc::commands::is_hf_model_cached(&default_model) {
+        let stt_clone = stt.clone();
+        let app_clone = app_handle.clone();
+        let model_clone = default_model.clone();
+        if STT_DOWNLOAD_IN_PROGRESS
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            rt.spawn(async move {
+                use tauri_plugin_notification::NotificationExt;
+                let _ = app_clone
+                    .notification()
+                    .builder()
+                    .title("SVoice")
+                    .body(format!(
+                        "Laddar ner STT-modell i bakgrunden: {model_clone}"
+                    ))
+                    .show();
+                let app_for_cb = app_clone.clone();
+                let model_for_cb = model_clone.clone();
+                match stt_clone
+                    .download_model(&model_clone, move |status| {
+                        let _ = app_for_cb.emit(
+                            "stt_model_download_progress",
+                            serde_json::json!({
+                                "model": &model_for_cb,
+                                "status": status,
+                            }),
+                        );
+                    })
+                    .await
+                {
+                    Ok(()) => {
+                        let _ = app_clone.emit(
+                            "stt_model_download_done",
+                            serde_json::json!({ "model": &model_clone }),
+                        );
+                        let _ = app_clone
+                            .notification()
+                            .builder()
+                            .title("SVoice")
+                            .body(format!(
+                                "STT-modell redo: {model_clone}. Håll höger Ctrl för att diktera."
+                            ))
+                            .show();
+                        tracing::info!(
+                            "auto-download klar: {model_clone}"
+                        );
+                    }
+                    Err(e) => {
+                        tracing::error!("auto-download fel: {e}");
+                        let _ = app_clone
+                            .notification()
+                            .builder()
+                            .title("SVoice")
+                            .body(format!(
+                                "STT-modell kunde inte laddas ner. Öppna Settings och klicka Ladda ner manuellt."
+                            ))
+                            .show();
+                    }
+                }
+                STT_DOWNLOAD_IN_PROGRESS.store(false, Ordering::SeqCst);
+            });
+        }
+    } else {
+        tracing::info!(
+            "auto-download: default-STT-modellen är redan cachad, hoppar över"
+        );
+    }
+}
+```
+
+- [ ] **Step 4: Lägg till `is_hf_model_cached` public helper i ipc-cratet**
+
+I `src-tauri/crates/ipc/src/commands.rs`, lägg till en pub fn före `check_hf_cached`-tauri-commandet (så den kan användas både av IPC och lib.rs):
+
+```rust
+/// Testa om en HF-modell är komplett nedladdad till lokal cache.
+/// Samma logik som `check_hf_cached` IPC-commandet men callable direkt
+/// från lib.rs utan IPC-round-trip.
+pub fn is_hf_model_cached(model: &str) -> bool {
+    let slug = format!("models--{}", model.replace('/', "--"));
+    let home = match std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")) {
+        Ok(h) => h,
+        Err(_) => return false,
+    };
+    let cache_path = std::path::PathBuf::from(home)
+        .join(".cache")
+        .join("huggingface")
+        .join("hub")
+        .join(&slug)
+        .join("snapshots");
+    if !cache_path.exists() {
+        return false;
+    }
+    std::fs::read_dir(&cache_path)
+        .map(|entries| {
+            entries.flatten().any(|e| {
+                e.file_type().map(|t| t.is_dir()).unwrap_or(false)
+                    && std::fs::read_dir(e.path())
+                        .map(|mut d| d.next().is_some())
+                        .unwrap_or(false)
+            })
+        })
+        .unwrap_or(false)
+}
+```
+
+Ändra befintlig `check_hf_cached` att delegera:
+```rust
+#[tauri::command]
+pub fn check_hf_cached(model: String) -> bool {
+    is_hf_model_cached(&model)
+}
+```
+
+Lägg till `is_hf_model_cached` i `pub use commands::{...}`-listan i `crates/ipc/src/lib.rs`.
+
+- [ ] **Step 5: Gater även manuell download på STT_DOWNLOAD_IN_PROGRESS**
+
+Ändra `download_stt_model` i `crates/ipc/src/commands.rs` att kolla flaggan. Men flaggan ligger i main-binary-cratet. Enklaste lösningen: flytta flaggan till ipc-cratet.
+
+Flytta `STT_DOWNLOAD_IN_PROGRESS` från `lib.rs` till `crates/ipc/src/commands.rs`:
+```rust
+pub static STT_DOWNLOAD_IN_PROGRESS: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+```
+
+Exportera: `pub use commands::{..., STT_DOWNLOAD_IN_PROGRESS};`
+
+I `download_stt_model`:
+```rust
+#[tauri::command]
+pub async fn download_stt_model(
+    app: AppHandle,
+    model: String,
+    stt: State<'_, Arc<PythonStt>>,
+) -> Result<(), String> {
+    if STT_DOWNLOAD_IN_PROGRESS
+        .compare_exchange(
+            false,
+            true,
+            std::sync::atomic::Ordering::SeqCst,
+            std::sync::atomic::Ordering::SeqCst,
+        )
+        .is_err()
+    {
+        return Err("En STT-modell-download pågår redan, vänta tills den är klar.".into());
+    }
+    // ... befintlig kod oförändrad ...
+    STT_DOWNLOAD_IN_PROGRESS.store(false, std::sync::atomic::Ordering::SeqCst);
+    Ok(())
+}
+```
+Säkerställ att flaggan återställs även vid error — wrap:a i struct-guard eller använd manuell `.store(false, ...)` i båda success/error-paths.
+
+Uppdatera lib.rs-referensen till `svoice_ipc::STT_DOWNLOAD_IN_PROGRESS` istället för `STT_DOWNLOAD_IN_PROGRESS`.
+
+- [ ] **Step 6: Workspace-check + tests**
+
+Run: `cd src-tauri && cargo check --workspace && cargo test -p svoice-settings --lib`
+Expected: allt passerar.
+
+- [ ] **Step 7: Manuell verifiering**
+
+Run: `pnpm tauri dev`
+1. Om Base redan cachad: starta + notera "auto-download: default-STT-modellen är redan cachad, hoppar över" i loggen.
+2. För att testa fresh-path: `rm -rf ~/.cache/huggingface/hub/models--KBLab--kb-whisper-base` (backup först) → starta appen → OS-notis "Laddar ner STT-modell i bakgrunden".
+3. Vänta ~30-60 sek → notis "STT-modell redo". Logg visar "auto-download klar".
+4. Verifiera cache: `ls ~/.cache/huggingface/hub/ | grep kb-whisper-base` → mapp finns.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add src-tauri/crates/settings/src/lib.rs \
+        src-tauri/crates/ipc/src/commands.rs \
+        src-tauri/crates/ipc/src/lib.rs \
+        src-tauri/crates/stt/src/engine.rs \
+        src-tauri/src/lib.rs
+git commit -m "feat(stt): default Base-modell + auto-download vid första app-start"
+```
+
+### Task 4.6: Ta bort modeller från Tauri-bundle
 
 **Files:**
 - Modify: `src-tauri/tauri.conf.json`
@@ -1453,7 +1678,7 @@ git add src-tauri/tauri.conf.json
 git commit -m "chore(bundle): ta bort pre-cachade HF-modeller ur MSI-resources"
 ```
 
-### Task 4.6: MSI-rebuild + verifiering
+### Task 4.7: MSI-rebuild + verifiering
 
 **Files:**
 - Ingen kodändring — verifiering.
@@ -1468,18 +1693,19 @@ Expected: `Finished 1 bundle at: ...\SVoice 3_0.1.0_x64_en-US.msi`
 Run: `powershell -NoProfile -Command "Get-Item 'src-tauri\target\release\bundle\msi\SVoice 3_0.1.0_x64_en-US.msi' | Select-Object Name, @{N='SizeMB';E={[math]::Round(\$_.Length / 1MB, 1)}}"`
 
 Expected:
-- Om Task 4.5 Step 2 utfördes: < 300 MB.
-- Om modellerna inte var bundle:ade alls: storlek ungefär samma som före (1,4 GB), och vi noterar att "lazy-download är i UI men MSI-size-reduktionen kräver separat investigation av python-runtime-storlek".
+- Om Task 4.6 Step 2 utfördes: < 300 MB.
+- Om modellerna inte var bundle:ade alls (troligt): storlek ungefär samma som före (1,4 GB), och vi noterar att "lazy-download är i UI men MSI-size-reduktionen kräver separat investigation av python-runtime-storlek".
 
 - [ ] **Step 3: Reinstall + full verifiering**
 
 Run: `powershell -NoProfile -Command "Start-Process powershell -Verb RunAs -Wait -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','C:\Users\marcu\AppData\Local\Temp\svoice-reinstall.ps1'"`
 
 Starta app → kör end-to-end-test:
-1. **Click-outside grace** (Fas 1): Insert-PTT långt svar → klicka utanför under streaming → popup stannar.
-2. **Update-check** (Fas 2): Settings → Översikt → Version-card visar "Version 0.1.0 (senaste)".
-3. **Autostart** (Fas 3): Settings → slå på autostart → Spara → verifiera registry pekar rätt.
-4. **Lazy-download** (Fas 4): Settings → Ljud & STT → välj Base → klicka "Ladda ner" → progressbar → notis → STT fungerar.
+1. **Auto-download** (Fas 4): OS-notis "Laddar ner STT-modell i bakgrunden" dyker upp direkt efter reinstall (eftersom cache sannolikt rensats eller om det är första-install). Vänta på "STT-modell redo"-notis.
+2. **Click-outside grace** (Fas 1): Insert-PTT långt svar → klicka utanför under streaming → popup stannar.
+3. **Update-check** (Fas 2): Settings → Översikt → Version-card visar "Version 0.1.0 (senaste)".
+4. **Autostart** (Fas 3): Settings → slå på autostart → Spara → verifiera registry pekar rätt.
+5. **Manuell download** (Fas 4): Settings → Ljud & STT → välj Large → klicka "Ladda ner" → progressbar → notis → byt till Large → STT fungerar.
 
 - [ ] **Step 4: Final commit + push**
 

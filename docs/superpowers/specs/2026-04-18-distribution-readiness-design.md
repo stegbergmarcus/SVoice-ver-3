@@ -183,12 +183,31 @@ Bundling av alla KB-Whisper-snapshots gör MSI:n 1,4 GB. De flesta kompisar
   sidecaret utan systemwide Python).
 - Förväntad MSI: ~200-250 MB.
 
-**2. Ingen auto-download av standardmodellen.**
-Vid första app-start visar Settings → Ljud & STT att ingen modell är
- cachad. User måste explicit klicka **"Ladda ner"** bredvid en modell i
- dropdownen (matchar befintligt Ollama-mönster).
+**2. Byt default-modell till KB-Whisper Base.**
+Nuvarande default är Large (3 GB download, 6 GB VRAM). För kompisar
+ som precis installerat funkar Base (150 MB, 1 GB VRAM) direkt även
+ på lätta laptops — ingen CUDA/VRAM-tröskel.
 
-**3. Dropdown-rendering.**
+`Settings::default().stt_model` ändras från `"KBLab/kb-whisper-large"`
+ till `"KBLab/kb-whisper-base"`. Befintliga användare rör sig inte —
+ deras settings.json har redan explicit värde och default används bara
+ när filen saknas.
+
+**3. Auto-download av default-modellen vid första app-start.**
+Om default-modellen (Base) inte är cachad när appen startar, spawna
+ en bakgrundstask som kör `download_stt_model` (samma IPC som manuell
+ knapp i Settings). OS-notifikation startar ("SVoice: laddar ner
+ STT-modell i bakgrunden") och klart ("STT-modell redo, du kan nu
+ använda diktering"). Auto-download sker ENDAST om:
+- stt_enabled = true (annars behövs inte modellen)
+- Default-modellen (från `Settings::default().stt_model`) inte redan cachad
+- Ingen pågående download (atomisk flagga för att undvika race om
+  user öppnar Settings och klickar "Ladda ner" samtidigt)
+
+User kan fortfarande välja Medium/Large och klicka "Ladda ner"
+ explicit för dem i Settings. Auto-download gäller bara default.
+
+**4. Dropdown-rendering.**
 Nuvarande `MODELS`-lista i `Settings.tsx` har redan VRAM-notis
  (`"snabbast · ~1 GB VRAM"` etc). Utöka den per användarens önskemål:
 - Lägg till **rekommenderat VRAM** som tydlig kolumn i field-help:en,
@@ -198,7 +217,7 @@ Nuvarande `MODELS`-lista i `Settings.tsx` har redan VRAM-notis
 - Visa också **diskstorlek** (hur mycket download:en är). Base ~150 MB,
   Medium ~1,5 GB, Large ~3 GB.
 
-**4. Download-flöde.**
+**5. Download-flöde.**
 Återanvänd Ollama-mönstret:
 - Ny IPC: `download_stt_model(model: String)` som spawnar Python-sidecar
   i download-only-mode (eller använder `huggingface_hub.snapshot_download`
@@ -208,7 +227,7 @@ Nuvarande `MODELS`-lista i `Settings.tsx` har redan VRAM-notis
 - Progressbar i Settings under modell-dropdownen, precis som Ollama-pull.
 - OS-notifikation vid klar.
 
-**5. Edge-cases.**
+**6. Edge-cases.**
 - Nätverksfel under download: tydligt error-toast, delad download
   stannar i HF-cache-folder (kan fortsätta nästa gång — HF-lib hanterar
   resume).
@@ -228,12 +247,15 @@ Nuvarande `MODELS`-lista i `Settings.tsx` har redan VRAM-notis
 
 ### Verifiering
 1. Bygg MSI → verifiera storlek ≤ 300 MB.
-2. Avinstallera → installera MSI → öppna Settings → Ljud & STT → modell-
-   dropdown visar alla med ↓-prefix (ej cachad).
-3. Klicka "Ladda ner" på Large → progressbar → klar → prefix blir ✓.
-4. Höger-Ctrl-PTT → STT fungerar med nedladdad modell.
-5. Försök höger-Ctrl-PTT UTAN nedladdad modell → tydligt fel, ingen
-   krasch, Settings-knappen blinkar.
+2. Avinstallera → installera MSI → starta appen → OS-notis "SVoice:
+   laddar ner STT-modell i bakgrunden" → vänta ~1 min → notis "STT-
+   modell redo".
+3. Settings → Ljud & STT → Base visas med ✓-prefix (cachad), Medium/Large
+   med ↓ (ej cachade).
+4. Höger-Ctrl-PTT → STT fungerar med Base direkt, inget manuellt steg.
+5. Klicka "Ladda ner" på Large → progressbar → klar → prefix blir ✓.
+6. Försök byta till Medium INNAN download → tydligt fel "modell ej
+   nedladdad, klicka Ladda ner först", ingen krasch.
 
 ---
 
