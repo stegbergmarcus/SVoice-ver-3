@@ -71,7 +71,15 @@ mod tests {
         let _ = svoice_secrets::delete_anthropic_key();
     }
 
+    // OBS: dessa tester rör PROD-keyring (svoice-v3) eftersom svoice_secrets
+    // kompileras utan cfg(test) när det används som dep härifrån. Körning
+    // raderar användarens faktiska Anthropic-nyckel. Markerade #[ignore] så
+    // standard `cargo test` skippar dem. Kör manuellt med
+    // `cargo test --lib migrate -- --ignored --test-threads=1` när du
+    // verifierar migration. Backup din key först!
+
     #[test]
+    #[ignore = "rör prod-keyring — raderar user's Anthropic-key"]
     fn migrates_plaintext_key_and_strips_json() {
         cleanup_keyring();
 
@@ -101,6 +109,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "rör prod-keyring"]
     fn noop_when_no_legacy_key() {
         cleanup_keyring();
 
@@ -123,6 +132,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "rör prod-keyring"]
     fn strips_empty_string_without_writing_keyring() {
         cleanup_keyring();
 

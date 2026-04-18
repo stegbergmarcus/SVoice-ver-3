@@ -984,36 +984,13 @@ async fn run_smart_function(app: AppHandle, id: String) -> Result<(), String> {
         .and_then(|mut g| g.take())
         .filter(|s| !s.is_empty());
 
-    if sf.mode == svoice_smart_functions::SmartMode::Transform && selection.is_none() {
-        return Err("Markera text innan du kör en transform-function.".into());
-    }
-
     // 3. Göm palette (om den fortfarande syns).
     if let Some(win) = app.get_webview_window("palette") {
         let _ = win.hide();
     }
 
-    // 4. Bygg LLM-provider.
-    let settings = Settings::load();
-    let anthropic_key = svoice_secrets::get_anthropic_key().ok().flatten();
-    let llm = select_llm_provider(&settings, anthropic_key.as_deref())
-        .await
-        .ok_or_else(|| "Ingen LLM-provider konfigurerad. Lägg till API-nyckel eller installera Ollama.".to_string())?;
-
-    // 5. Bygg prompt.
-    let user_msg =
-        svoice_smart_functions::build_user_prompt(&sf.user_template, selection.as_deref(), None);
-    let req = LlmRequest {
-        system: Some(sf.system.clone()),
-        turns: vec![TurnContent {
-            role: Role::User,
-            text: user_msg,
-        }],
-        temperature: 0.3,
-        max_tokens: 1024,
-    };
-
-    // 6. Öppna action-popup + emit open.
+    // 4. Öppna action-popup TIDIGT så ev. fel syns där (user ser "laddar…" →
+    //    ersatt med error eller tokens).
     if let Some(win) = app.get_webview_window("action-popup") {
         let _ = win.show();
         let _ = win.set_focus();
@@ -1030,6 +1007,39 @@ async fn run_smart_function(app: AppHandle, id: String) -> Result<(), String> {
             mode,
         },
     );
+
+    // 5. Verifiera mode-krav (efter popup öppnad så error syns där).
+    if sf.mode == svoice_smart_functions::SmartMode::Transform && selection.is_none() {
+        let msg = "Markera text innan du kör en transform-function.".to_string();
+        let _ = app.emit(EV_ACTION_LLM_ERROR, ActionError { message: msg.clone() });
+        return Err(msg);
+    }
+
+    // 6. Bygg LLM-provider.
+    let settings = Settings::load();
+    let anthropic_key = svoice_secrets::get_anthropic_key().ok().flatten();
+    let llm = match select_llm_provider(&settings, anthropic_key.as_deref()).await {
+        Some(l) => l,
+        None => {
+            let msg = "Ingen LLM-provider konfigurerad. Lägg till API-nyckel (Claude/Groq) eller starta Ollama.".to_string();
+            let _ = app.emit(EV_ACTION_LLM_ERROR, ActionError { message: msg.clone() });
+            emit_error_toast(&app, "Smart-function misslyckades", &msg);
+            return Err(msg);
+        }
+    };
+
+    // 7. Bygg prompt.
+    let user_msg =
+        svoice_smart_functions::build_user_prompt(&sf.user_template, selection.as_deref(), None);
+    let req = LlmRequest {
+        system: Some(sf.system.clone()),
+        turns: vec![TurnContent {
+            role: Role::User,
+            text: user_msg,
+        }],
+        temperature: 0.3,
+        max_tokens: 1024,
+    };
 
     // 7. Streama tokens i bakgrunden. Använd en ny tokio-runtime eftersom
     //    vi inte har tillgång till den delade rt här. Billigt för en request.
