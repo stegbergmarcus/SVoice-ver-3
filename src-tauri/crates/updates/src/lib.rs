@@ -11,10 +11,7 @@ use thiserror::Error;
 
 const REPO_OWNER: &str = "stegbergmarcus";
 const REPO_NAME: &str = "SVoice-ver-3";
-const USER_AGENT: &str = concat!(
-    "SVoice3-UpdateCheck/",
-    env!("CARGO_PKG_VERSION")
-);
+const USER_AGENT: &str = concat!("SVoice3-UpdateCheck/", env!("CARGO_PKG_VERSION"));
 /// Minsta tid mellan automatiska checker (manuell check respekterar inte).
 const AUTO_CHECK_COOLDOWN_HOURS: i64 = 24;
 
@@ -80,8 +77,8 @@ fn save_cache(status: &UpdateStatus) -> Result<(), UpdateError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| UpdateError::Cache(e.to_string()))?;
     }
-    let json = serde_json::to_string_pretty(status)
-        .map_err(|e| UpdateError::Cache(e.to_string()))?;
+    let json =
+        serde_json::to_string_pretty(status).map_err(|e| UpdateError::Cache(e.to_string()))?;
     std::fs::write(path, json).map_err(|e| UpdateError::Cache(e.to_string()))
 }
 
@@ -91,9 +88,7 @@ fn normalize_tag(tag: &str) -> &str {
 }
 
 pub async fn check_latest() -> Result<UpdateStatus, UpdateError> {
-    let url = format!(
-        "https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases/latest"
-    );
+    let url = format!("https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases/latest");
     let client = reqwest::Client::builder()
         .user_agent(USER_AGENT)
         .timeout(std::time::Duration::from_secs(15))
@@ -200,7 +195,9 @@ mod tests {
 
     #[test]
     fn cache_path_ends_with_json() {
-        assert!(cache_path().to_string_lossy().ends_with("update-check.json"));
+        assert!(cache_path()
+            .to_string_lossy()
+            .ends_with("update-check.json"));
     }
 
     #[test]

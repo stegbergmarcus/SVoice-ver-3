@@ -196,7 +196,11 @@ impl GoogleOAuthFlow {
 
         tracing::info!(
             "finalize: anropar token-exchange endpoint (client_secret: {})",
-            if self.client_secret.is_some() { "satt" } else { "saknas" }
+            if self.client_secret.is_some() {
+                "satt"
+            } else {
+                "saknas"
+            }
         );
         let token = client
             .exchange_code(AuthorizationCode::new(cb.code))

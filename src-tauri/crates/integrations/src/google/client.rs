@@ -35,11 +35,7 @@ struct CachedAccessToken {
 }
 
 impl GoogleClient {
-    pub fn new(
-        client_id: String,
-        client_secret: Option<String>,
-        refresh_token: String,
-    ) -> Self {
+    pub fn new(client_id: String, client_secret: Option<String>, refresh_token: String) -> Self {
         Self {
             client_id,
             client_secret,

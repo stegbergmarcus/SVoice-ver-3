@@ -125,8 +125,7 @@ fn build_rfc822(to: &str, subject: &str, body: &str) -> String {
 
 /// Base64url utan padding (Gmail-krav).
 fn base64url_encode(bytes: &[u8]) -> String {
-    const A: &[u8] =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    const A: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
     let mut out = String::with_capacity((bytes.len() * 4 + 2) / 3);
     let mut i = 0;
     while i + 3 <= bytes.len() {

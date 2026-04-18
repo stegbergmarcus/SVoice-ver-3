@@ -182,7 +182,10 @@ impl PythonStt {
                     tracing::info!("STT download: start {m}");
                     on_event("startar");
                 }
-                SttResponse::Downloaded { model: m, elapsed_ms } => {
+                SttResponse::Downloaded {
+                    model: m,
+                    elapsed_ms,
+                } => {
                     tracing::info!("STT download klar: {m} på {elapsed_ms} ms");
                     on_event("klar");
                     return Ok(());

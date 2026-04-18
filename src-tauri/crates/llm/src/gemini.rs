@@ -108,10 +108,7 @@ fn canonicalize_turns(turns: &[TurnContent]) -> Vec<TurnContent> {
     let mut out: Vec<TurnContent> = Vec::with_capacity(turns.len());
     for t in turns {
         match out.last_mut() {
-            Some(prev)
-                if std::mem::discriminant(&prev.role)
-                    == std::mem::discriminant(&t.role) =>
-            {
+            Some(prev) if std::mem::discriminant(&prev.role) == std::mem::discriminant(&t.role) => {
                 prev.text.push_str("\n\n");
                 prev.text.push_str(&t.text);
             }
@@ -183,10 +180,8 @@ impl GeminiClient {
     pub async fn complete_stream_events(
         &self,
         req: LlmRequest,
-    ) -> Result<
-        std::pin::Pin<Box<dyn Stream<Item = Result<GeminiEvent, LlmError>> + Send>>,
-        LlmError,
-    > {
+    ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<GeminiEvent, LlmError>> + Send>>, LlmError>
+    {
         if self.api_key.is_empty() {
             return Err(LlmError::MissingApiKey);
         }
@@ -255,10 +250,8 @@ impl GeminiClient {
         enable_grounding: bool,
         temperature: f32,
         max_tokens: u32,
-    ) -> Result<
-        std::pin::Pin<Box<dyn Stream<Item = Result<GeminiEvent, LlmError>> + Send>>,
-        LlmError,
-    > {
+    ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<GeminiEvent, LlmError>> + Send>>, LlmError>
+    {
         if self.api_key.is_empty() {
             return Err(LlmError::MissingApiKey);
         }

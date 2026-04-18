@@ -126,7 +126,7 @@ fn encode_wav_16khz_mono(samples: &[f32]) -> Vec<u8> {
     buf.extend_from_slice(&byte_rate.to_le_bytes());
     buf.extend_from_slice(&2u16.to_le_bytes()); // block align
     buf.extend_from_slice(&16u16.to_le_bytes()); // bits per sample
-    // data chunk
+                                                 // data chunk
     buf.extend_from_slice(b"data");
     buf.extend_from_slice(&data_size.to_le_bytes());
     for &s in samples {

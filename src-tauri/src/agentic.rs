@@ -132,7 +132,10 @@ pub fn prepare_agentic(settings: &Settings) -> Option<AgenticRequirements> {
         return None;
     }
     let google = match (
-        settings.google_oauth_client_id.as_deref().filter(|s| !s.is_empty()),
+        settings
+            .google_oauth_client_id
+            .as_deref()
+            .filter(|s| !s.is_empty()),
         svoice_secrets::get_google_refresh_token().ok().flatten(),
     ) {
         (Some(cid), Some(refresh)) => Some(GoogleRequirements {
@@ -508,7 +511,10 @@ pub async fn run_agentic_gemini(
                     grounding_seen = true;
                 }
                 for c in chunks {
-                    if !grounding_chunks.iter().any(|g| g.uri == c.uri && g.title == c.title) {
+                    if !grounding_chunks
+                        .iter()
+                        .any(|g| g.uri == c.uri && g.title == c.title)
+                    {
                         grounding_chunks.push(c);
                     }
                 }
@@ -635,7 +641,11 @@ pub async fn run_agentic_gemini_tools(
                         let _ = app.emit(ev_token, serde_json::json!({ "text": t }));
                     }
                 }
-                GeminiEvent::FunctionCall { name, args, thought_signature } => {
+                GeminiEvent::FunctionCall {
+                    name,
+                    args,
+                    thought_signature,
+                } => {
                     function_calls.push((name, args, thought_signature));
                 }
                 GeminiEvent::Grounding { queries, chunks } => {
@@ -707,7 +717,10 @@ pub async fn run_agentic_gemini_tools(
                         // Parsa JSON-strängen tillbaka till Value för Gemini-protokollet.
                         let parsed: serde_json::Value = serde_json::from_str(&text)
                             .unwrap_or_else(|_| serde_json::json!({ "raw": text }));
-                        let sum = short_summary_of_result(name, &serde_json::to_string(&parsed).unwrap_or_default());
+                        let sum = short_summary_of_result(
+                            name,
+                            &serde_json::to_string(&parsed).unwrap_or_default(),
+                        );
                         (parsed, false, sum)
                     }
                     Err(e) => {

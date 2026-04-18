@@ -128,10 +128,7 @@ pub fn run() {
 
     // Ctrl+Shift+Space → öppna command palette (smart-functions).
     use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut, ShortcutState};
-    let palette_shortcut = Shortcut::new(
-        Some(Modifiers::CONTROL | Modifiers::SHIFT),
-        Code::Space,
-    );
+    let palette_shortcut = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Space);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
@@ -693,13 +690,7 @@ pub fn run() {
 /// så user ser felet även om popup/main-window är dolda.
 fn emit_error_toast(app: &AppHandle, title: &str, body: &str) {
     use tauri_plugin_notification::NotificationExt;
-    if let Err(e) = app
-        .notification()
-        .builder()
-        .title(title)
-        .body(body)
-        .show()
-    {
+    if let Err(e) = app.notification().builder().title(title).body(body).show() {
         tracing::debug!("kunde inte visa error-toast: {e}");
     }
 }
@@ -1105,10 +1096,7 @@ fn action_worker_loop(
                         }
                     };
                     if let Some(s) = &sel {
-                        tracing::info!(
-                            "action: fångade selection ({} tecken)",
-                            s.chars().count()
-                        );
+                        tracing::info!("action: fångade selection ({} tecken)", s.chars().count());
                     } else {
                         tracing::info!("action: ingen markering");
                     }
@@ -1234,9 +1222,8 @@ fn handle_action_released(
     // Google Search-grounding istället för Claude's agentic flow. Skarpare
     // på realtidsdata eftersom Gemini gör sökningen inbyggt och lägger
     // käll-URL:er på svaret via `groundingMetadata`.
-    let use_gemini_agentic = !is_follow_up
-        && mode == "query"
-        && settings.action_llm_provider == ProviderChoice::Gemini;
+    let use_gemini_agentic =
+        !is_follow_up && mode == "query" && settings.action_llm_provider == ProviderChoice::Gemini;
     if use_gemini_agentic {
         if let Some(key) = svoice_secrets::get_gemini_key().ok().flatten() {
             tracing::info!("Gemini agentic flow triggas för command: \"{}\"", command);
@@ -1388,9 +1375,8 @@ fn handle_action_released(
     let llm_req = if is_follow_up {
         // Append user-turn till stored conversation och hämta snapshot för LLM.
         svoice_ipc::append_user_turn(command.clone());
-        let (system, turns) = svoice_ipc::snapshot_conversation().ok_or_else(|| {
-            anyhow::anyhow!("follow-up utan aktiv konversation (race?)")
-        })?;
+        let (system, turns) = svoice_ipc::snapshot_conversation()
+            .ok_or_else(|| anyhow::anyhow!("follow-up utan aktiv konversation (race?)"))?;
         LlmRequest {
             system,
             turns,
@@ -1624,7 +1610,12 @@ async fn run_smart_function(app: AppHandle, id: String) -> Result<(), String> {
     // 5. Verifiera mode-krav (efter popup öppnad så error syns där).
     if sf.mode == svoice_smart_functions::SmartMode::Transform && selection.is_none() {
         let msg = "Markera text innan du kör en transform-function.".to_string();
-        let _ = app.emit(EV_ACTION_LLM_ERROR, ActionError { message: msg.clone() });
+        let _ = app.emit(
+            EV_ACTION_LLM_ERROR,
+            ActionError {
+                message: msg.clone(),
+            },
+        );
         return Err(msg);
     }
 
@@ -1641,7 +1632,12 @@ async fn run_smart_function(app: AppHandle, id: String) -> Result<(), String> {
         Some(l) => l,
         None => {
             let msg = "Ingen LLM-provider konfigurerad. Lägg till API-nyckel (Claude/Groq) eller starta Ollama.".to_string();
-            let _ = app.emit(EV_ACTION_LLM_ERROR, ActionError { message: msg.clone() });
+            let _ = app.emit(
+                EV_ACTION_LLM_ERROR,
+                ActionError {
+                    message: msg.clone(),
+                },
+            );
             emit_error_toast(&app, "Smart-function misslyckades", &msg);
             return Err(msg);
         }

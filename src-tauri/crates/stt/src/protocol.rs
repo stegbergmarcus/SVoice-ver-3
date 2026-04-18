@@ -20,9 +20,7 @@ pub enum SttRequest {
     /// Be sidecar att ladda ner en HF-modell till disk-cache utan att
     /// ladda den i VRAM. Idempotent: no-op om modellen redan är komplett
     /// cachad. Efter download kan user byta till modellen via Load.
-    DownloadModel {
-        model: String,
-    },
+    DownloadModel { model: String },
     /// Stäng ner sidecar gracefully.
     Shutdown,
 }

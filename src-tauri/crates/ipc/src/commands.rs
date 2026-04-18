@@ -448,14 +448,12 @@ pub fn set_groq_key(key: String) -> Result<(), String> {
     if trimmed.is_empty() {
         return Err("nyckel får inte vara tom — använd clear istället".into());
     }
-    svoice_secrets::set_groq_key(trimmed)
-        .map_err(|e| format!("kunde inte spara Groq-nyckel: {e}"))
+    svoice_secrets::set_groq_key(trimmed).map_err(|e| format!("kunde inte spara Groq-nyckel: {e}"))
 }
 
 #[tauri::command]
 pub fn clear_groq_key() -> Result<(), String> {
-    svoice_secrets::delete_groq_key()
-        .map_err(|e| format!("kunde inte radera Groq-nyckel: {e}"))
+    svoice_secrets::delete_groq_key().map_err(|e| format!("kunde inte radera Groq-nyckel: {e}"))
 }
 
 // ───────── Gemini API-nyckel ─────────
@@ -477,8 +475,7 @@ pub fn set_gemini_key(key: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn clear_gemini_key() -> Result<(), String> {
-    svoice_secrets::delete_gemini_key()
-        .map_err(|e| format!("kunde inte radera Gemini-nyckel: {e}"))
+    svoice_secrets::delete_gemini_key().map_err(|e| format!("kunde inte radera Gemini-nyckel: {e}"))
 }
 
 // ───────── Google OAuth ─────────

@@ -209,8 +209,7 @@ pub async fn execute(
             let to = input["to"].as_str().unwrap_or("");
             let subject = input["subject"].as_str().unwrap_or("");
             let body = input["body"].as_str().unwrap_or("");
-            let draft =
-                gmail::create_draft(client, to, subject, body, Some(thread_id)).await?;
+            let draft = gmail::create_draft(client, to, subject, body, Some(thread_id)).await?;
             let out = serde_json::json!({
                 "draft_id": draft.id,
                 "thread_id": thread_id,
@@ -234,7 +233,10 @@ mod tests {
         let funcs = all_tools_gemini_functions();
         let names: Vec<&str> = funcs.iter().filter_map(|f| f["name"].as_str()).collect();
         // Server-tool web_search ska INTE finnas — Gemini använder googleSearch built-in
-        assert!(!names.contains(&"web_search"), "web_search ska filtreras bort");
+        assert!(
+            !names.contains(&"web_search"),
+            "web_search ska filtreras bort"
+        );
         // Alla Google-client-tools ska finnas
         assert!(names.contains(&"create_calendar_event"));
         assert!(names.contains(&"search_emails"));
