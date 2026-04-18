@@ -117,8 +117,8 @@ type TabId = "overview" | "audio" | "llm" | "integrations" | "hotkeys";
 
 const TABS: Array<{ id: TabId; label: string; icon: string }> = [
   { id: "overview", label: "Översikt", icon: "◆" },
-  { id: "audio", label: "Ljud & STT", icon: "◉" },
-  { id: "llm", label: "Action-LLM", icon: "❋" },
+  { id: "audio", label: "Diktering", icon: "◉" },
+  { id: "llm", label: "Action-popup", icon: "❋" },
   { id: "integrations", label: "Integrationer", icon: "⊕" },
   { id: "hotkeys", label: "Snabbkommandon", icon: "⌘" },
 ];
@@ -777,12 +777,6 @@ export default function SettingsView() {
               onChange={(v) => setDraft({ ...draft, action_llm_enabled: v })}
             />
             <ToggleRow
-              label="LLM-polering av diktering"
-              help="Skicka varje transkription genom LLM för grammatik/stavning innan inject. Långsammare (~300-700 ms extra) men vassare."
-              value={draft.llm_polish_dictation}
-              onChange={(v) => setDraft({ ...draft, llm_polish_dictation: v })}
-            />
-            <ToggleRow
               label="Starta automatiskt med Windows"
               help="Lägger SVoice i Windows startup-registret så den startar tyst i tray vid inloggning. Inget fönster öppnas — tray-ikonen är ingången."
               value={draft.autostart}
@@ -1013,18 +1007,20 @@ export default function SettingsView() {
         </>)}
 
         {activeTab === "llm" && (<>
-        {/* Action-LLM (iter 3) */}
+        {/* Action-popup (iter 3) */}
         <article className="settings-section">
           <div className="settings-section-label">
-            <h2>Action-LLM</h2>
+            <h2>Action-popup</h2>
             <p>
-              Håll <strong>Insert</strong> och ge ett kommando för att öppna
-              LLM-popup. Markerad text transformeras, tomt fält blir Q&amp;A.
+              Håll Insert och ge ett röstkommando för ett AI-svar i popup-fönstret.
+              Markerad text tolkas som en transformations-uppgift, tomt fält som
+              en Q&amp;A. Alla fyra providers kan användas — API-nycklarna nedan
+              används även av dikterings-polering (Diktering-fliken) om den är på.
             </p>
           </div>
           <div className="settings-section-body">
             <div className="field">
-              <label className="field-label">Provider — action-popup (Insert)</label>
+              <label className="field-label">Provider</label>
               <div className="segmented" role="tablist">
                 {(Object.keys(PROVIDER_LABELS) as LlmProviderChoice[]).map((p) => (
                   <button
@@ -1043,37 +1039,6 @@ export default function SettingsView() {
                 Svarar på röstkommandon i popup-fönstret. Claude krävs för
                 web_search/Google-verktyg (agentic-flow). Auto: Ollama först,
                 Claude som fallback.
-              </div>
-            </div>
-
-            <div
-              className="field"
-              style={{
-                opacity: draft.llm_polish_dictation ? 1 : 0.45,
-                pointerEvents: draft.llm_polish_dictation ? "auto" : "none",
-              }}
-              aria-disabled={!draft.llm_polish_dictation}
-            >
-              <label className="field-label">Provider — dikterings-polering (höger Ctrl)</label>
-              <div className="segmented" role="tablist">
-                {(Object.keys(PROVIDER_LABELS) as LlmProviderChoice[]).map((p) => (
-                  <button
-                    key={`dict-${p}`}
-                    type="button"
-                    role="tab"
-                    aria-selected={draft.dictation_llm_provider === p}
-                    className={draft.dictation_llm_provider === p ? "active" : ""}
-                    disabled={!draft.llm_polish_dictation}
-                    onClick={() => setDraft({ ...draft, dictation_llm_provider: p })}
-                  >
-                    {PROVIDER_LABELS[p]}
-                  </button>
-                ))}
-              </div>
-              <div className="field-help">
-                {draft.llm_polish_dictation
-                  ? "Tips: snabb+billig (Groq) passar för rena grammatik-fixar medan action-popup kan köras på Claude för tyngre resonemang."
-                  : 'Inaktiv — aktivera "LLM-polering av diktering" på Översikt-fliken först.'}
               </div>
             </div>
 
@@ -1635,7 +1600,7 @@ export default function SettingsView() {
         </>)}
 
         {activeTab === "audio" && (<>
-        {/* Röstdetektion — del av Ljud & STT-fliken */}
+        {/* Röstdetektion — del av Diktering-fliken */}
         <article className="settings-section">
           <div className="settings-section-label">
             <h2>Tystnadströskel</h2>
@@ -1702,6 +1667,57 @@ export default function SettingsView() {
               <div className="field-help">
                 Standard är 0.005. Tröskeln är linjen i mätaren — tala normalt och
                 justera slidern så att din röst är över linjen men bakgrundsbrus under.
+              </div>
+            </div>
+          </div>
+        </article>
+
+        {/* Dikterings-polering — LLM-postprocessing av transkriberingen */}
+        <article className="settings-section">
+          <div className="settings-section-label">
+            <h2>Dikterings-polering</h2>
+            <p>
+              Kör transkriberingen genom en LLM för grammatik- och stavnings-
+              fixar innan den injiceras. Långsammare (~300-700 ms extra) men
+              vassare resultat.
+            </p>
+          </div>
+          <div className="settings-section-body">
+            <ToggleRow
+              label="Aktivera LLM-polering"
+              help="När avstängd injiceras rå-transkriberingen direkt från Whisper."
+              value={draft.llm_polish_dictation}
+              onChange={(v) => setDraft({ ...draft, llm_polish_dictation: v })}
+            />
+
+            <div
+              className="field"
+              style={{
+                opacity: draft.llm_polish_dictation ? 1 : 0.45,
+                pointerEvents: draft.llm_polish_dictation ? "auto" : "none",
+              }}
+              aria-disabled={!draft.llm_polish_dictation}
+            >
+              <label className="field-label">Provider för polering</label>
+              <div className="segmented" role="tablist">
+                {(Object.keys(PROVIDER_LABELS) as LlmProviderChoice[]).map((p) => (
+                  <button
+                    key={`dict-${p}`}
+                    type="button"
+                    role="tab"
+                    aria-selected={draft.dictation_llm_provider === p}
+                    className={draft.dictation_llm_provider === p ? "active" : ""}
+                    disabled={!draft.llm_polish_dictation}
+                    onClick={() => setDraft({ ...draft, dictation_llm_provider: p })}
+                  >
+                    {PROVIDER_LABELS[p]}
+                  </button>
+                ))}
+              </div>
+              <div className="field-help">
+                {draft.llm_polish_dictation
+                  ? "API-nycklar + modeller för varje provider konfigureras i Action-popup-fliken — de delas mellan dikterings-polering och action-popup."
+                  : "Aktivera polering ovan för att välja provider."}
               </div>
             </div>
           </div>
