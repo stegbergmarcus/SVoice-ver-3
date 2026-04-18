@@ -249,6 +249,11 @@ export default function SettingsView() {
       await setSettings(draft);
       setLoaded(draft);
       setSavedTick((t) => t + 1);
+      // Re-fetcha Google-status efter save så "Anslut"-knappen enable:as
+      // direkt om user precis fyllde i client-ID.
+      googleConnectionStatus()
+        .then(setGoogleStatus)
+        .catch(() => {});
     } catch (e) {
       setError(String(e));
     } finally {
@@ -763,9 +768,35 @@ export default function SettingsView() {
                 >
                   Google Cloud Console
                 </a>{" "}
-                som typ <em>Desktop app</em>. Ingen client-secret behövs (PKCE).
-                Lägg till <code>http://127.0.0.1/callback</code> som redirect-URI
-                (porten är ephemeral, men domän + path måste matcha).
+                som typ <em>Desktop app</em>. Google ger både ID och
+                secret — fyll i båda nedan.
+              </div>
+            </div>
+
+            <div className="field">
+              <label className="field-label" htmlFor="google-client-secret">
+                Google OAuth client-secret
+              </label>
+              <input
+                id="google-client-secret"
+                className="input"
+                type="password"
+                placeholder="GOCSPX-…"
+                value={draft.google_oauth_client_secret ?? ""}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    google_oauth_client_secret:
+                      e.target.value.trim() === "" ? null : e.target.value.trim(),
+                  })
+                }
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <div className="field-help">
+                Från samma OAuth-client i Google Cloud. Secret är inte
+                hemligt i native apps (kan extraheras från binären), men
+                Google kräver att det skickas i token-exchange.
               </div>
             </div>
 

@@ -28,6 +28,7 @@ export interface Settings {
   dictation_hotkey: HotKeyChoice;
   action_hotkey: HotKeyChoice;
   google_oauth_client_id: string | null;
+  google_oauth_client_secret: string | null;
 }
 
 export interface GoogleStatus {

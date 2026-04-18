@@ -23,6 +23,7 @@ pub enum ClientError {
 
 pub struct GoogleClient {
     client_id: String,
+    client_secret: Option<String>,
     refresh_token: String,
     http: reqwest::Client,
     cached: Mutex<Option<CachedAccessToken>>,
@@ -34,9 +35,14 @@ struct CachedAccessToken {
 }
 
 impl GoogleClient {
-    pub fn new(client_id: String, refresh_token: String) -> Self {
+    pub fn new(
+        client_id: String,
+        client_secret: Option<String>,
+        refresh_token: String,
+    ) -> Self {
         Self {
             client_id,
+            client_secret,
             refresh_token,
             http: reqwest::Client::builder()
                 .timeout(Duration::from_secs(30))
@@ -56,8 +62,12 @@ impl GoogleClient {
                 return Ok(cached.value.clone());
             }
         }
-        let tokens: GoogleTokens =
-            refresh_access_token(&self.client_id, &self.refresh_token).await?;
+        let tokens: GoogleTokens = refresh_access_token(
+            &self.client_id,
+            self.client_secret.as_deref(),
+            &self.refresh_token,
+        )
+        .await?;
         let expires_at = Instant::now() + Duration::from_secs(tokens.expires_in);
         *guard = Some(CachedAccessToken {
             value: tokens.access_token.clone(),

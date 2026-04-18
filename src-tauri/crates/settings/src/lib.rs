@@ -41,9 +41,14 @@ pub struct Settings {
     pub action_hotkey: HotKey,
 
     /// Google OAuth client-ID (från Google Cloud Console → "Desktop app").
-    /// Om None: Google-integration disabled. User registrerar själv en
-    /// OAuth-client och matar in ID:t. Hemlighet behövs INTE (PKCE-flow).
+    /// Om None: Google-integration disabled.
     pub google_oauth_client_id: Option<String>,
+
+    /// Google OAuth client-secret. Google kräver att desktop-apps skickar
+    /// secret i token-exchange trots PKCE. Det är INTE hemligt i native
+    /// apps — kan extraheras från binären. Kopieras från samma
+    /// OAuth-client i Google Cloud som client_id.
+    pub google_oauth_client_secret: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
@@ -74,6 +79,7 @@ impl Default for Settings {
             dictation_hotkey: HotKey::RightCtrl,
             action_hotkey: HotKey::Insert,
             google_oauth_client_id: None,
+            google_oauth_client_secret: None,
         }
     }
 }
@@ -146,6 +152,7 @@ mod tests {
             dictation_hotkey: HotKey::F12,
             action_hotkey: HotKey::Pause,
             google_oauth_client_id: Some("1234.apps.googleusercontent.com".into()),
+            google_oauth_client_secret: Some("GOCSPX-abc123".into()),
         };
         let json = serde_json::to_string(&original).unwrap();
         let restored: Settings = serde_json::from_str(&json).unwrap();

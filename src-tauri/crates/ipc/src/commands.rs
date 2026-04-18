@@ -281,6 +281,10 @@ pub async fn google_connect(app: AppHandle) -> Result<(), String> {
         .ok_or_else(|| {
             "Google OAuth client-ID saknas — konfigurera i Settings först".to_string()
         })?;
+    let client_secret = settings
+        .google_oauth_client_secret
+        .as_deref()
+        .filter(|s| !s.is_empty());
 
     // Scopes: börja med Calendar + Gmail read-only. Full CRUD kommer senare.
     let scopes = &[
@@ -289,30 +293,41 @@ pub async fn google_connect(app: AppHandle) -> Result<(), String> {
         GoogleScope::GmailReadonly,
     ];
 
-    let flow = GoogleOAuthFlow::start(client_id, scopes)
+    let flow = GoogleOAuthFlow::start(client_id, client_secret, scopes)
         .await
-        .map_err(|e| format!("kunde inte starta OAuth: {e}"))?;
+        .map_err(|e| {
+            tracing::error!("OAuth start misslyckades: {e}");
+            format!("kunde inte starta OAuth: {e}")
+        })?;
 
     // Öppna browsern. tauri-plugin-opener är cross-platform wrapper.
     app.opener()
         .open_url(&flow.auth_url, None::<&str>)
-        .map_err(|e| format!("kunde inte öppna browser: {e}"))?;
+        .map_err(|e| {
+            tracing::error!("browser-öppning misslyckades: {e}");
+            format!("kunde inte öppna browser: {e}")
+        })?;
 
     tracing::info!(
         "OAuth-flow startad; väntar på callback på port {}",
         flow.port
     );
 
-    let tokens = flow
-        .finalize()
-        .await
-        .map_err(|e| format!("OAuth misslyckades: {e}"))?;
+    let tokens = flow.finalize().await.map_err(|e| {
+        tracing::error!("OAuth finalize misslyckades: {e}");
+        format!("OAuth misslyckades: {e}")
+    })?;
 
-    let refresh = tokens
-        .refresh_token
-        .ok_or_else(|| "Google returnerade ingen refresh-token".to_string())?;
-    svoice_secrets::set_google_refresh_token(&refresh)
-        .map_err(|e| format!("kunde inte spara refresh-token: {e}"))?;
+    let refresh = tokens.refresh_token.ok_or_else(|| {
+        tracing::error!(
+            "Google returnerade ingen refresh-token — user måste kanske återkalla access och godkänna igen"
+        );
+        "Google returnerade ingen refresh-token".to_string()
+    })?;
+    svoice_secrets::set_google_refresh_token(&refresh).map_err(|e| {
+        tracing::error!("kunde inte spara refresh-token: {e}");
+        format!("kunde inte spara refresh-token: {e}")
+    })?;
 
     tracing::info!("Google-integration ansluten");
     Ok(())
