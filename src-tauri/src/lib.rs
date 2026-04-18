@@ -345,6 +345,36 @@ pub fn run() {
                 })
                 .expect("kunde inte starta audio-owner-tråd");
 
+            // Auto-check för ny version 10 sek efter setup. Använder cached
+            // resultat om senaste check är <24 h gammal så vi inte hamrar
+            // GitHub API vid varje app-start. Bara tray-notification + logg —
+            // aldrig blockande UI.
+            let update_app = app_handle.clone();
+            rt.spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                match svoice_updates::check_latest_cached_fallback().await {
+                    Ok(status) if status.available => {
+                        if let Some(latest) = &status.latest_version {
+                            tracing::info!("ny version {latest} tillgänglig");
+                            use tauri_plugin_notification::NotificationExt;
+                            if let Err(e) = update_app
+                                .notification()
+                                .builder()
+                                .title("SVoice 3 — uppdatering tillgänglig")
+                                .body(format!(
+                                    "Version {latest} är nu släppt. Öppna Settings för nedladdning."
+                                ))
+                                .show()
+                            {
+                                tracing::debug!("update-notis failade: {e}");
+                            }
+                        }
+                    }
+                    Ok(_) => tracing::debug!("update-check: du kör senaste versionen"),
+                    Err(e) => tracing::debug!("update-check misslyckades (no-op): {e}"),
+                }
+            });
+
             // Dikterings-PTT (höger Ctrl) — befintlig iter 2-workflow.
             let ptt_worker = ptt.clone();
             let (ptt_tx, ptt_rx) = mpsc::channel::<LlKeyEvent>();
