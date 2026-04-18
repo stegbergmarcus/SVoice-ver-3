@@ -4398,6 +4398,7 @@ dependencies = [
  "reqwest 0.12.28",
  "serde",
  "serde_json",
+ "svoice-secrets",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
