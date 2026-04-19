@@ -572,21 +572,14 @@ pub fn run() {
 
             let _ = app.get_webview_window("main");
 
-            // Positionera overlay: centrerat horisontellt, ~60 px ovan botten
-            // (ger space för taskbar + lite andrum). Använder primärskärmens
-            // size vid app-start — om user flyttar mellan skärmar behöver
-            // overlay manuellt positioneras om (iter 4).
+            // Positionera overlay: centrerat horisontellt i work-area,
+            // ~12 px ovan taskbar. Använder outer_size (faktiska fysiska
+            // pixlar inkl. DPI-scaling) + SPI_GETWORKAREA (Windows taskbar-
+            // medveten). Tidigare centrering baserades på config-värdet 200
+            // som tolkas som logiska pixlar, vilket gav fel offset på
+            // HiDPI-skärmar och overlap med taskbar.
             if let Some(overlay) = app.get_webview_window("overlay") {
-                if let Ok(Some(monitor)) = overlay.primary_monitor() {
-                    let scr = monitor.size();
-                    // Overlay-storlek från tauri.conf.json (200 × 56).
-                    let ow: i32 = 200;
-                    let oh: i32 = 56;
-                    let x = (scr.width as i32 - ow) / 2;
-                    // ~60 px från botten (ovanför typisk Windows-taskbar 40-48 px).
-                    let y = scr.height as i32 - oh - 60;
-                    let _ = overlay.set_position(tauri::PhysicalPosition::new(x, y));
-                }
+                position_overlay_default(&overlay);
             }
 
             // Intercept close-event på main-fönstret. Default i Tauri 2 är
@@ -782,6 +775,62 @@ fn show_main_window(app: &AppHandle) {
         let _ = win.unminimize();
         let _ = win.set_focus();
     }
+}
+
+/// Placerar overlay centrerat horisontellt i primär-monitorns work-area,
+/// 12 px ovan botten (strax över Windows taskbar). Använder:
+///   - `outer_size()` för fönstrets faktiska fysiska storlek (DPI-korrekt)
+///   - `SPI_GETWORKAREA` för skärmytan som inte täcks av taskbar
+///
+/// Fallback till full monitor size vid API-fel, med generös padding.
+fn position_overlay_default(overlay: &tauri::WebviewWindow) {
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SystemParametersInfoW, SPI_GETWORKAREA, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
+    };
+
+    let size = match overlay.outer_size() {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!("overlay.outer_size() misslyckades: {e}");
+            return;
+        }
+    };
+
+    // SPI_GETWORKAREA returnerar primary monitorns rect exkl. taskbar, i
+    // fysiska pixlar på primary monitor (med Per-Monitor-V2 DPI-awareness).
+    let mut work = RECT::default();
+    let ok = unsafe {
+        SystemParametersInfoW(
+            SPI_GETWORKAREA,
+            0,
+            Some(&mut work as *mut _ as *mut _),
+            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        )
+    };
+
+    let (x, y) = if ok.is_ok() {
+        let work_w = work.right - work.left;
+        let work_h = work.bottom - work.top;
+        let x = work.left + (work_w - size.width as i32) / 2;
+        // 12 px ovan work-area botten = strax ovan taskbar.
+        let y = work.top + work_h - size.height as i32 - 12;
+        (x, y)
+    } else {
+        tracing::warn!("SPI_GETWORKAREA misslyckades — fallback till monitor.size()");
+        match overlay.primary_monitor() {
+            Ok(Some(m)) => {
+                let scr = m.size();
+                let x = (scr.width as i32 - size.width as i32) / 2;
+                // Generös marginal så vi inte hamnar bakom taskbar.
+                let y = scr.height as i32 - size.height as i32 - 80;
+                (x, y)
+            }
+            _ => return,
+        }
+    };
+
+    let _ = overlay.set_position(tauri::PhysicalPosition::new(x, y));
 }
 
 // === Dikterings-PTT (RCtrl) ===

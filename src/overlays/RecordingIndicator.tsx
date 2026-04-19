@@ -6,7 +6,6 @@ import "./RecordingIndicator.css";
 type PttState = "idle" | "recording" | "processing";
 
 const HISTORY_LEN = 14; // unika historik-värden per sida (speglas runt centrum)
-const BAR_COUNT = HISTORY_LEN * 2; // 28 renderade bars totalt
 
 /**
  * "Voice-oval" — SVoice's recording-indicator overlay.
@@ -32,7 +31,7 @@ export default function RecordingIndicator() {
     const unlistenState = listen<PttState>("ptt_state", (ev) => {
       setState(ev.payload);
       if (ev.payload !== "recording") {
-        barsRef.current = Array(BAR_COUNT).fill(0);
+        barsRef.current = Array(HISTORY_LEN).fill(0);
         setBars(barsRef.current);
       }
     });
@@ -41,6 +40,12 @@ export default function RecordingIndicator() {
     // ptt_volume (bara under dictation-VolumeMeter). Detta ger waveform-data
     // även för action-PTT (Insert). Overlay:en syns fortfarande bara när
     // state !== idle, så vi visar inte bars kontinuerligt.
+    //
+    // Viktigt: anropar setBars direkt här (utöver RAF-decay-loopen). Tidigare
+    // uppdaterades bara barsRef och rendering lutade helt mot RAF-ticket —
+    // i produktionsbuild kunde animationen ligga stilla om RAF throttlades
+    // (inaktiv fokus, backgrounded). Direkt setBars garanterar att waveform
+    // rör sig så fort events kommer, RAF-loopen sköter bara decay.
     const unlistenVolume = listen<{ rms: number }>("mic_level", (ev) => {
       const rms = ev.payload.rms;
       const amplitude = Math.min(1, Math.pow(rms * 3.2, 0.7));
@@ -48,6 +53,7 @@ export default function RecordingIndicator() {
       // Rendering speglar detta på båda sidor av mittlinjen.
       const shifted = [amplitude, ...barsRef.current.slice(0, HISTORY_LEN - 1)];
       barsRef.current = shifted;
+      setBars(shifted);
     });
 
     return () => {
