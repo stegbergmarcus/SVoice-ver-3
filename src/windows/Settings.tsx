@@ -227,6 +227,8 @@ export default function SettingsView() {
   const [savedTick, setSavedTick] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [micLevel, setMicLevel] = useState(0);
+  const [promptModalOpen, setPromptModalOpen] = useState(false);
+  const [promptModalDraft, setPromptModalDraft] = useState("");
   const [micDevices, setMicDevices] = useState<string[]>([]);
   const [ollamaModels, setOllamaModels] = useState<OllamaModelInfo[]>([]);
   const [ollamaOnline, setOllamaOnline] = useState(false);
@@ -1767,20 +1769,30 @@ export default function SettingsView() {
               <label className="field-label" htmlFor="stt-initial-prompt">
                 Initial prompt
               </label>
-              <input
+              <button
                 id="stt-initial-prompt"
-                className="input"
-                type="text"
-                value={draft.stt_initial_prompt}
-                onChange={(e) =>
-                  setDraft({ ...draft, stt_initial_prompt: e.target.value })
-                }
-                placeholder="T.ex. 'Medicinsk journalanteckning.'"
-              />
+                type="button"
+                className="prompt-preview"
+                onClick={() => {
+                  setPromptModalDraft(draft.stt_initial_prompt);
+                  setPromptModalOpen(true);
+                }}
+              >
+                <span className="prompt-preview-text">
+                  {draft.stt_initial_prompt.trim() || (
+                    <span className="prompt-preview-placeholder">
+                      Klicka för att skriva prompt…
+                    </span>
+                  )}
+                </span>
+                <span className="prompt-preview-icon" aria-hidden>
+                  ✎
+                </span>
+              </button>
               <div className="field-help">
                 Kort text som matas in som historisk kontext till Whisper. Stabiliserar
                 stil och kan förbättra igenkänning av fackord (t.ex. medicinska termer
-                om du skriver det i prompten). Lämna tom för ingen priming.
+                om du skriver det i prompten). Klicka för att redigera i stor editor.
               </div>
             </div>
 
@@ -2259,6 +2271,58 @@ export default function SettingsView() {
           </button>
         </footer>
       </section>
+
+      {promptModalOpen && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setPromptModalOpen(false)}
+          role="presentation"
+        >
+          <div
+            className="modal"
+            role="dialog"
+            aria-labelledby="prompt-modal-title"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 id="prompt-modal-title" className="modal-title">
+              Redigera initial prompt
+            </h3>
+            <p className="modal-help">
+              Texten matas in som historisk kontext till Whisper innan din
+              diktering. Använd den för att priming:a modellen med domänord,
+              stilpreferenser eller formattering. Lämna tom för ingen priming.
+            </p>
+            <textarea
+              className="modal-textarea"
+              value={promptModalDraft}
+              onChange={(e) => setPromptModalDraft(e.target.value)}
+              rows={6}
+              autoFocus
+              placeholder="T.ex. 'Medicinsk journalanteckning. Terminologi: anamnes, status, bedömning, åtgärd.'"
+            />
+            <div className="modal-footer">
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => setPromptModalOpen(false)}
+              >
+                Avbryt
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => {
+                  setDraft({ ...draft, stt_initial_prompt: promptModalDraft });
+                  setPromptModalOpen(false);
+                }}
+              >
+                Spara
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

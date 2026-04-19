@@ -825,3 +825,146 @@
 .settings-tab-label {
   display: inline-block;
 }
+
+/* ===== Prompt-preview (klickbar som input, öppnar modal) ===== */
+
+.prompt-preview {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+  background: var(--bg-raised);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  color: var(--ink-primary);
+  font-family: var(--font-body);
+  font-size: 13px;
+  cursor: text;
+  text-align: left;
+  transition: border-color var(--dur-fast) var(--ease-out),
+              background var(--dur-fast) var(--ease-out);
+}
+
+.prompt-preview:hover {
+  border-color: rgba(230, 168, 92, 0.35);
+  background: var(--bg-overlay);
+}
+
+.prompt-preview:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.prompt-preview-text {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.prompt-preview-placeholder {
+  color: var(--ink-tertiary);
+  font-style: italic;
+}
+
+.prompt-preview-icon {
+  color: var(--ink-tertiary);
+  font-size: 13px;
+  flex: 0 0 auto;
+  transition: color var(--dur-fast) var(--ease-out);
+}
+
+.prompt-preview:hover .prompt-preview-icon {
+  color: var(--accent);
+}
+
+/* ===== Modal (t.ex. prompt-editor) ===== */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(11, 11, 13, 0.72);
+  backdrop-filter: blur(10px);
+  display: grid;
+  place-items: center;
+  z-index: 100;
+  animation: modal-fade-in var(--dur-base) var(--ease-out);
+}
+
+.modal {
+  width: min(640px, 90vw);
+  max-height: 80vh;
+  background: var(--bg-surface);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  box-shadow: var(--shadow-lg);
+  animation: modal-scale-in 260ms var(--ease-spring);
+}
+
+.modal-title {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-style: italic;
+  font-size: 24px;
+  letter-spacing: -0.02em;
+  color: var(--ink-primary);
+  margin: 0;
+}
+
+.modal-help {
+  color: var(--ink-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+  margin: 0;
+}
+
+.modal-textarea {
+  width: 100%;
+  min-height: 140px;
+  max-height: 360px;
+  background: var(--bg-raised);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  color: var(--ink-primary);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.55;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.modal-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.modal-textarea::placeholder {
+  color: var(--ink-tertiary);
+  font-style: italic;
+}
+
+.modal-footer {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: flex-end;
+  margin-top: var(--space-2);
+}
+
+@keyframes modal-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes modal-scale-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
