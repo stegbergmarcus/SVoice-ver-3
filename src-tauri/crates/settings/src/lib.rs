@@ -14,6 +14,35 @@ pub struct Settings {
     pub stt_compute_mode: ComputeMode,
     pub vad_threshold: f32,
 
+    /// Beam search-storlek för faster-whisper (1 = greedy, snabbt; 5 = bra
+    /// balans; 10 = diminishing returns). Större värde → längre inferens.
+    #[serde(default = "default_beam_size")]
+    pub stt_beam_size: u32,
+
+    /// Aktivera faster-whispers inbyggda Silero-VAD. Filtrerar tystnader och
+    /// icke-tal inuti audio-chunken innan transkribering → mindre
+    /// hallucinering i pauser, robustare mot bakgrundsljud.
+    #[serde(default = "default_true")]
+    pub stt_vad_filter: bool,
+
+    /// "Priming"-text som matas in som historisk kontext till Whisper.
+    /// Stabiliserar interpunktion/stil och kan förbättra fackord-igenkänning
+    /// (t.ex. medicinska termer). Tom sträng = inget prompt.
+    #[serde(default = "default_initial_prompt")]
+    pub stt_initial_prompt: String,
+
+    /// Tröskel för no_speech-probability (0.0-1.0). Segment med no_speech >=
+    /// threshold filtreras bort. Standard i whisper är 0.6; lägre = mer
+    /// tolerant (fångar tyst tal) men risk för hallucinering från brus.
+    #[serde(default = "default_no_speech_threshold")]
+    pub stt_no_speech_threshold: f32,
+
+    /// Om true: feedar tidigare transkriberad text tillbaka till modellen
+    /// som kontext. Förbättrar koherens i lång flytande diktering men kan
+    /// orsaka trunkering vid naturliga pauser. Default av.
+    #[serde(default)]
+    pub stt_condition_on_previous_text: bool,
+
     /// Om false: Insert-PTT triggar inte action-popup. Sparar resurser om
     /// user bara vill ha ren diktering utan LLM alls.
     pub action_llm_enabled: bool,
@@ -115,6 +144,22 @@ pub enum SttProvider {
     Groq,
 }
 
+fn default_beam_size() -> u32 {
+    5
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_initial_prompt() -> String {
+    "Svensk diktering. Korrekt interpunktion och stor bokstav.".into()
+}
+
+fn default_no_speech_threshold() -> f32 {
+    0.5
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -123,6 +168,11 @@ impl Default for Settings {
             stt_model: "KBLab/kb-whisper-base".into(),
             stt_compute_mode: ComputeMode::Auto,
             vad_threshold: 0.005,
+            stt_beam_size: default_beam_size(),
+            stt_vad_filter: default_true(),
+            stt_initial_prompt: default_initial_prompt(),
+            stt_no_speech_threshold: default_no_speech_threshold(),
+            stt_condition_on_previous_text: false,
             action_llm_enabled: true,
             llm_polish_dictation: false,
             action_llm_provider: LlmProvider::Auto,
@@ -209,6 +259,11 @@ mod tests {
             stt_model: "kb-whisper-large".into(),
             stt_compute_mode: ComputeMode::Gpu,
             vad_threshold: 0.01,
+            stt_beam_size: 7,
+            stt_vad_filter: false,
+            stt_initial_prompt: "Medicinsk journalanteckning.".into(),
+            stt_no_speech_threshold: 0.7,
+            stt_condition_on_previous_text: true,
             action_llm_enabled: true,
             llm_polish_dictation: true,
             action_llm_provider: LlmProvider::Gemini,

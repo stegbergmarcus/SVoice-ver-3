@@ -16,6 +16,10 @@ pub enum SttRequest {
         audio_samples: u32,
         sample_rate: u32,
         beam_size: u32,
+        vad_filter: bool,
+        initial_prompt: String,
+        no_speech_threshold: f32,
+        condition_on_previous_text: bool,
     },
     /// Be sidecar att ladda ner en HF-modell till disk-cache utan att
     /// ladda den i VRAM. Idempotent: no-op om modellen redan är komplett

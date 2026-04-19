@@ -34,6 +34,16 @@ export interface Settings {
   gemini_model: string;
   stt_provider: SttProviderChoice;
   stt_language: string;
+  /** Avancerat: beam search-storlek (1 = greedy, 5 = balans, 10 = diminishing returns) */
+  stt_beam_size: number;
+  /** Avancerat: aktivera faster-whispers inbyggda Silero-VAD */
+  stt_vad_filter: boolean;
+  /** Avancerat: "priming"-text som biased:ar stil och fackord */
+  stt_initial_prompt: string;
+  /** Avancerat: tröskel 0-1 för no_speech-filtret */
+  stt_no_speech_threshold: number;
+  /** Avancerat: feeda tidigare transkript tillbaka som kontext */
+  stt_condition_on_previous_text: boolean;
   dictation_hotkey: HotKeyChoice;
   action_hotkey: HotKeyChoice;
   google_oauth_client_id: string | null;

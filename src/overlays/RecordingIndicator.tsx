@@ -11,47 +11,46 @@ const HISTORY_LEN = 14; // unika historik-värden per sida (speglas runt centrum
  * "Voice-oval" — SVoice's recording-indicator overlay.
  *
  * Vänster: SV-monogram (logotyp). Höger: live waveform som reagerar på
- * mic-volym via ptt_volume-eventet. Under STT-inferens byter waveform till
+ * mic-volym via mic_level-eventet. Under STT-inferens byter waveform till
  * en indeterminate progress-bar.
  *
  * Eventflöde:
  *   ptt_state (idle|recording|processing) styr synlighet och meter-mode.
- *   ptt_volume {rms} driver bar-heights vid recording.
+ *   mic_level {rms} driver bar-heights vid recording (~30 Hz från audio-callback).
+ *
+ * Rendering-strategi: all animation drivs av mic_level-eventen — decay och
+ * shift sker per event i handlern. Tidigare iterationer använde
+ * requestAnimationFrame för decay-ticket men det throttlas aggressivt av
+ * Chromium på unfocused webviews (overlay har `focus: false`), vilket gjorde
+ * att animationen kunde frysa trots att events kom fram. Drivs nu helt av
+ * backend-event-raten så det är robust oavsett fokus-läge.
  */
 export default function RecordingIndicator() {
   const [state, setState] = useState<PttState>("idle");
-  // barsRef: 14 unika historik-värden, index 0 = senaste. Renderas symmetriskt
-  // runt centrum så waveform "andas ut" från mitten snarare än att flöda åt ett håll.
   const [bars, setBars] = useState<number[]>(() => Array(HISTORY_LEN).fill(0));
   const barsRef = useRef<number[]>(Array(HISTORY_LEN).fill(0));
-  const rafRef = useRef<number | null>(null);
 
-  // Lyssna på state + volume-events.
   useEffect(() => {
     const unlistenState = listen<PttState>("ptt_state", (ev) => {
       setState(ev.payload);
       if (ev.payload !== "recording") {
-        barsRef.current = Array(HISTORY_LEN).fill(0);
-        setBars(barsRef.current);
+        const zeros = Array(HISTORY_LEN).fill(0);
+        barsRef.current = zeros;
+        setBars(zeros);
       }
     });
 
-    // Lyssnar på mic_level (alltid-på RMS från audio-capture) i stället för
-    // ptt_volume (bara under dictation-VolumeMeter). Detta ger waveform-data
-    // även för action-PTT (Insert). Overlay:en syns fortfarande bara när
-    // state !== idle, så vi visar inte bars kontinuerligt.
-    //
-    // Viktigt: anropar setBars direkt här (utöver RAF-decay-loopen). Tidigare
-    // uppdaterades bara barsRef och rendering lutade helt mot RAF-ticket —
-    // i produktionsbuild kunde animationen ligga stilla om RAF throttlades
-    // (inaktiv fokus, backgrounded). Direkt setBars garanterar att waveform
-    // rör sig så fort events kommer, RAF-loopen sköter bara decay.
     const unlistenVolume = listen<{ rms: number }>("mic_level", (ev) => {
       const rms = ev.payload.rms;
       const amplitude = Math.min(1, Math.pow(rms * 3.2, 0.7));
-      // Nyaste värdet in vid index 0, äldre skiftas utåt (högre index).
-      // Rendering speglar detta på båda sidor av mittlinjen.
-      const shifted = [amplitude, ...barsRef.current.slice(0, HISTORY_LEN - 1)];
+      // Applicera per-bar decay innan shift. Äldre positioner (högre index)
+      // decayar snabbare så gamla toppar fade:ar ut mot kanterna av
+      // spegelmönstret. Combined med shift → waveform "andas ut" från centrum.
+      const decayed = barsRef.current.map((v, i) => {
+        const ageFactor = 1 - i / HISTORY_LEN;
+        return v * (0.92 + ageFactor * 0.06);
+      });
+      const shifted = [amplitude, ...decayed.slice(0, HISTORY_LEN - 1)];
       barsRef.current = shifted;
       setBars(shifted);
     });
@@ -61,27 +60,6 @@ export default function RecordingIndicator() {
       unlistenVolume.then((fn) => fn());
     };
   }, []);
-
-  // Animation-loop: applicera friktion och skriv state. Separerar event-rate
-  // från render-rate så vi får smooth 60 FPS även om volume-events är 30 Hz.
-  useEffect(() => {
-    if (state !== "recording") return;
-    const tick = () => {
-      // Subtle decay så bars inte stannar vid senaste värdet när mic blir tyst.
-      barsRef.current = barsRef.current.map((v, i) => {
-        // Äldre historik-positioner (högre index) decay:ar snabbare så
-        // gamla toppar fade:ar ut mot kanterna av spegelmönstret.
-        const ageFactor = 1 - i / HISTORY_LEN;
-        return v * (0.92 + ageFactor * 0.06);
-      });
-      setBars([...barsRef.current]);
-      rafRef.current = requestAnimationFrame(tick);
-    };
-    rafRef.current = requestAnimationFrame(tick);
-    return () => {
-      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
-    };
-  }, [state]);
 
   const containerClass = `voice-oval ${state !== "idle" ? "visible" : ""} ${state}`;
 

@@ -113,7 +113,14 @@ const GROQ_STT_MODELS: Array<{ id: string; label: string; note: string }> = [
   { id: "whisper-large-v3", label: "Whisper Large v3", note: "högst kvalitet" },
 ];
 
-type TabId = "overview" | "audio" | "llm" | "integrations" | "hotkeys" | "help";
+type TabId =
+  | "overview"
+  | "audio"
+  | "llm"
+  | "integrations"
+  | "hotkeys"
+  | "advanced"
+  | "help";
 
 const TABS: Array<{ id: TabId; label: string; icon: string }> = [
   { id: "overview", label: "Översikt", icon: "◆" },
@@ -121,8 +128,18 @@ const TABS: Array<{ id: TabId; label: string; icon: string }> = [
   { id: "llm", label: "Action-popup", icon: "❋" },
   { id: "integrations", label: "Integrationer", icon: "⊕" },
   { id: "hotkeys", label: "Snabbkommandon", icon: "⌘" },
+  { id: "advanced", label: "Avancerat", icon: "⚙" },
   { id: "help", label: "Hjälp", icon: "?" },
 ];
+
+/** Rekommenderade STT-parametrar — matchar Settings::default() i Rust. */
+const STT_DEFAULTS = {
+  stt_beam_size: 5,
+  stt_vad_filter: true,
+  stt_initial_prompt: "Svensk diktering. Korrekt interpunktion och stor bokstav.",
+  stt_no_speech_threshold: 0.5,
+  stt_condition_on_previous_text: false,
+} as const;
 
 const GROQ_LLM_MODELS: Array<{ id: string; label: string; note: string }> = [
   { id: "llama-3.3-70b-versatile", label: "Llama 3.3 70B", note: "balans · stark på svenska" },
@@ -1719,6 +1736,138 @@ export default function SettingsView() {
                 {draft.llm_polish_dictation
                   ? "API-nycklar + modeller för varje provider konfigureras i Action-popup-fliken — de delas mellan dikterings-polering och action-popup."
                   : "Aktivera polering ovan för att välja provider."}
+              </div>
+            </div>
+          </div>
+        </article>
+
+        </>)}
+
+        {activeTab === "advanced" && (<>
+
+        {/* STT-parametrar */}
+        <article className="settings-section">
+          <div className="settings-section-label">
+            <h2>STT-parametrar</h2>
+            <p>
+              Finjustering av Whisper-inferens. Standardvärdena är valda för god
+              svensk diktering — ändra bara om du vet vad du gör. Alla ändringar
+              tillämpas direkt, utan omstart.
+            </p>
+          </div>
+          <div className="settings-section-body">
+            <ToggleRow
+              label="VAD-filter (Silero)"
+              help="Filtrerar tystnader och icke-tal inuti ljudet innan transkribering. Ger robustare STT mot bakgrundsljud och andningar. Stäng av om du upplever att slutet av meningar klipps."
+              value={draft.stt_vad_filter}
+              onChange={(v) => setDraft({ ...draft, stt_vad_filter: v })}
+            />
+
+            <div className="field">
+              <label className="field-label" htmlFor="stt-initial-prompt">
+                Initial prompt
+              </label>
+              <input
+                id="stt-initial-prompt"
+                className="input"
+                type="text"
+                value={draft.stt_initial_prompt}
+                onChange={(e) =>
+                  setDraft({ ...draft, stt_initial_prompt: e.target.value })
+                }
+                placeholder="T.ex. 'Medicinsk journalanteckning.'"
+              />
+              <div className="field-help">
+                Kort text som matas in som historisk kontext till Whisper. Stabiliserar
+                stil och kan förbättra igenkänning av fackord (t.ex. medicinska termer
+                om du skriver det i prompten). Lämna tom för ingen priming.
+              </div>
+            </div>
+
+            <div className="field">
+              <label className="field-label" htmlFor="stt-beam">
+                Beam size
+              </label>
+              <div className="slider-row">
+                <input
+                  id="stt-beam"
+                  className="slider"
+                  type="range"
+                  min="1"
+                  max="10"
+                  step="1"
+                  value={draft.stt_beam_size}
+                  onChange={(e) =>
+                    setDraft({ ...draft, stt_beam_size: Number(e.target.value) })
+                  }
+                />
+                <div className="slider-value">{draft.stt_beam_size}</div>
+              </div>
+              <div className="slider-scale">
+                <span>↓ snabbare (greedy)</span>
+                <span>↑ bättre kvalitet</span>
+              </div>
+              <div className="field-help">
+                Antal hypoteser Whisper utvärderar parallellt. 5 är en bra balans
+                mellan kvalitet och hastighet på KB-Large.
+              </div>
+            </div>
+
+            <div className="field">
+              <label className="field-label" htmlFor="stt-nospeech">
+                No-speech threshold
+              </label>
+              <div className="slider-row">
+                <input
+                  id="stt-nospeech"
+                  className="slider"
+                  type="range"
+                  min="0.1"
+                  max="0.9"
+                  step="0.05"
+                  value={draft.stt_no_speech_threshold}
+                  onChange={(e) =>
+                    setDraft({
+                      ...draft,
+                      stt_no_speech_threshold: Number(e.target.value),
+                    })
+                  }
+                />
+                <div className="slider-value">
+                  {draft.stt_no_speech_threshold.toFixed(2)}
+                </div>
+              </div>
+              <div className="slider-scale">
+                <span>↓ fångar svagt tal</span>
+                <span>↑ mindre hallucinering</span>
+              </div>
+              <div className="field-help">
+                Segment vars no-speech-sannolikhet ligger över tröskeln filtreras
+                bort. Höj om du ser &quot;hallucinerade&quot; meningar i tysta
+                passager. Sänk om appen missar korta ord.
+              </div>
+            </div>
+
+            <ToggleRow
+              label="Condition on previous text"
+              help="Feedar tidigare transkript tillbaka till modellen som kontext. Förbättrar koherens i lång flytande diktering, men kan trunkera vid naturliga pauser. Rekommenderas av för dikteringsflöden med pauser."
+              value={draft.stt_condition_on_previous_text}
+              onChange={(v) =>
+                setDraft({ ...draft, stt_condition_on_previous_text: v })
+              }
+            />
+
+            <div className="field" style={{ marginTop: 8 }}>
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => setDraft({ ...draft, ...STT_DEFAULTS })}
+              >
+                Återställ till rekommenderade
+              </button>
+              <div className="field-help">
+                Nollställer alla fält ovan till de värden som SVoice levereras
+                med. Övriga inställningar (modell, provider, språk) behålls.
               </div>
             </div>
           </div>

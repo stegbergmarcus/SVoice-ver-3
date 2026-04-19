@@ -135,6 +135,12 @@ pub async fn set_settings(
     // inget onödigt shutdown/respawn.
     let mut stt_config = SttConfig::default();
     stt_config.model = settings.stt_model.clone();
+    stt_config.language = settings.stt_language.clone();
+    stt_config.beam_size = settings.stt_beam_size;
+    stt_config.vad_filter = settings.stt_vad_filter;
+    stt_config.initial_prompt = settings.stt_initial_prompt.clone();
+    stt_config.no_speech_threshold = settings.stt_no_speech_threshold;
+    stt_config.condition_on_previous_text = settings.stt_condition_on_previous_text;
     match settings.stt_compute_mode {
         ComputeMode::Cpu => {
             stt_config.device = "cpu".into();

@@ -17,13 +17,17 @@ pub enum SttError {
     Unexpected(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SttConfig {
     pub model: String,
     pub device: String,
     pub compute_type: String,
     pub language: String,
     pub beam_size: u32,
+    pub vad_filter: bool,
+    pub initial_prompt: String,
+    pub no_speech_threshold: f32,
+    pub condition_on_previous_text: bool,
     pub python_path: PathBuf,
     pub python_args: Vec<String>,
     pub script_path: PathBuf,
@@ -36,7 +40,11 @@ impl Default for SttConfig {
             device: "cuda".into(),
             compute_type: "float16".into(),
             language: "sv".into(),
-            beam_size: 3,
+            beam_size: 5,
+            vad_filter: true,
+            initial_prompt: "Svensk diktering. Korrekt interpunktion och stor bokstav.".into(),
+            no_speech_threshold: 0.5,
+            condition_on_previous_text: false,
             python_path: PathBuf::from("py"),
             python_args: vec!["-3.11".into()],
             script_path: PathBuf::from("resources/python/stt_sidecar.py"),
@@ -133,13 +141,26 @@ impl PythonStt {
 
     pub async fn transcribe(&self, audio: &[f32]) -> Result<String, SttError> {
         self.ensure_loaded().await?;
-        let beam_size = self.config.lock().await.beam_size;
+        let (beam_size, vad_filter, initial_prompt, no_speech_threshold, condition_on_prev) = {
+            let cfg = self.config.lock().await;
+            (
+                cfg.beam_size,
+                cfg.vad_filter,
+                cfg.initial_prompt.clone(),
+                cfg.no_speech_threshold,
+                cfg.condition_on_previous_text,
+            )
+        };
         let guard = self.sidecar.lock().await;
         let sc = guard.as_ref().ok_or(SttError::NotLoaded)?;
         sc.send_request(&SttRequest::Transcribe {
             audio_samples: audio.len() as u32,
             sample_rate: 16000,
             beam_size,
+            vad_filter,
+            initial_prompt,
+            no_speech_threshold,
+            condition_on_previous_text: condition_on_prev,
         })
         .await?;
         sc.send_audio(audio).await?;

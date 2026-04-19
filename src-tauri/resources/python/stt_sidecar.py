@@ -116,20 +116,30 @@ def main():
                     send({"type": "error", "message": f"audio read failed: {e}", "recoverable": False})
                     break
                 beam_size = req.get("beam_size", beam_size)
+                vad_filter = bool(req.get("vad_filter", True))
+                initial_prompt = req.get("initial_prompt", "") or None
+                no_speech_threshold = float(req.get("no_speech_threshold", 0.5))
+                condition_on_previous_text = bool(req.get("condition_on_previous_text", False))
                 t0 = time.perf_counter()
-                # condition_on_previous_text=False förhindrar att Whisper
-                # "ger upp" mitt i transkription när den tror att tidigare
-                # text indikerar slut (har setts trunkera 20-sek-passager
-                # med naturliga pauser). no_speech_threshold=0.3 gör
-                # segment-filtret mindre aggressivt — standard 0.6 hoppar
-                # över segment med tysta delar som också innehåller tal.
-                segments, info = model.transcribe(
-                    audio,
+                # Alla parametrar hot-reloadas från Settings per anrop. Default-
+                # värden är valda för kvalitet (beam=5, vad_filter=on,
+                # initial_prompt="Svensk diktering...", no_speech=0.5,
+                # condition_on_prev=False) men användaren kan justera dem i
+                # Settings → STT → Avancerat.
+                kwargs = dict(
                     language=language,
                     beam_size=beam_size,
-                    condition_on_previous_text=False,
-                    no_speech_threshold=0.3,
+                    condition_on_previous_text=condition_on_previous_text,
+                    no_speech_threshold=no_speech_threshold,
+                    vad_filter=vad_filter,
                 )
+                if vad_filter:
+                    # 500 ms min_silence klipper bort andhämtningar och korta
+                    # pauser utan att splitta naturliga meningar.
+                    kwargs["vad_parameters"] = dict(min_silence_duration_ms=500)
+                if initial_prompt:
+                    kwargs["initial_prompt"] = initial_prompt
+                segments, info = model.transcribe(audio, **kwargs)
                 text = " ".join(s.text for s in segments).strip()
                 infer_ms = int((time.perf_counter() - t0) * 1000)
                 send({

@@ -265,6 +265,12 @@ pub fn run() {
             // Bygg SttConfig.
             let mut stt_config = SttConfig::default();
             stt_config.model = user_settings.stt_model.clone();
+            stt_config.language = user_settings.stt_language.clone();
+            stt_config.beam_size = user_settings.stt_beam_size;
+            stt_config.vad_filter = user_settings.stt_vad_filter;
+            stt_config.initial_prompt = user_settings.stt_initial_prompt.clone();
+            stt_config.no_speech_threshold = user_settings.stt_no_speech_threshold;
+            stt_config.condition_on_previous_text = user_settings.stt_condition_on_previous_text;
             match user_settings.stt_compute_mode {
                 ComputeMode::Cpu => {
                     stt_config.device = "cpu".into();
