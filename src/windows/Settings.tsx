@@ -139,6 +139,8 @@ const STT_DEFAULTS = {
   stt_initial_prompt: "Svensk diktering. Korrekt interpunktion och stor bokstav.",
   stt_no_speech_threshold: 0.5,
   stt_condition_on_previous_text: false,
+  vad_trim_padding_ms: 250,
+  dictation_auto_space_seconds: 30,
 } as const;
 
 const GROQ_LLM_MODELS: Array<{ id: string; label: string; note: string }> = [
@@ -187,17 +189,20 @@ function ToggleRow({
   help,
   value,
   onChange,
+  details,
 }: {
   label: string;
   help: string;
   value: boolean;
   onChange: (v: boolean) => void;
+  details?: React.ReactNode;
 }) {
   return (
     <div className="toggle-row">
       <div className="toggle-row-text">
         <div className="toggle-row-label">{label}</div>
         <div className="toggle-row-help">{help}</div>
+        {details}
       </div>
       <button
         type="button"
@@ -209,6 +214,43 @@ function ToggleRow({
       >
         <span className="toggle-thumb" />
       </button>
+    </div>
+  );
+}
+
+/** Expanderbar "Läs mer"-sektion som ligger under en field-help. Håller
+ * Advanced-fliken ren som default men låter user fälla ut fördjupning när
+ * det behövs. Använder native <details> för a11y + zero state. */
+function FieldDetails({ children }: { children: React.ReactNode }) {
+  return (
+    <details className="field-details">
+      <summary className="field-details-summary">
+        <span className="field-details-icon" aria-hidden>
+          ⓘ
+        </span>
+        <span className="field-details-label-text">Läs mer</span>
+        <span className="field-details-chevron" aria-hidden>
+          ›
+        </span>
+      </summary>
+      <div className="field-details-body">{children}</div>
+    </details>
+  );
+}
+
+/** Rad i en FieldDetails-utläggning. `label` är t.ex. "Om på" / "Lägre".
+ * `children` är värdet/förklaringen. Två-kolumns grid gör det scannbart. */
+function DetailsRow({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="field-details-row">
+      <div className="field-details-row-label">{label}</div>
+      <div className="field-details-row-value">{children}</div>
     </div>
   );
 }
@@ -1763,6 +1805,21 @@ export default function SettingsView() {
               help="Filtrerar tystnader och icke-tal inuti ljudet innan transkribering. Ger robustare STT mot bakgrundsljud och andningar. Stäng av om du upplever att slutet av meningar klipps."
               value={draft.stt_vad_filter}
               onChange={(v) => setDraft({ ...draft, stt_vad_filter: v })}
+              details={
+                <FieldDetails>
+                  <DetailsRow label="Om på">
+                    Whispers inbyggda röstdetektor klipper tystnader <em>inuti</em>{" "}
+                    talsegmentet innan transkribering. Mindre risk för hallucinationer
+                    i pauser (som &quot;tack för att du tittade&quot;-artefakter) och
+                    robustare mot bakgrundsljud.
+                  </DetailsRow>
+                  <DetailsRow label="Om av">
+                    Hela ljudet skickas orörd till modellen. Inget klipps bort — bra
+                    om du ofta upplever att sista ordet försvinner, men öppnar för
+                    fler hallucinationer i tysta passager.
+                  </DetailsRow>
+                </FieldDetails>
+              }
             />
 
             <div className="field">
@@ -1794,6 +1851,18 @@ export default function SettingsView() {
                 stil och kan förbättra igenkänning av fackord (t.ex. medicinska termer
                 om du skriver det i prompten). Klicka för att redigera i stor editor.
               </div>
+              <FieldDetails>
+                <DetailsRow label="Använd för">
+                  Att biasa Whisper mot svensk stil och rätt interpunktion, eller för
+                  att nämna fackord du dikterar ofta (medicinska/juridiska termer,
+                  produktnamn). Modellen blir bättre på att känna igen dem.
+                </DetailsRow>
+                <DetailsRow label="Tips">
+                  Håll prompten kort (1-2 meningar). Långa prompts styr paradoxalt
+                  nog mindre — modellen &quot;späds ut&quot; och börjar försöka
+                  efterlikna promptens egen stil istället för att lyssna.
+                </DetailsRow>
+              </FieldDetails>
             </div>
 
             <div className="field">
@@ -1823,6 +1892,18 @@ export default function SettingsView() {
                 Antal hypoteser Whisper utvärderar parallellt. 5 är en bra balans
                 mellan kvalitet och hastighet på KB-Large.
               </div>
+              <FieldDetails>
+                <DetailsRow label="Lägre (1-3)">
+                  Greedy eller nästan-greedy sökning — modellen tar första rimliga
+                  ord och går vidare. Snabbt men kan missa ovanliga ord eller
+                  korrekt homofon (t.ex. &quot;hel&quot; vs &quot;häl&quot;).
+                </DetailsRow>
+                <DetailsRow label="Högre (5-10)">
+                  Fler parallella hypoteser utvärderas och den mest sannolika väljs.
+                  Bättre kvalitet på fackord och svårhörda passager, men inferensen
+                  tar längre tid. Över 5 ger oftast bara marginell vinst.
+                </DetailsRow>
+              </FieldDetails>
             </div>
 
             <div className="field">
@@ -1858,6 +1939,18 @@ export default function SettingsView() {
                 bort. Höj om du ser &quot;hallucinerade&quot; meningar i tysta
                 passager. Sänk om appen missar korta ord.
               </div>
+              <FieldDetails>
+                <DetailsRow label="Lägre (0.1-0.4)">
+                  Tolerant filter: fler segment släpps igenom. Bra om du har tyst
+                  eller lågmäld röst, men risk att modellen börjar skriva ut
+                  hallucinationer från brus eller andhämtningar.
+                </DetailsRow>
+                <DetailsRow label="Högre (0.6-0.9)">
+                  Strängare: segment där modellen är osäker om det är tal kastas.
+                  Färre hallucinationer men risk att korta/svaga ord missas. Höj
+                  om du ofta ser påhittade meningar i tysta passager.
+                </DetailsRow>
+              </FieldDetails>
             </div>
 
             <ToggleRow
@@ -1867,14 +1960,129 @@ export default function SettingsView() {
               onChange={(v) =>
                 setDraft({ ...draft, stt_condition_on_previous_text: v })
               }
+              details={
+                <FieldDetails>
+                  <DetailsRow label="Om på">
+                    Modellen får föregående transkript som kontext inför nästa.
+                    Ger bättre sammanhang och koherens vid lång, sammanhängande
+                    diktering.
+                  </DetailsRow>
+                  <DetailsRow label="Om av">
+                    Varje segment tolkas fristående. Säkrare vid pauser eller
+                    ämnesbyten — eventuella fel sprider sig inte framåt.
+                    Rekommenderat för PTT-diktering där varje tryck är fristående.
+                  </DetailsRow>
+                </FieldDetails>
+              }
             />
+
+            <div className="field">
+              <label className="field-label" htmlFor="vad-pad">
+                VAD-trim padding
+              </label>
+              <div className="slider-row">
+                <input
+                  id="vad-pad"
+                  className="slider"
+                  type="range"
+                  min="0"
+                  max="500"
+                  step="25"
+                  value={draft.vad_trim_padding_ms}
+                  onChange={(e) =>
+                    setDraft({
+                      ...draft,
+                      vad_trim_padding_ms: Number(e.target.value),
+                    })
+                  }
+                />
+                <div className="slider-value">
+                  {draft.vad_trim_padding_ms} ms
+                </div>
+              </div>
+              <div className="slider-scale">
+                <span>↓ snävare trim</span>
+                <span>↑ mer marginal</span>
+              </div>
+              <div className="field-help">
+                Padding före och efter det detekterade talet innan ljudet går
+                till Whisper. Utan padding klipps tonlösa konsonanter (s, f, t,
+                k) ibland bort. Höj om du upplever att ord kapas i början eller
+                slutet.
+              </div>
+              <FieldDetails>
+                <DetailsRow label="Lägre (0-100 ms)">
+                  Snäv trim — ljudet klipps exakt där tal detekteras. Risk att
+                  mjuka konsonanter (s, f, t, k) tappas eftersom deras energi
+                  ligger under tröskeln. &quot;sekund&quot; kan bli &quot;ekund&quot;.
+                </DetailsRow>
+                <DetailsRow label="Högre (250-500 ms)">
+                  Mer marginal — säkrare mot klippning. Whisper ignorerar extra
+                  tystnad så det kostar inget i kvalitet. 250 ms räcker för de
+                  flesta; höj till 400-500 om ord fortfarande kapas.
+                </DetailsRow>
+              </FieldDetails>
+            </div>
+
+            <div className="field">
+              <label className="field-label" htmlFor="auto-space">
+                Auto-mellanslag vid paus
+              </label>
+              <div className="slider-row">
+                <input
+                  id="auto-space"
+                  className="slider"
+                  type="range"
+                  min="0"
+                  max="120"
+                  step="5"
+                  value={draft.dictation_auto_space_seconds}
+                  onChange={(e) =>
+                    setDraft({
+                      ...draft,
+                      dictation_auto_space_seconds: Number(e.target.value),
+                    })
+                  }
+                />
+                <div className="slider-value">
+                  {draft.dictation_auto_space_seconds === 0
+                    ? "av"
+                    : `${draft.dictation_auto_space_seconds} s`}
+                </div>
+              </div>
+              <div className="slider-scale">
+                <span>0 = av</span>
+                <span>↑ längre fönster</span>
+              </div>
+              <div className="field-help">
+                När du dikterar, pausar och dikterar igen inom detta fönster
+                lägger appen automatiskt till ett mellanslag mellan
+                segmenten — så du slipper trycka space själv. Sätt till 0 för
+                att stänga av.
+              </div>
+              <FieldDetails>
+                <DetailsRow label="0 (av)">
+                  Ingen automatik. Du trycker space själv mellan dikteringar.
+                </DetailsRow>
+                <DetailsRow label="10-30 s">
+                  Rekommenderat för de flesta. Korta tänkpauser mellan meningar
+                  länkas naturligt utan att störa flödet.
+                </DetailsRow>
+                <DetailsRow label="60-120 s">
+                  Även längre pauser räknas som samma diktering. Risk att ett
+                  mellanslag läggs in om du bytt app eller börjat ett nytt fält
+                  inom fönstret — då får du en oönskad ledande space.
+                </DetailsRow>
+              </FieldDetails>
+            </div>
 
             <div className="field" style={{ marginTop: 8 }}>
               <button
                 type="button"
-                className="btn-ghost"
+                className="btn-reset"
                 onClick={() => setDraft({ ...draft, ...STT_DEFAULTS })}
               >
+                <span className="btn-reset-icon" aria-hidden>↺</span>
                 Återställ till rekommenderade
               </button>
               <div className="field-help">

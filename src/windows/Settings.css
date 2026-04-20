@@ -658,6 +658,167 @@
   flex-shrink: 0;
 }
 
+/* Återställ-knapp i Advanced-flikar: mjuk raised-panel som matchar
+   input-fält, inte pill-knapparna. Inline-width så den inte sträcker sig
+   över hela sektionen. */
+.btn-reset {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-raised);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-md);
+  padding: 8px 14px;
+  color: var(--ink-secondary);
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out),
+              background var(--dur-fast) var(--ease-out),
+              color var(--dur-fast) var(--ease-out);
+}
+
+.btn-reset:hover {
+  border-color: rgba(230, 168, 92, 0.35);
+  background: var(--bg-overlay, var(--bg-raised));
+  color: var(--ink-primary);
+}
+
+.btn-reset:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.btn-reset-icon {
+  display: inline-flex;
+  font-size: 13px;
+  color: var(--ink-tertiary);
+  transition: color var(--dur-fast) var(--ease-out),
+              transform var(--dur-base) var(--ease-spring);
+}
+
+.btn-reset:hover .btn-reset-icon {
+  color: var(--accent);
+  transform: rotate(-30deg);
+}
+
+/* ===== Expanderbar "Läs mer"-sektion (FieldDetails) ===== */
+
+.field-details {
+  margin-top: 6px;
+}
+
+.field-details-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  color: var(--ink-tertiary);
+  list-style: none;
+  user-select: none;
+  transition: color var(--dur-fast) var(--ease-out);
+}
+
+.field-details-summary::-webkit-details-marker {
+  display: none;
+}
+
+.field-details-summary::marker {
+  display: none;
+}
+
+.field-details-summary:hover {
+  color: var(--accent);
+}
+
+.field-details-icon {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.field-details-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  line-height: 1;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.field-details[open] > .field-details-summary .field-details-chevron {
+  transform: rotate(90deg);
+}
+
+.field-details-body {
+  margin-top: 8px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--ink-divider);
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--ink-secondary);
+  animation: field-details-fade 180ms var(--ease-out);
+}
+
+@keyframes field-details-fade {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.field-details-row {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr);
+  gap: 4px 14px;
+  align-items: baseline;
+}
+
+.field-details-row + .field-details-row {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.05);
+}
+
+.field-details-row-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ink-primary);
+  white-space: nowrap;
+}
+
+.field-details-row-value {
+  color: var(--ink-secondary);
+}
+
+.field-details-body p {
+  margin: 0;
+}
+
+.field-details-body p + p {
+  margin-top: 6px;
+}
+
+.field-details-body strong {
+  color: var(--ink-primary);
+  font-weight: 500;
+}
+
 /* ===== Download progress ===== */
 
 .download-progress {

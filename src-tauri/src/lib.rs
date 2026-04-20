@@ -17,6 +17,13 @@ static PTT_OWNER: AtomicU8 = AtomicU8::new(OWNER_NONE);
 /// `run_smart_function`-IPC när user väljer en function.
 static PALETTE_SELECTION: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
+/// Tidpunkt + sista tecken från senaste dikterings-inject. Används för att
+/// auto-prepend:a mellanslag när user dikterar igen efter en kort paus utan
+/// att skriva något mellan gångerna. Se `dictation_auto_space_seconds` i
+/// Settings. `None` = ingen dikteringsinject ännu.
+static LAST_DICTATION_INJECT: std::sync::Mutex<Option<(std::time::Instant, char)>> =
+    std::sync::Mutex::new(None);
+
 use futures_util::StreamExt;
 use svoice_audio::vad::trim_silence;
 use svoice_audio::{AudioCapture, AudioRing, VolumeMeter};
@@ -944,7 +951,12 @@ fn perform_transcribe_and_inject(
     settings: &Settings,
 ) {
     let audio = ring.drain();
-    let (start, end) = trim_silence(&audio, 16000, settings.vad_threshold);
+    let (start, end) = trim_silence(
+        &audio,
+        16000,
+        settings.vad_threshold,
+        settings.vad_trim_padding_ms,
+    );
     let segment = &audio[start..end];
     if segment.is_empty() {
         tracing::warn!("inget tal detekterat (VAD trimmade allt)");
@@ -966,7 +978,7 @@ fn perform_transcribe_and_inject(
 
     // LLM-polering om aktiverad i settings. Använder samma provider-
     // selection som action-popup.
-    let final_text = if settings.llm_polish_dictation {
+    let polished_text = if settings.llm_polish_dictation {
         match rt.block_on(polish_transcript(&raw_text, settings)) {
             Ok(polished) => {
                 tracing::info!("LLM-polering: \"{}\" → \"{}\"", raw_text, polished);
@@ -981,6 +993,8 @@ fn perform_transcribe_and_inject(
         raw_text
     };
 
+    let final_text = apply_auto_space(&polished_text, settings.dictation_auto_space_seconds);
+
     match inject(&final_text) {
         Ok(method) => {
             let method_str = match method {
@@ -988,9 +1002,56 @@ fn perform_transcribe_and_inject(
                 InjectMethod::Clipboard => "clipboard",
             };
             tracing::info!("inject OK via {method_str}: \"{}\"", final_text);
+            // Spara senaste tecknet och tidpunkten — nästa diktering kollar
+            // detta för att avgöra om mellanslag ska prepend:as.
+            if let Some(last_char) = final_text.chars().last() {
+                if let Ok(mut guard) = LAST_DICTATION_INJECT.lock() {
+                    *guard = Some((std::time::Instant::now(), last_char));
+                }
+            }
         }
         Err(e) => tracing::error!("inject FAIL: {e}"),
     }
+}
+
+/// Om `auto_space_seconds > 0` och senaste diktering injicerades inom fönstret,
+/// prepend:ar ett mellanslag framför `text` så att nya meningen inte klistras
+/// ihop med föregående. Ingen prepend om:
+/// - föregående tecken redan är whitespace eller öppnande skiljetecken (`(`, `[`, `"`)
+/// - nya texten redan börjar med whitespace eller avslutande skiljetecken
+///   (`,`, `.`, `!`, `?`, `:`, `;`) — STT genererar oftast inte detta men
+///   defensivt för LLM-polerad text
+fn apply_auto_space(text: &str, auto_space_seconds: u32) -> String {
+    if auto_space_seconds == 0 || text.is_empty() {
+        return text.to_string();
+    }
+    let last = match LAST_DICTATION_INJECT.lock() {
+        Ok(guard) => *guard,
+        Err(_) => return text.to_string(),
+    };
+    let Some((last_time, last_char)) = last else {
+        return text.to_string();
+    };
+    if last_time.elapsed().as_secs() > auto_space_seconds as u64 {
+        return text.to_string();
+    }
+    // Skippa om tecknen redan skapar rätt fog.
+    if last_char.is_whitespace() || matches!(last_char, '(' | '[' | '{' | '"') {
+        return text.to_string();
+    }
+    let first_char = text.chars().next().unwrap_or(' ');
+    if first_char.is_whitespace()
+        || matches!(
+            first_char,
+            ',' | '.' | '!' | '?' | ':' | ';' | ')' | ']' | '}'
+        )
+    {
+        return text.to_string();
+    }
+    let mut out = String::with_capacity(text.len() + 1);
+    out.push(' ');
+    out.push_str(text);
+    out
 }
 
 /// Använd vald LLM-provider för att snabbpolera en STT-transkription
@@ -1234,10 +1295,11 @@ fn handle_action_released(
     is_follow_up: bool,
 ) -> anyhow::Result<()> {
     let vad_threshold = settings.vad_threshold;
+    let vad_pad_ms = settings.vad_trim_padding_ms;
 
     // Transkribera user's röstkommando.
     let audio = ring.drain();
-    let (start, end) = trim_silence(&audio, 16000, vad_threshold);
+    let (start, end) = trim_silence(&audio, 16000, vad_threshold, vad_pad_ms);
     let segment = &audio[start..end];
     if segment.is_empty() {
         anyhow::bail!("inget röstkommando detekterat");

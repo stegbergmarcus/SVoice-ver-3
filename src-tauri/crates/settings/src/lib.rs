@@ -14,6 +14,18 @@ pub struct Settings {
     pub stt_compute_mode: ComputeMode,
     pub vad_threshold: f32,
 
+    /// Padding (ms) som läggs till på båda sidor av RMS-baserad trim_silence
+    /// innan ljudet skickas till STT. Utan padding klipps tonlösa konsonanter
+    /// (s, f, t, k) eftersom deras RMS ligger under tröskeln. Default 250 ms.
+    #[serde(default = "default_vad_trim_padding_ms")]
+    pub vad_trim_padding_ms: u32,
+
+    /// Om > 0: när en ny diktering injiceras inom detta antal sekunder efter
+    /// föregående, prepend:as ett mellanslag så att meningarna inte klistras
+    /// ihop utan mellanrum. 0 = av. Default 30 s.
+    #[serde(default = "default_dictation_auto_space_seconds")]
+    pub dictation_auto_space_seconds: u32,
+
     /// Beam search-storlek för faster-whisper (1 = greedy, snabbt; 5 = bra
     /// balans; 10 = diminishing returns). Större värde → längre inferens.
     #[serde(default = "default_beam_size")]
@@ -148,6 +160,14 @@ fn default_beam_size() -> u32 {
     5
 }
 
+fn default_vad_trim_padding_ms() -> u32 {
+    250
+}
+
+fn default_dictation_auto_space_seconds() -> u32 {
+    30
+}
+
 fn default_true() -> bool {
     true
 }
@@ -168,6 +188,8 @@ impl Default for Settings {
             stt_model: "KBLab/kb-whisper-base".into(),
             stt_compute_mode: ComputeMode::Auto,
             vad_threshold: 0.005,
+            vad_trim_padding_ms: default_vad_trim_padding_ms(),
+            dictation_auto_space_seconds: default_dictation_auto_space_seconds(),
             stt_beam_size: default_beam_size(),
             stt_vad_filter: default_true(),
             stt_initial_prompt: default_initial_prompt(),
@@ -239,6 +261,8 @@ mod tests {
         assert_eq!(s.stt_model, "KBLab/kb-whisper-base");
         assert_eq!(s.stt_compute_mode, ComputeMode::Auto);
         assert!((s.vad_threshold - 0.005).abs() < 1e-6);
+        assert_eq!(s.vad_trim_padding_ms, 250);
+        assert_eq!(s.dictation_auto_space_seconds, 30);
         assert_eq!(s.action_llm_provider, LlmProvider::Auto);
         assert_eq!(s.dictation_llm_provider, LlmProvider::Auto);
         assert_eq!(s.ollama_model, "qwen2.5:14b");
@@ -259,6 +283,8 @@ mod tests {
             stt_model: "kb-whisper-large".into(),
             stt_compute_mode: ComputeMode::Gpu,
             vad_threshold: 0.01,
+            vad_trim_padding_ms: 400,
+            dictation_auto_space_seconds: 60,
             stt_beam_size: 7,
             stt_vad_filter: false,
             stt_initial_prompt: "Medicinsk journalanteckning.".into(),

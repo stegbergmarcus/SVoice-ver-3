@@ -140,7 +140,10 @@ def main():
                 if initial_prompt:
                     kwargs["initial_prompt"] = initial_prompt
                 segments, info = model.transcribe(audio, **kwargs)
-                text = " ".join(s.text for s in segments).strip()
+                # faster-whisper returnerar varje segments text med ett ledande
+                # mellanslag (Whisper-tokenizerns word-boundary-konvention). Joina
+                # med tom sträng — " ".join gav dubbla mellanslag mellan segment.
+                text = "".join(s.text for s in segments).strip()
                 infer_ms = int((time.perf_counter() - t0) * 1000)
                 send({
                     "type": "transcript",

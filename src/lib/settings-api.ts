@@ -20,6 +20,10 @@ export interface Settings {
   stt_model: string;
   stt_compute_mode: ComputeMode;
   vad_threshold: number;
+  /** Padding (ms) på båda sidor av RMS-trimmen så ordstart/slut inte kapas */
+  vad_trim_padding_ms: number;
+  /** Auto-prepend mellanslag om ny diktering sker inom X sekunder efter förra (0 = av) */
+  dictation_auto_space_seconds: number;
   action_llm_enabled: boolean;
   llm_polish_dictation: boolean;
   /** LLM-provider för action-popup (Insert-PTT → svar) */
