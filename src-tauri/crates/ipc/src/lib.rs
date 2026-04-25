@@ -7,7 +7,7 @@ pub use commands::{
     google_connection_status, google_disconnect, google_verify_connection, has_anthropic_key,
     has_gemini_key, has_groq_key, is_hf_model_cached, list_mic_devices, list_ollama_models,
     list_smart_functions, mark_action_streaming, ollama_install, ollama_install_detect,
-    ollama_status, open_smart_functions_dir, pull_ollama_model,
+    ollama_start, ollama_status, ollama_stop, open_smart_functions_dir, pull_ollama_model,
     schedule_action_streaming_clear, set_active_conversation, set_anthropic_key, set_gemini_key,
     set_groq_key, set_settings, snapshot_conversation, sync_autostart, ActiveConversation,
     ActiveLlm, ActiveStack, ActiveStt, GoogleStatus, InjectResult, OllamaStatus, PttStateReport,

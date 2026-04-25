@@ -239,6 +239,21 @@ export async function ollamaInstall(): Promise<void> {
   await invoke<void>("ollama_install");
 }
 
+/**
+ * Starta Ollama tray-appen explicit. Returnerar `true` om en process
+ * spawnades, `false` om binären inte kunde hittas. Caller ska polla
+ * `ollamaStatus()` efter detta för att upptäcka när tjänsten faktiskt
+ * kommer upp.
+ */
+export async function ollamaStart(): Promise<boolean> {
+  return invoke<boolean>("ollama_start");
+}
+
+/** Stoppa Ollama tray-appen + alla worker-processer. Frigör RAM. */
+export async function ollamaStop(): Promise<void> {
+  await invoke<void>("ollama_stop");
+}
+
 export async function listSmartFunctions(): Promise<SmartFunction[]> {
   return invoke<SmartFunction[]>("list_smart_functions");
 }

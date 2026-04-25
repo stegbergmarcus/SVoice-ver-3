@@ -425,6 +425,59 @@ pub fn ollama_install_detect() -> svoice_llm::InstallStatus {
     svoice_llm::ollama_detect_install()
 }
 
+/// Manuellt starta Ollama tray-appen. Triggas explicit från "Starta
+/// Ollama"-knappen i Settings när user vill aktivera lokal LLM. Vi
+/// auto-startar inte vid app-launch eftersom Ollama drar 0,5-2 GB RAM
+/// bara av att stå i tray — user ska kontrollera när den körs.
+///
+/// Returnerar `true` om en process spawnades, `false` om binären inte
+/// hittades. Frontend pollar `ollama_status` efter att ha kallat denna
+/// så UI uppdateras när tjänsten faktiskt kommer upp.
+#[tauri::command]
+pub async fn ollama_start() -> Result<bool, String> {
+    tokio::task::spawn_blocking(svoice_llm::ollama_try_autostart)
+        .await
+        .map_err(|e| format!("spawn-blocking misslyckades: {e}"))?
+        .map_err(|e| format!("kunde inte starta Ollama: {e}"))
+}
+
+/// Stoppa Ollama tray-appen + alla `ollama.exe` worker-processer.
+/// Frigör RAM:et som modellen och servicen håller. Triggas från
+/// "Stoppa Ollama"-knappen när user är klar med lokal LLM och vill
+/// minimera bakgrundsförbrukning. På macOS/Linux är detta en no-op
+/// just nu (auto-install/start stöds bara på Windows).
+#[tauri::command]
+pub async fn ollama_stop() -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        use std::process::{Command, Stdio};
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let result = tokio::task::spawn_blocking(|| {
+            // /F = force, /T = inkludera child-processer. Bägge namnen
+            // försöks separat så att om bara en av dem kör så stoppas
+            // den ändå (taskkill returnerar non-zero om processen inte
+            // finns, vilket vi ignorerar).
+            for img in &["ollama app.exe", "ollama.exe"] {
+                let _ = Command::new("taskkill")
+                    .args(["/F", "/T", "/IM", img])
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
+            }
+        })
+        .await;
+        result.map_err(|e| format!("taskkill spawn misslyckades: {e}"))?;
+        Ok(())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("Ollama stop stöds bara på Windows just nu".into())
+    }
+}
+
 /// Vilken provider som *just nu* faktiskt skulle plockas av
 /// `select_llm_provider` (se `src-tauri/src/lib.rs`). Speglar samma
 /// logik fast utan att göra något LLM-anrop — bara health-check + key-

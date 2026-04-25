@@ -22,7 +22,9 @@ import {
   listOllamaModels,
   listSmartFunctions,
   ollamaInstall,
+  ollamaStart,
   ollamaStatus,
+  ollamaStop,
   openSmartFunctionsDir,
   pullOllamaModel,
   setAnthropicKey,
@@ -412,6 +414,9 @@ export default function SettingsView() {
   const [updateChecking, setUpdateChecking] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [stack, setStack] = useState<ActiveStack | null>(null);
+  const [ollamaStartBusy, setOllamaStartBusy] = useState(false);
+  const [ollamaStartError, setOllamaStartError] = useState<string | null>(null);
+  const [ollamaStopBusy, setOllamaStopBusy] = useState(false);
 
   // Refresh Ollama-modell-listan (t.ex. efter lyckad pull) + binary-detect.
   async function refreshOllama() {
@@ -617,6 +622,75 @@ export default function SettingsView() {
     } catch (e) {
       setPullState(null);
       setError(`pull misslyckades: ${e}`);
+    }
+  }
+
+  async function handleStartOllama() {
+    setOllamaStartBusy(true);
+    setOllamaStartError(null);
+    try {
+      const spawned = await ollamaStart();
+      if (!spawned) {
+        setOllamaStartError(
+          "Ollama-binären hittades inte — installera först.",
+        );
+        setOllamaStartBusy(false);
+        return;
+      }
+      // Polla `/api/tags` tills tjänsten svarar (max ~15 sek). Tray-
+      // appen tar typiskt 2-4 sek att lyfta upp HTTP-servern.
+      const deadline = Date.now() + 15_000;
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 800));
+        try {
+          const status = await ollamaStatus();
+          if (status.online) {
+            setOllamaOnline(true);
+            setOllamaInstalled(status.installed);
+            await refreshOllama();
+            activeStack().then(setStack).catch(() => {});
+            setOllamaStartBusy(false);
+            return;
+          }
+        } catch {
+          /* ignorera tillfälliga fel under uppstart */
+        }
+      }
+      setOllamaStartError(
+        "Tjänsten svarade inte inom 15 sek — tray-appen kanske inte hann starta.",
+      );
+    } catch (e) {
+      setOllamaStartError(String(e));
+    } finally {
+      setOllamaStartBusy(false);
+    }
+  }
+
+  async function handleStopOllama() {
+    setOllamaStopBusy(true);
+    setOllamaStartError(null);
+    try {
+      await ollamaStop();
+      // Polla tills tjänsten verkligen är nere så badge byter direkt.
+      const deadline = Date.now() + 5_000;
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 400));
+        try {
+          const status = await ollamaStatus();
+          if (!status.online) {
+            setOllamaOnline(false);
+            setOllamaModels([]);
+            activeStack().then(setStack).catch(() => {});
+            break;
+          }
+        } catch {
+          break;
+        }
+      }
+    } catch (e) {
+      setOllamaStartError(`Kunde inte stoppa Ollama: ${e}`);
+    } finally {
+      setOllamaStopBusy(false);
     }
   }
 
@@ -1418,18 +1492,49 @@ export default function SettingsView() {
                   const installed = ollamaModels.some((o) => o.name === draft.ollama_model);
                   const pulling = pullState && pullState.model === draft.ollama_model && !pullState.done;
                   if (!ollamaOnline) {
+                    // Binären finns men tjänsten är nere → erbjud klick-
+                    // start. Saknas binären faller vi tillbaka till en
+                    // muted "offline"-badge (Installera-knappen visas
+                    // ändå längre ner i field-help-sektionen).
+                    if (ollamaInstalled) {
+                      return (
+                        <button
+                          type="button"
+                          className="btn btn-primary btn-compact"
+                          onClick={handleStartOllama}
+                          disabled={ollamaStartBusy}
+                        >
+                          {ollamaStartBusy ? "Startar…" : "Starta Ollama"}
+                        </button>
+                      );
+                    }
                     return <span className="field-badge muted">Ollama offline</span>;
                   }
                   if (pulling) return null;
-                  if (installed) return <span className="field-badge ok">✓ installerad</span>;
+                  // Tjänsten kör — erbjud Stoppa, plus visa modell-status.
                   return (
-                    <button
-                      type="button"
-                      className="btn btn-primary btn-compact"
-                      onClick={handlePullOllama}
-                    >
-                      Ladda ner
-                    </button>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      {installed ? (
+                        <span className="field-badge ok">✓ installerad</span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn btn-primary btn-compact"
+                          onClick={handlePullOllama}
+                        >
+                          Ladda ner
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-compact"
+                        onClick={handleStopOllama}
+                        disabled={ollamaStopBusy}
+                        title="Stoppa Ollama-tjänsten för att frigöra RAM"
+                      >
+                        {ollamaStopBusy ? "Stoppar…" : "Stoppa Ollama"}
+                      </button>
+                    </div>
                   );
                 })()}
               </div>
@@ -1461,14 +1566,26 @@ export default function SettingsView() {
               <div className="field-help">
                 {ollamaOnline ? (
                   <>
-                    {ollamaModels.length} modeller installerade.{" "}
+                    Tjänsten kör. {ollamaModels.length} modeller installerade.{" "}
                     <strong>Qwen 2.5 14B</strong> ger bra balans för RTX 5080.
+                    <br />
+                    <span style={{ opacity: 0.75 }}>
+                      Drar ~0,5-2 GB RAM medan den kör (mer när modellen är
+                      laddad i VRAM). Klicka "Stoppa Ollama" när du är klar
+                      för att frigöra minnet — du kan starta om när som helst.
+                    </span>
                   </>
                 ) : ollamaInstalled ? (
                   <>
-                    Ollama är installerat men tjänsten svarar inte på{" "}
-                    <code>{draft.ollama_url}</code>. Starta Ollama (sök efter
-                    "Ollama" i Start-menyn) eller starta om datorn.
+                    Ollama är installerat men <strong>inte igång</strong>. SVoice
+                    startar inte tjänsten automatiskt eftersom den drar
+                    0,5-2 GB RAM bara av att stå i bakgrunden — klicka
+                    "Starta Ollama" ovan när du vill använda lokal LLM.
+                    {ollamaStartError && (
+                      <div className="field-error" style={{ marginTop: 6 }}>
+                        {ollamaStartError}
+                      </div>
+                    )}
                   </>
                 ) : ollamaInstallSupported ? (
                   <>
