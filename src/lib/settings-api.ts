@@ -55,10 +55,45 @@ export interface Settings {
   autostart: boolean;
 }
 
+export type GoogleVerifyState =
+  | "ok"
+  | "no_token"
+  | "revoked"
+  | "no_client_id"
+  | "transient"
+  | "unknown";
+
 export interface GoogleStatus {
   connected: boolean;
   client_id_configured: boolean;
+  /**
+   * Senaste verifierings-resultat. `connected=true` ↔ `verify_state="ok"`.
+   * `revoked` betyder att Google avvisat tokenen (typiskt: user revokat
+   * appen via myaccount.google.com). `transient` = nätverksfel, status okänd.
+   */
+  verify_state: GoogleVerifyState;
 }
+
+export interface OllamaStatus {
+  online: boolean;
+  installed: boolean;
+  install_path: string | null;
+  platform: string;
+  install_supported: boolean;
+  url: string;
+}
+
+export type OllamaInstallStatus =
+  | { kind: "installed"; path: string }
+  | { kind: "not_installed" }
+  | { kind: "unsupported"; platform: string };
+
+export type OllamaInstallProgress =
+  | { phase: "download_started"; url: string }
+  | { phase: "download_progress"; downloaded: number; total: number | null }
+  | { phase: "installing" }
+  | { phase: "waiting_for_service" }
+  | { phase: "done"; path: string | null };
 
 export interface UpdateStatus {
   current_version: string;
@@ -174,12 +209,34 @@ export async function googleConnectionStatus(): Promise<GoogleStatus> {
   return invoke<GoogleStatus>("google_connection_status");
 }
 
+/**
+ * Validera anslutning genom att faktiskt minta en access-token mot Google.
+ * Långsammare än `googleConnectionStatus` (kräver nätverk), men säger
+ * sanningen — om refresh-token revokats raderas den lokalt så UI:t direkt
+ * visar "ej ansluten".
+ */
+export async function googleVerifyConnection(): Promise<GoogleStatus> {
+  return invoke<GoogleStatus>("google_verify_connection");
+}
+
 export async function googleConnect(): Promise<void> {
   await invoke<void>("google_connect");
 }
 
 export async function googleDisconnect(): Promise<void> {
   await invoke<void>("google_disconnect");
+}
+
+export async function ollamaStatus(): Promise<OllamaStatus> {
+  return invoke<OllamaStatus>("ollama_status");
+}
+
+export async function ollamaInstallDetect(): Promise<OllamaInstallStatus> {
+  return invoke<OllamaInstallStatus>("ollama_install_detect");
+}
+
+export async function ollamaInstall(): Promise<void> {
+  await invoke<void>("ollama_install");
 }
 
 export async function listSmartFunctions(): Promise<SmartFunction[]> {

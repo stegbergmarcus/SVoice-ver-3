@@ -389,6 +389,93 @@ pub fn run() {
                 }
             });
 
+            // Bakgrunds-verifiering av Google-anslutning. Tidigare visade UI:t
+            // "ansluten" så länge en refresh-token låg i keyring — även när
+            // Google revokat den (då slutar API-anrop fungera utan att UI
+            // uppdateras). Vi pingar Google var 5:e minut för att hålla
+            // statusen färsk; vid revokering raderar vi automatiskt lokal
+            // kopia (verify_connection gör det) och pushar
+            // `google_connection_status`-event till frontend.
+            let google_app = app_handle.clone();
+            rt.spawn(async move {
+                // Liten initial-delay så vi inte konkurrerar med boot-arbetet
+                // (STT auto-download, audio-capture). 5 sek räcker.
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                let mut last_emitted: Option<(bool, String)> = None;
+                loop {
+                    let settings = Settings::load();
+                    let cid_opt = settings
+                        .google_oauth_client_id
+                        .as_deref()
+                        .filter(|s| !s.is_empty())
+                        .map(String::from);
+                    let secret_opt = settings
+                        .google_oauth_client_secret
+                        .as_deref()
+                        .filter(|s| !s.is_empty())
+                        .map(String::from);
+                    let client_id_configured = cid_opt.is_some();
+                    let (connected, verify_state) = match cid_opt {
+                        Some(cid) => {
+                            use svoice_integrations::google::oauth::{
+                                verify_connection, VerifyResult,
+                            };
+                            match verify_connection(&cid, secret_opt.as_deref()).await {
+                                VerifyResult::Ok => (true, "ok"),
+                                VerifyResult::NoToken => (false, "no_token"),
+                                VerifyResult::Revoked => (false, "revoked"),
+                                VerifyResult::NoClientId => (false, "no_client_id"),
+                                VerifyResult::Transient(_) => (
+                                    svoice_integrations::google::oauth::is_connected(),
+                                    "transient",
+                                ),
+                            }
+                        }
+                        None => (false, "no_client_id"),
+                    };
+                    // Emit bara när status faktiskt ändrats — annars spammar vi
+                    // frontend med identiska events var 5:e min.
+                    let now = (connected, verify_state.to_string());
+                    if last_emitted.as_ref() != Some(&now) {
+                        let payload = serde_json::json!({
+                            "connected": connected,
+                            "client_id_configured": client_id_configured,
+                            "verify_state": verify_state,
+                        });
+                        let _ = google_app.emit("google_connection_status", payload);
+                        last_emitted = Some(now);
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(300)).await;
+                }
+            });
+
+            // Bakgrunds-poll av Ollama-status. Frontend bygger sin "online/
+            // offline"-indikator ovanpå detta event så Settings inte behöver
+            // göra ett API-anrop varje gång user öppnar fönstret. Vi pollar
+            // var 30:e sekund — billigt eftersom det är localhost-ping.
+            let ollama_app = app_handle.clone();
+            rt.spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                let mut last_online: Option<bool> = None;
+                loop {
+                    let settings = Settings::load();
+                    let client = svoice_llm::OllamaClient::new(String::new())
+                        .with_base_url(settings.ollama_url.clone());
+                    let online = client.is_healthy().await;
+                    if last_online != Some(online) {
+                        let _ = ollama_app.emit(
+                            "ollama_status",
+                            serde_json::json!({
+                                "online": online,
+                                "url": settings.ollama_url,
+                            }),
+                        );
+                        last_online = Some(online);
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                }
+            });
+
             // Auto-download av default-STT-modellen vid första app-start om
             // den inte redan är cachad. Görs bara om STT är aktiverat (annars
             // behövs modellen inte ändå) och gater på STT_DOWNLOAD_IN_PROGRESS
@@ -673,6 +760,10 @@ pub fn run() {
             svoice_ipc::google_connect,
             svoice_ipc::google_connection_status,
             svoice_ipc::google_disconnect,
+            svoice_ipc::google_verify_connection,
+            svoice_ipc::ollama_status,
+            svoice_ipc::ollama_install_detect,
+            svoice_ipc::ollama_install,
             svoice_ipc::has_anthropic_key,
             svoice_ipc::has_gemini_key,
             svoice_ipc::has_groq_key,

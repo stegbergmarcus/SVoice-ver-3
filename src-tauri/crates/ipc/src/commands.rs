@@ -371,6 +371,128 @@ pub fn check_hf_cached(model: String) -> bool {
     is_hf_model_cached(&model)
 }
 
+/// Sammanfattad Ollama-status: körs servicen + är binären installerad?
+/// Frontend använder detta för att avgöra vilken UX-knapp att visa
+/// (Installera / Starta tjänsten / Allt klart).
+#[derive(Debug, Serialize)]
+pub struct OllamaStatus {
+    /// Lyckades vi pinga `/api/tags` på `ollama_url` (default
+    /// 127.0.0.1:11434)? `true` = service kör.
+    pub online: bool,
+    /// Hittade vi `ollama.exe` på vanlig install-plats?
+    pub installed: bool,
+    /// Sökväg till Ollama-binären om den hittades, annars `None`.
+    pub install_path: Option<String>,
+    /// `"windows" | "macos" | "linux"`. Frontend visar olika hjälptexter
+    /// per plattform.
+    pub platform: String,
+    /// `true` om `ollama_install_exec` kan köras på den här plattformen.
+    /// För närvarande bara Windows.
+    pub install_supported: bool,
+    /// URL frontend ska visa när online=false. Default `http://127.0.0.1:11434`.
+    pub url: String,
+}
+
+/// Returnera detaljerad Ollama-status. Snabb (~5–800 ms beroende på om
+/// service är igång eller timeout-tar). Anropas vid Settings-mount och
+/// efter installer-körning för att uppdatera UI.
+#[tauri::command]
+pub async fn ollama_status() -> OllamaStatus {
+    let settings = Settings::load();
+    let client = OllamaClient::new(String::new()).with_base_url(settings.ollama_url.clone());
+    let online = client.is_healthy().await;
+    let detected = svoice_llm::ollama_detect_install();
+    let (installed, install_path, install_supported) = match detected {
+        svoice_llm::InstallStatus::Installed { path } => (true, Some(path), true),
+        svoice_llm::InstallStatus::NotInstalled => (false, None, true),
+        svoice_llm::InstallStatus::Unsupported { .. } => (false, None, false),
+    };
+    OllamaStatus {
+        online,
+        installed,
+        install_path,
+        platform: std::env::consts::OS.into(),
+        install_supported,
+        url: settings.ollama_url,
+    }
+}
+
+/// Snabb detektion utan att pinga servicen. Används av Settings-UI för
+/// att rendera "Installera Ollama"-knappen direkt vid mount innan vi har
+/// fått `ollama_status` tillbaka.
+#[tauri::command]
+pub fn ollama_install_detect() -> svoice_llm::InstallStatus {
+    svoice_llm::ollama_detect_install()
+}
+
+/// Ladda ned + kör Ollamas installer. Streamar progress via
+/// `ollama_install_progress`-events och avslutar med
+/// `ollama_install_done`. UAC-prompten är oundviklig (Windows-krav).
+///
+/// Användarflödet är:
+/// 1. Settings detekterar `installed=false, install_supported=true`
+/// 2. User klickar "Installera Ollama"
+/// 3. SVoice laddar ned `OllamaSetup.exe` till `%TEMP%`, visar progress-bar
+/// 4. SVoice kör installern med `/SILENT` (UAC-prompt visas)
+/// 5. Vi väntar på att `/api/tags` svarar (max 60 sek)
+/// 6. UI visar nu "Ollama redo" + listar tillgängliga modeller
+#[tauri::command]
+pub async fn ollama_install(app: AppHandle) -> Result<(), String> {
+    if OLLAMA_INSTALL_IN_PROGRESS
+        .compare_exchange(
+            false,
+            true,
+            std::sync::atomic::Ordering::SeqCst,
+            std::sync::atomic::Ordering::SeqCst,
+        )
+        .is_err()
+    {
+        return Err("En installation pågår redan, vänta tills den är klar.".into());
+    }
+    struct InstallGuard;
+    impl Drop for InstallGuard {
+        fn drop(&mut self) {
+            OLLAMA_INSTALL_IN_PROGRESS.store(false, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+    let _guard = InstallGuard;
+
+    let app_for_cb = app.clone();
+    let result = svoice_llm::ollama_install_exec(move |progress| {
+        let _ = app_for_cb.emit("ollama_install_progress", &progress);
+    })
+    .await;
+
+    match &result {
+        Ok(_) => {
+            let _ = app.emit("ollama_install_done", serde_json::json!({"ok": true}));
+            use tauri_plugin_notification::NotificationExt;
+            if let Err(e) = app
+                .notification()
+                .builder()
+                .title("SVoice")
+                .body("Ollama installerad och redo")
+                .show()
+            {
+                tracing::warn!("kunde inte visa notifikation: {e}");
+            }
+        }
+        Err(e) => {
+            let _ = app.emit(
+                "ollama_install_done",
+                serde_json::json!({"ok": false, "error": e.to_string()}),
+            );
+        }
+    }
+    result.map_err(|e| format!("Ollama-installation: {e}"))?;
+    Ok(())
+}
+
+/// Sätts true medan Ollama-installer körs så user inte kan trigga två
+/// parallella nedladdningar genom dubbelklick.
+pub static OLLAMA_INSTALL_IN_PROGRESS: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 /// Lista modeller installerade i lokalt Ollama-service. Används för att
 /// visa ✓/↓-status i Settings-UI och avgöra om download behövs.
 #[tauri::command]
@@ -486,25 +608,103 @@ pub fn clear_gemini_key() -> Result<(), String> {
 
 // ───────── Google OAuth ─────────
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone, PartialEq, Eq)]
 pub struct GoogleStatus {
     pub connected: bool,
     pub client_id_configured: bool,
+    /// Senaste detaljerade verifierings-resultat. `"ok" | "no_token" |
+    /// "revoked" | "no_client_id" | "transient"`. `connected=true` betyder
+    /// alltid `verify_state="ok"`. `transient` används vid nätverksfel —
+    /// frontend kan visa "kan inte nå Google" utan att tappa state.
+    pub verify_state: String,
 }
 
-/// Returnera status för Google-integration. Frontend använder detta för att
-/// rendera "Anslut"- vs "Frånkoppla"-knappar + hint om client-id-konfig.
+/// Bygg status från ren keyring-/settings-koll utan att gå mot Google.
+/// Snabbt (~1 ms) men säger inget om refresh-token faktiskt funkar.
+fn google_status_local() -> GoogleStatus {
+    let settings = Settings::load();
+    let client_id_configured = settings
+        .google_oauth_client_id
+        .as_deref()
+        .map(|s| !s.is_empty())
+        .unwrap_or(false);
+    let connected = svoice_integrations::google::oauth::is_connected();
+    GoogleStatus {
+        connected,
+        client_id_configured,
+        verify_state: if connected { "unknown" } else { "no_token" }.into(),
+    }
+}
+
+/// Returnera status för Google-integration baserat på lokal keyring-koll.
+/// Snabb (~1 ms). För full validering — anropa `google_verify_connection`
+/// som faktiskt försöker minta en access-token.
 #[tauri::command]
 pub fn google_connection_status() -> GoogleStatus {
+    google_status_local()
+}
+
+/// Validera att den sparade refresh-tokenen fortfarande funkar genom att
+/// faktiskt minta en access-token mot Google. Vid `invalid_grant` raderas
+/// refresh-token lokalt automatiskt så UI direkt blir korrekt.
+///
+/// Anropas:
+/// - från Settings-UI vid mount och var 30 min för att hålla statusen färsk
+/// - automatiskt i bakgrunden från lib.rs setup-loopen
+/// - efter ett 401-fel i agentic-flow (där vi misstänker revocation)
+///
+/// `force=true` ignorerar cache och pingar Google även om en check nyss körts.
+#[tauri::command]
+pub async fn google_verify_connection(app: AppHandle) -> GoogleStatus {
     let settings = Settings::load();
-    GoogleStatus {
-        connected: svoice_integrations::google::oauth::is_connected(),
-        client_id_configured: settings
-            .google_oauth_client_id
-            .as_deref()
-            .map(|s| !s.is_empty())
-            .unwrap_or(false),
-    }
+    let client_id_configured = settings
+        .google_oauth_client_id
+        .as_deref()
+        .map(|s| !s.is_empty())
+        .unwrap_or(false);
+    let cid = match settings
+        .google_oauth_client_id
+        .as_deref()
+        .filter(|s| !s.is_empty())
+    {
+        Some(c) => c.to_string(),
+        None => {
+            let status = GoogleStatus {
+                connected: false,
+                client_id_configured,
+                verify_state: "no_client_id".into(),
+            };
+            let _ = app.emit("google_connection_status", &status);
+            return status;
+        }
+    };
+    let secret = settings
+        .google_oauth_client_secret
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .map(String::from);
+    use svoice_integrations::google::oauth::{verify_connection, VerifyResult};
+    let (connected, verify_state) = match verify_connection(&cid, secret.as_deref()).await {
+        VerifyResult::Ok => (true, "ok"),
+        VerifyResult::NoToken => (false, "no_token"),
+        VerifyResult::Revoked => (false, "revoked"),
+        VerifyResult::NoClientId => (false, "no_client_id"),
+        VerifyResult::Transient(_) => {
+            // Vid transient fel (nätverk/server) — håll fast vid nyckelförekomst
+            // så vi inte raderar UI-state över en hicksand-anslutning.
+            (
+                svoice_integrations::google::oauth::is_connected(),
+                "transient",
+            )
+        }
+    };
+    let status = GoogleStatus {
+        connected,
+        client_id_configured,
+        verify_state: verify_state.into(),
+    };
+    let _ = app.emit("google_connection_status", &status);
+    status
 }
 
 /// Starta OAuth-flowet. Öppnar browsern och väntar på callback.

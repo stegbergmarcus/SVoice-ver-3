@@ -10,6 +10,7 @@ pub mod anthropic;
 pub mod gemini;
 pub mod groq;
 pub mod ollama;
+pub mod ollama_install;
 pub mod provider;
 pub mod tools;
 
@@ -17,6 +18,10 @@ pub use anthropic::AnthropicClient;
 pub use gemini::{GeminiClient, GeminiEvent, GeminiGroundingChunk};
 pub use groq::GroqClient;
 pub use ollama::{OllamaClient, OllamaModelInfo, PullProgress};
+pub use ollama_install::{
+    detect_install as ollama_detect_install, install as ollama_install_exec, InstallError,
+    InstallProgress, InstallStatus,
+};
 pub use provider::{LlmError, LlmProvider, LlmRequest, LlmStream, Role, TurnContent};
 pub use tools::{
     step as tool_step, step_with_choice as tool_step_with_choice, StepOutcome, ToolCall,

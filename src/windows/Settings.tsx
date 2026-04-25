@@ -13,12 +13,15 @@ import {
   googleConnect,
   googleConnectionStatus,
   googleDisconnect,
+  googleVerifyConnection,
   hasAnthropicKey,
   hasGeminiKey,
   hasGroqKey,
   listMicDevices,
   listOllamaModels,
   listSmartFunctions,
+  ollamaInstall,
+  ollamaStatus,
   openSmartFunctionsDir,
   pullOllamaModel,
   setAnthropicKey,
@@ -29,6 +32,7 @@ import {
   type GoogleStatus,
   type HotKeyChoice,
   type LlmProviderChoice,
+  type OllamaInstallProgress,
   type OllamaModelInfo,
   type PullProgress,
   type Settings,
@@ -262,6 +266,21 @@ function formatBytes(n: number): string {
   return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
+function installPhaseLabel(p: OllamaInstallProgress): string {
+  switch (p.phase) {
+    case "download_started":
+      return "Startar nedladdning…";
+    case "download_progress":
+      return "Laddar ner Ollama…";
+    case "installing":
+      return "Installerar (godkänn UAC-prompten)…";
+    case "waiting_for_service":
+      return "Väntar på att tjänsten startar…";
+    case "done":
+      return "Klart";
+  }
+}
+
 export default function SettingsView() {
   const [draft, setDraft] = useState<Settings | null>(null);
   const [loaded, setLoaded] = useState<Settings | null>(null);
@@ -291,19 +310,33 @@ export default function SettingsView() {
   const [googleStatus, setGoogleStatus] = useState<GoogleStatus>({
     connected: false,
     client_id_configured: false,
+    verify_state: "unknown",
   });
   const [googleBusy, setGoogleBusy] = useState(false);
+  const [ollamaInstalled, setOllamaInstalled] = useState<boolean | null>(null);
+  const [ollamaInstallSupported, setOllamaInstallSupported] = useState(true);
+  const [ollamaInstallBusy, setOllamaInstallBusy] = useState(false);
+  const [ollamaInstallProgress, setOllamaInstallProgress] =
+    useState<OllamaInstallProgress | null>(null);
+  const [ollamaInstallError, setOllamaInstallError] = useState<string | null>(null);
   const [smartFns, setSmartFns] = useState<SmartFunction[]>([]);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
   const [updateChecking, setUpdateChecking] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
 
-  // Refresh Ollama-modell-listan (t.ex. efter lyckad pull).
+  // Refresh Ollama-modell-listan (t.ex. efter lyckad pull) + binary-detect.
   async function refreshOllama() {
     try {
-      const models = await listOllamaModels();
-      setOllamaModels(models);
-      setOllamaOnline(true);
+      const status = await ollamaStatus();
+      setOllamaOnline(status.online);
+      setOllamaInstalled(status.installed);
+      setOllamaInstallSupported(status.install_supported);
+      if (status.online) {
+        const models = await listOllamaModels();
+        setOllamaModels(models);
+      } else {
+        setOllamaModels([]);
+      }
     } catch {
       setOllamaModels([]);
       setOllamaOnline(false);
@@ -330,11 +363,22 @@ export default function SettingsView() {
     hasGeminiKey()
       .then(setGeminiKeyStored)
       .catch(() => setGeminiKeyStored(false));
+    // Snabb keyring-koll först så UI:t inte flimrar; sedan riktig Google-
+    // verifiering i bakgrunden (gör ett HTTP-anrop, ~200–800 ms). Vid
+    // revokat token raderar backend lokal kopia och returnerar
+    // connected=false så UI:t direkt visar "ej ansluten".
     googleConnectionStatus()
       .then(setGoogleStatus)
       .catch(() =>
-        setGoogleStatus({ connected: false, client_id_configured: false }),
+        setGoogleStatus({
+          connected: false,
+          client_id_configured: false,
+          verify_state: "unknown",
+        }),
       );
+    googleVerifyConnection()
+      .then(setGoogleStatus)
+      .catch((e) => console.debug("[settings] google_verify_connection failed:", e));
     listSmartFunctions().then(setSmartFns).catch(() => setSmartFns([]));
     checkForUpdatesCached()
       .then(setUpdateStatus)
@@ -350,6 +394,55 @@ export default function SettingsView() {
       for (const r of results) out[r.id] = r.cached;
       setSttCached(out);
     });
+  }, []);
+
+  // Bakgrunds-events från backend: Google-verifiering var 5:e min och
+  // Ollama-status var 30:e sek. Vi listar både Pull-progress, install-
+  // progress och status-pings i samma effect så all teardown sker tillsammans.
+  useEffect(() => {
+    const unGoogleStatus = listen<GoogleStatus>(
+      "google_connection_status",
+      (ev) => {
+        setGoogleStatus(ev.payload);
+      },
+    );
+    const unOllamaStatus = listen<{ online: boolean; url: string }>(
+      "ollama_status",
+      (ev) => {
+        setOllamaOnline(ev.payload.online);
+        if (ev.payload.online) {
+          // Service kom upp — refresha modell-listan så dropdown-status
+          // (✓/↓) blir korrekt utan att user behöver klicka något.
+          listOllamaModels().then(setOllamaModels).catch(() => {});
+        }
+      },
+    );
+    const unInstallProgress = listen<OllamaInstallProgress>(
+      "ollama_install_progress",
+      (ev) => {
+        setOllamaInstallProgress(ev.payload);
+      },
+    );
+    const unInstallDone = listen<{ ok: boolean; error?: string }>(
+      "ollama_install_done",
+      (ev) => {
+        setOllamaInstallBusy(false);
+        if (!ev.payload.ok) {
+          setOllamaInstallError(ev.payload.error ?? "okänt fel");
+        } else {
+          setOllamaInstallError(null);
+          setOllamaInstallProgress(null);
+          // Re-detect så badgen byter från "Installera" till "Installerad".
+          refreshOllama();
+        }
+      },
+    );
+    return () => {
+      unGoogleStatus.then((fn) => fn());
+      unOllamaStatus.then((fn) => fn());
+      unInstallProgress.then((fn) => fn());
+      unInstallDone.then((fn) => fn());
+    };
   }, []);
 
   // Lyssna på Ollama pull-progress events.
@@ -412,6 +505,20 @@ export default function SettingsView() {
     } catch (e) {
       setPullState(null);
       setError(`pull misslyckades: ${e}`);
+    }
+  }
+
+  async function handleInstallOllama() {
+    setOllamaInstallBusy(true);
+    setOllamaInstallError(null);
+    setOllamaInstallProgress({ phase: "download_started", url: "" });
+    try {
+      await ollamaInstall();
+    } catch (e) {
+      // Fel-event triggas också via ollama_install_done — men om hela IPC
+      // misslyckas (t.ex. permission denied) hamnar vi här i stället.
+      setOllamaInstallBusy(false);
+      setOllamaInstallError(String(e));
     }
   }
 
@@ -496,7 +603,10 @@ export default function SettingsView() {
     setError(null);
     try {
       await googleConnect();
-      const status = await googleConnectionStatus();
+      // Använd verify så vi vet att refresh-tokenen vi precis sparade
+      // faktiskt ger en access-token — i stället för att bara konstatera
+      // att den finns på disk.
+      const status = await googleVerifyConnection();
       setGoogleStatus(status);
     } catch (e) {
       setError(String(e));
@@ -1178,14 +1288,78 @@ export default function SettingsView() {
                     {ollamaModels.length} modeller installerade.{" "}
                     <strong>Qwen 2.5 14B</strong> ger bra balans för RTX 5080.
                   </>
+                ) : ollamaInstalled ? (
+                  <>
+                    Ollama är installerat men tjänsten svarar inte på{" "}
+                    <code>{draft.ollama_url}</code>. Starta Ollama (sök efter
+                    "Ollama" i Start-menyn) eller starta om datorn.
+                  </>
+                ) : ollamaInstallSupported ? (
+                  <>
+                    Ollama är inte installerat. Klicka nedan för att ladda
+                    ned och installera direkt — UAC-prompten visas av
+                    Windows när installern startar.
+                  </>
                 ) : (
                   <>
                     Ollama-service inte detekterad på{" "}
                     <code>{draft.ollama_url}</code>. Installera från{" "}
-                    <code>ollama.com</code> och starta tjänsten.
+                    <code>ollama.com</code> och starta tjänsten manuellt
+                    (auto-install stöds bara på Windows just nu).
                   </>
                 )}
               </div>
+
+              {!ollamaOnline && ollamaInstalled === false && ollamaInstallSupported && (
+                <div className="field" style={{ marginTop: 8 }}>
+                  {!ollamaInstallBusy && !ollamaInstallProgress && (
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-compact"
+                      onClick={handleInstallOllama}
+                    >
+                      Installera Ollama (~700 MB)
+                    </button>
+                  )}
+                  {ollamaInstallProgress && (
+                    <div className="download-progress">
+                      <div className="download-progress-label">
+                        <span>{installPhaseLabel(ollamaInstallProgress)}</span>
+                        {ollamaInstallProgress.phase === "download_progress" &&
+                        ollamaInstallProgress.total ? (
+                          <span className="mono">
+                            {formatBytes(ollamaInstallProgress.downloaded)} /{" "}
+                            {formatBytes(ollamaInstallProgress.total)}
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="download-progress-bar">
+                        <div
+                          className="download-progress-fill"
+                          style={{
+                            width:
+                              ollamaInstallProgress.phase === "download_progress" &&
+                              ollamaInstallProgress.total
+                                ? `${Math.min(100, (ollamaInstallProgress.downloaded / ollamaInstallProgress.total) * 100)}%`
+                                : ollamaInstallProgress.phase === "installing"
+                                  ? "70%"
+                                  : ollamaInstallProgress.phase === "waiting_for_service"
+                                    ? "92%"
+                                    : ollamaInstallProgress.phase === "done"
+                                      ? "100%"
+                                      : "5%",
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                  {ollamaInstallError && (
+                    <div className="field-help" style={{ color: "#d97070", marginTop: 6 }}>
+                      Installation misslyckades: {ollamaInstallError}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="field">
@@ -1562,11 +1736,15 @@ export default function SettingsView() {
                 className="field-help"
                 style={{ marginTop: 8, marginBottom: 0 }}
               >
-                {googleStatus.connected
-                  ? "Refresh-token sparad i Windows Credential Manager. Frånkoppling raderar den lokalt."
-                  : googleStatus.client_id_configured
-                    ? "Klick öppnar browser för godkännande. Scopes: Calendar (läs/skriv) + Gmail (läs)."
-                    : "Fyll i client-ID ovan och spara inställningarna, sedan kan du ansluta."}
+                {googleStatus.verify_state === "revoked"
+                  ? "Token avvisades av Google (revokat eller inaktivt > 6 mån). Klicka 'Anslut' för att godkänna på nytt."
+                  : googleStatus.verify_state === "transient"
+                    ? "Kunde inte verifiera mot Google just nu (nätverksfel). Statusen kan vara inaktuell — vi pingar igen om några minuter."
+                    : googleStatus.connected
+                      ? "Refresh-token sparad i Windows Credential Manager. Frånkoppling raderar den lokalt."
+                      : googleStatus.client_id_configured
+                        ? "Klick öppnar browser för godkännande. Scopes: Calendar (läs/skriv) + Gmail (läs)."
+                        : "Fyll i client-ID ovan och spara inställningarna, sedan kan du ansluta."}
               </div>
             </div>
           </div>

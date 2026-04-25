@@ -94,16 +94,59 @@ impl GoogleClient {
         url: &str,
         body: Option<&B>,
     ) -> Result<serde_json::Value, ClientError> {
-        // Första försök
-        let resp = self.do_request(&method, url, body).await?;
+        // Första försök. Om refresh redan misslyckas med invalid_grant betyder
+        // det att refresh-token revokats — radera lokalt så UI:t snabbt
+        // upptäcker det vid nästa verify_connection.
+        let resp = match self.do_request(&method, url, body).await {
+            Ok(r) => r,
+            Err(e) => {
+                if let ClientError::Auth(GoogleAuthError::TokenExchange(msg)) = &e {
+                    self.handle_revoke_indicator(msg);
+                }
+                return Err(e);
+            }
+        };
         if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
             tracing::info!("google-API 401 — refreshar token och retrier");
             // Invalidera cache så nästa access_token() tvingar refresh.
             *self.cached.lock().await = None;
-            let retry = self.do_request(&method, url, body).await?;
+            let retry = match self.do_request(&method, url, body).await {
+                Ok(r) => r,
+                Err(e) => {
+                    if let ClientError::Auth(GoogleAuthError::TokenExchange(msg)) = &e {
+                        self.handle_revoke_indicator(msg);
+                    }
+                    return Err(e);
+                }
+            };
+            if retry.status() == reqwest::StatusCode::UNAUTHORIZED {
+                // Andra 401:an med en helt nymintad access-token är ovanligt
+                // men händer t.ex. om scopes har ändrats eller user revokat
+                // mellan refresh och retry. Vi raderar refresh-token lokalt
+                // så Settings-UI:t direkt visar "ej ansluten" vid nästa
+                // verify-cykel — i stället för att fastna i "ansluten"-state.
+                tracing::warn!("google-API 401 även efter refresh — raderar lokal refresh-token");
+                let _ = svoice_secrets::delete_google_refresh_token();
+            }
             return handle_response(retry).await;
         }
         handle_response(resp).await
+    }
+
+    /// Heuristik för Googles token-exchange-felsträngar: `invalid_grant` /
+    /// `invalid_token` / "Token has been expired or revoked" är permanenta
+    /// signaler om att refresh-token inte längre är giltigt på Google-sidan.
+    /// I så fall raderar vi lokal kopia direkt — annars visar UI:t fortsatt
+    /// "ansluten" trots att inga API-anrop fungerar.
+    fn handle_revoke_indicator(&self, msg: &str) {
+        let lc = msg.to_ascii_lowercase();
+        if lc.contains("invalid_grant")
+            || lc.contains("invalid_token")
+            || lc.contains("token has been expired or revoked")
+        {
+            tracing::warn!("google: refresh-token revokat ({msg}) — raderar lokal kopia");
+            let _ = svoice_secrets::delete_google_refresh_token();
+        }
     }
 
     async fn do_request<B: Serialize + ?Sized>(

@@ -273,9 +273,74 @@ pub fn disconnect() -> Result<(), GoogleAuthError> {
     Ok(())
 }
 
-/// Kontrollera om vi har en sparad refresh-token (= user är ansluten).
+/// Kontrollera om vi har en sparad refresh-token (= "kanske ansluten").
+/// Säger inget om token faktiskt funkar — använd [`verify_connection`] för
+/// realt-status.
 pub fn is_connected() -> bool {
     svoice_secrets::has_google_refresh_token()
+}
+
+/// Resultat av en verklig anslutningskontroll mot Google.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VerifyResult {
+    /// Token funkar — vi kunde mintat en färsk access-token.
+    Ok,
+    /// Ingen refresh-token sparad alls (user har inte anslutit eller har
+    /// kopplat från).
+    NoToken,
+    /// Token finns men Google avvisade den (`invalid_grant` / `invalid_token`).
+    /// Detta händer typiskt när user revokat appen via
+    /// https://myaccount.google.com/permissions, eller när token har varit
+    /// inaktiv för länge. Den lokalt sparade kopian raderas automatiskt så
+    /// UI:t kan be user ansluta på nytt.
+    Revoked,
+    /// Klient-id saknas i settings → vi kan inte verifiera.
+    NoClientId,
+    /// Network/server-fel — säger inget om token-status. Caller bör
+    /// behandla som "okänt" och inte radera state.
+    Transient(String),
+}
+
+/// Försök minta en färsk access-token via den sparade refresh-tokenen.
+/// Vid `invalid_grant` raderas den lokala kopian automatiskt så
+/// `is_connected()` direkt återspeglar verkligheten.
+pub async fn verify_connection(client_id: &str, client_secret: Option<&str>) -> VerifyResult {
+    if client_id.trim().is_empty() {
+        return VerifyResult::NoClientId;
+    }
+    let refresh = match svoice_secrets::get_google_refresh_token() {
+        Ok(Some(t)) => t,
+        Ok(None) => return VerifyResult::NoToken,
+        Err(e) => {
+            tracing::warn!("verify_connection: keyring-läsning misslyckades: {e}");
+            return VerifyResult::Transient(format!("keyring: {e}"));
+        }
+    };
+    match refresh_access_token(client_id, client_secret, &refresh).await {
+        Ok(_) => VerifyResult::Ok,
+        Err(GoogleAuthError::TokenExchange(msg)) => {
+            // Google returnerar `invalid_grant` när refresh-token revokats,
+            // raderats av user, eller varit inaktivt > 6 mån. `invalid_token`
+            // täcker andra revoke-scenarier. Båda är permanenta — radera lokal
+            // kopia så UI:t direkt visar "ej ansluten".
+            let lc = msg.to_ascii_lowercase();
+            if lc.contains("invalid_grant")
+                || lc.contains("invalid_token")
+                || lc.contains("token has been expired or revoked")
+            {
+                tracing::warn!("Google refresh-token revokat ({msg}) — raderar lokal kopia");
+                let _ = svoice_secrets::delete_google_refresh_token();
+                VerifyResult::Revoked
+            } else {
+                tracing::info!("verify_connection: transient token-fel: {msg}");
+                VerifyResult::Transient(msg)
+            }
+        }
+        Err(e) => {
+            tracing::info!("verify_connection: transient fel: {e}");
+            VerifyResult::Transient(e.to_string())
+        }
+    }
 }
 
 #[cfg(test)]
