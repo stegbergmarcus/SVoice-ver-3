@@ -243,6 +243,34 @@ export async function listSmartFunctions(): Promise<SmartFunction[]> {
   return invoke<SmartFunction[]>("list_smart_functions");
 }
 
+/**
+ * Live-resolved provider för action-popup eller dictation-polish.
+ * Spegelvänd `select_llm_provider` (src-tauri/src/lib.rs) — visar vad
+ * som *faktiskt* skulle plockas just nu, inkl. fallback-kedjan i Auto.
+ */
+export type ActiveLlm =
+  | { kind: "disabled" }
+  | { kind: "ollama"; model: string; base_url: string }
+  | { kind: "claude"; model: string }
+  | { kind: "groq"; model: string }
+  | { kind: "gemini"; model: string }
+  | { kind: "unavailable"; configured: string; reason: string };
+
+export type ActiveStt =
+  | { kind: "disabled" }
+  | { kind: "local"; model: string; compute: string }
+  | { kind: "groq"; model: string };
+
+export interface ActiveStack {
+  stt: ActiveStt;
+  action_llm: ActiveLlm;
+  dictation_llm: ActiveLlm;
+}
+
+export async function activeStack(): Promise<ActiveStack> {
+  return invoke<ActiveStack>("active_stack");
+}
+
 export async function openSmartFunctionsDir(): Promise<void> {
   await invoke<void>("open_smart_functions_dir");
 }

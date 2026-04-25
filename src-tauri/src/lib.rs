@@ -269,6 +269,62 @@ pub fn run() {
                 },
             );
 
+            // Auto-starta Ollama om user valt det som provider (eller är på
+            // Auto) och binären är installerad men tjänsten inte svarar.
+            // Bästa-effort, helt non-blocking — vi spawnar tray-appen och
+            // låter `select_llm_provider` upptäcka när den kommer upp vid
+            // nästa PTT (eller när "Aktiv stack"-kortet pollar).
+            {
+                use svoice_settings::LlmProvider as P;
+                let needs_ollama = matches!(
+                    user_settings.action_llm_provider,
+                    P::Ollama | P::Auto
+                ) || (user_settings.llm_polish_dictation
+                    && matches!(user_settings.dictation_llm_provider, P::Ollama | P::Auto));
+                if needs_ollama {
+                    let url = user_settings.ollama_url.clone();
+                    std::thread::spawn(move || {
+                        // Snabb ping innan vi spawnar — om servicen redan
+                        // kör är det här en no-op.
+                        let already_up = std::net::TcpStream::connect_timeout(
+                            &match url
+                                .trim_start_matches("http://")
+                                .trim_start_matches("https://")
+                                .split('/')
+                                .next()
+                                .unwrap_or("127.0.0.1:11434")
+                                .parse()
+                            {
+                                Ok(addr) => addr,
+                                Err(_) => return,
+                            },
+                            std::time::Duration::from_millis(300),
+                        )
+                        .is_ok();
+                        if already_up {
+                            tracing::debug!("Ollama-tjänsten kör redan, hoppar över autostart");
+                            return;
+                        }
+                        match svoice_llm::ollama_try_autostart() {
+                            Ok(true) => {
+                                tracing::info!(
+                                    "Ollama-autostart: tray-app spawnad ({})",
+                                    url
+                                );
+                            }
+                            Ok(false) => {
+                                tracing::debug!(
+                                    "Ollama-autostart: ingen binär hittad — user behöver installera"
+                                );
+                            }
+                            Err(e) => {
+                                tracing::warn!("Ollama-autostart misslyckades: {e}");
+                            }
+                        }
+                    });
+                }
+            }
+
             // Bygg SttConfig.
             let mut stt_config = SttConfig::default();
             stt_config.model = user_settings.stt_model.clone();
@@ -764,6 +820,7 @@ pub fn run() {
             svoice_ipc::ollama_status,
             svoice_ipc::ollama_install_detect,
             svoice_ipc::ollama_install,
+            svoice_ipc::active_stack,
             svoice_ipc::has_anthropic_key,
             svoice_ipc::has_gemini_key,
             svoice_ipc::has_groq_key,

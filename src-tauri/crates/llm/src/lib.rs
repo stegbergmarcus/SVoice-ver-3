@@ -19,8 +19,8 @@ pub use gemini::{GeminiClient, GeminiEvent, GeminiGroundingChunk};
 pub use groq::GroqClient;
 pub use ollama::{OllamaClient, OllamaModelInfo, PullProgress};
 pub use ollama_install::{
-    detect_install as ollama_detect_install, install as ollama_install_exec, InstallError,
-    InstallProgress, InstallStatus,
+    detect_install as ollama_detect_install, install as ollama_install_exec,
+    try_autostart as ollama_try_autostart, InstallError, InstallProgress, InstallStatus,
 };
 pub use provider::{LlmError, LlmProvider, LlmRequest, LlmStream, Role, TurnContent};
 pub use tools::{

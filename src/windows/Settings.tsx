@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import SVoiceLogo from "../components/SVoiceLogo";
 import {
+  activeStack,
   checkForUpdates,
   checkForUpdatesCached,
   checkHfCached,
@@ -28,6 +29,9 @@ import {
   setGeminiKey,
   setGroqKey,
   setSettings,
+  type ActiveLlm,
+  type ActiveStack,
+  type ActiveStt,
   type ComputeMode,
   type GoogleStatus,
   type HotKeyChoice,
@@ -95,6 +99,90 @@ const STT_PROVIDER_LABELS: Record<SttProviderChoice, string> = {
   local: "Lokal (KB-Whisper via Python-sidecar)",
   groq: "Groq Whisper API (gratis, ~100× snabbare)",
 };
+
+/** Visningsnamn för en aktiv LLM-rad i "Aktiv stack"-kortet. */
+function describeActiveLlm(a: ActiveLlm): {
+  badge: string;
+  badgeTone: "local" | "cloud" | "off" | "warn";
+  primary: string;
+  secondary: string;
+} {
+  switch (a.kind) {
+    case "ollama":
+      return {
+        badge: "LOKAL",
+        badgeTone: "local",
+        primary: "Ollama",
+        secondary: a.model,
+      };
+    case "claude":
+      return {
+        badge: "MOLN",
+        badgeTone: "cloud",
+        primary: "Claude",
+        secondary: a.model,
+      };
+    case "groq":
+      return {
+        badge: "MOLN",
+        badgeTone: "cloud",
+        primary: "Groq",
+        secondary: a.model,
+      };
+    case "gemini":
+      return {
+        badge: "MOLN",
+        badgeTone: "cloud",
+        primary: "Gemini",
+        secondary: a.model,
+      };
+    case "disabled":
+      return {
+        badge: "AV",
+        badgeTone: "off",
+        primary: "Avstängd",
+        secondary: "—",
+      };
+    case "unavailable":
+      return {
+        badge: "FEL",
+        badgeTone: "warn",
+        primary: a.configured.charAt(0).toUpperCase() + a.configured.slice(1),
+        secondary: a.reason,
+      };
+  }
+}
+
+function describeActiveStt(a: ActiveStt): {
+  badge: string;
+  badgeTone: "local" | "cloud" | "off";
+  primary: string;
+  secondary: string;
+} {
+  switch (a.kind) {
+    case "local":
+      return {
+        badge: "LOKAL",
+        badgeTone: "local",
+        primary: a.model.split("/").pop() || a.model,
+        secondary: `KB-Whisper · ${a.compute.toUpperCase()}`,
+      };
+    case "groq":
+      return {
+        badge: "MOLN",
+        badgeTone: "cloud",
+        primary: "Groq Whisper",
+        secondary: a.model,
+      };
+    case "disabled":
+      return {
+        badge: "AV",
+        badgeTone: "off",
+        primary: "STT avstängd",
+        secondary: "—",
+      };
+  }
+}
 
 // Vanliga språkkoder för STT. "auto" låter Whisper detektera.
 const STT_LANGUAGES: Array<{ code: string; label: string }> = [
@@ -323,6 +411,7 @@ export default function SettingsView() {
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
   const [updateChecking, setUpdateChecking] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
+  const [stack, setStack] = useState<ActiveStack | null>(null);
 
   // Refresh Ollama-modell-listan (t.ex. efter lyckad pull) + binary-detect.
   async function refreshOllama() {
@@ -396,6 +485,26 @@ export default function SettingsView() {
     });
   }, []);
 
+  // Live-probe av aktiv stack (vad som *faktiskt* körs just nu, inkl.
+  // Auto-fallback). Initial fetch + poll var 8:e sek så Ollama-online/
+  // offline-skiften reflekteras utan att user behöver göra något.
+  useEffect(() => {
+    let cancelled = false;
+    const fetchStack = () => {
+      activeStack()
+        .then((s) => {
+          if (!cancelled) setStack(s);
+        })
+        .catch(() => {});
+    };
+    fetchStack();
+    const id = setInterval(fetchStack, 8000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
+
   // Bakgrunds-events från backend: Google-verifiering var 5:e min och
   // Ollama-status var 30:e sek. Vi listar både Pull-progress, install-
   // progress och status-pings i samma effect så all teardown sker tillsammans.
@@ -415,6 +524,9 @@ export default function SettingsView() {
           // (✓/↓) blir korrekt utan att user behöver klicka något.
           listOllamaModels().then(setOllamaModels).catch(() => {});
         }
+        // Auto-resolved provider kan ha ändrats (Ollama up/down) — re-
+        // fetcha aktiv stack så vänsterspaltens kort speglar verkligheten.
+        activeStack().then(setStack).catch(() => {});
       },
     );
     const unInstallProgress = listen<OllamaInstallProgress>(
@@ -584,6 +696,9 @@ export default function SettingsView() {
       googleConnectionStatus()
         .then(setGoogleStatus)
         .catch(() => {});
+      activeStack()
+        .then(setStack)
+        .catch(() => {});
     } catch (e) {
       setError(String(e));
     } finally {
@@ -675,16 +790,77 @@ export default function SettingsView() {
         </div>
 
         <div className="settings-wordmark-footer">
-          <div>
-            <span className="dot" />{" "}
-            {draft.stt_provider === "groq"
-              ? `STT: Groq · ${draft.groq_stt_model}`
-              : `STT: ${draft.stt_model.split("/").pop()}`}
+          <div className="active-stack" aria-label="Aktiv stack just nu">
+            <div className="active-stack-header">
+              <span className="active-stack-title">Aktiv stack</span>
+              <span
+                className={`active-stack-pulse${stack ? " live" : ""}`}
+                aria-hidden
+              />
+            </div>
+            {stack ? (
+              <ul className="active-stack-rows">
+                {(() => {
+                  const sttD = describeActiveStt(stack.stt);
+                  return (
+                    <li className="active-stack-row">
+                      <span className="active-stack-role">STT</span>
+                      <span
+                        className={`active-stack-badge tone-${sttD.badgeTone}`}
+                      >
+                        {sttD.badge}
+                      </span>
+                      <span className="active-stack-primary">
+                        {sttD.primary}
+                      </span>
+                      <span className="active-stack-secondary">
+                        {sttD.secondary}
+                      </span>
+                    </li>
+                  );
+                })()}
+                {(() => {
+                  const a = describeActiveLlm(stack.action_llm);
+                  return (
+                    <li className="active-stack-row">
+                      <span className="active-stack-role">Action</span>
+                      <span
+                        className={`active-stack-badge tone-${a.badgeTone}`}
+                      >
+                        {a.badge}
+                      </span>
+                      <span className="active-stack-primary">{a.primary}</span>
+                      <span className="active-stack-secondary">
+                        {a.secondary}
+                      </span>
+                    </li>
+                  );
+                })()}
+                {(() => {
+                  const d = describeActiveLlm(stack.dictation_llm);
+                  return (
+                    <li className="active-stack-row">
+                      <span className="active-stack-role">Polish</span>
+                      <span
+                        className={`active-stack-badge tone-${d.badgeTone}`}
+                      >
+                        {d.badge}
+                      </span>
+                      <span className="active-stack-primary">{d.primary}</span>
+                      <span className="active-stack-secondary">
+                        {d.secondary}
+                      </span>
+                    </li>
+                  );
+                })()}
+              </ul>
+            ) : (
+              <div className="active-stack-loading">probar tjänster…</div>
+            )}
           </div>
-          <div>
-            {PROVIDER_LABELS[draft.action_llm_provider]} · action-popup
+          <div className="active-stack-foot">
+            Ingen telemetri · ljud endast i RAM
           </div>
-          <div style={{ opacity: 0.6 }}>Ingen telemetri · ljud endast i RAM</div>
         </div>
       </aside>
 

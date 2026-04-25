@@ -425,6 +425,211 @@ pub fn ollama_install_detect() -> svoice_llm::InstallStatus {
     svoice_llm::ollama_detect_install()
 }
 
+/// Vilken provider som *just nu* faktiskt skulle plockas av
+/// `select_llm_provider` (se `src-tauri/src/lib.rs`). Speglar samma
+/// logik fast utan att göra något LLM-anrop — bara health-check + key-
+/// probe. Returneras strukturerat så frontend kan rendera en live-
+/// indikator i Settings-fliken (vänsterspalten "Aktiv stack").
+#[derive(Debug, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ActiveLlm {
+    /// LLM-användning är avstängd (action-popup eller polish toggle off).
+    Disabled,
+    Ollama {
+        model: String,
+        base_url: String,
+    },
+    Claude {
+        model: String,
+    },
+    Groq {
+        model: String,
+    },
+    Gemini {
+        model: String,
+    },
+    /// Provider valt explicit men kan ej användas (t.ex. "Claude" utan
+    /// API-nyckel, eller "Ollama" när tjänsten är offline).
+    Unavailable {
+        configured: String,
+        reason: String,
+    },
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ActiveStt {
+    Local {
+        model: String,
+        compute: String,
+    },
+    Groq {
+        model: String,
+    },
+    Disabled,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ActiveStack {
+    pub stt: ActiveStt,
+    /// Provider för action-popup (Insert-PTT). Disabled om
+    /// `action_llm_enabled = false`.
+    pub action_llm: ActiveLlm,
+    /// Provider för diktering-polering. Disabled om
+    /// `llm_polish_dictation = false`.
+    pub dictation_llm: ActiveLlm,
+}
+
+async fn resolve_llm(choice: svoice_settings::LlmProvider, settings: &Settings) -> ActiveLlm {
+    use svoice_settings::LlmProvider as P;
+    let has_anthropic = svoice_secrets::has_anthropic_key();
+    let has_groq = matches!(svoice_secrets::get_groq_key(), Ok(Some(ref k)) if !k.is_empty());
+    let has_gemini = matches!(svoice_secrets::get_gemini_key(), Ok(Some(ref k)) if !k.is_empty());
+
+    let probe_ollama = || async {
+        let client =
+            OllamaClient::new(settings.ollama_model.clone()).with_base_url(settings.ollama_url.clone());
+        client.is_healthy().await
+    };
+
+    match choice {
+        P::Claude => {
+            if has_anthropic {
+                ActiveLlm::Claude {
+                    model: settings.anthropic_model.clone(),
+                }
+            } else {
+                ActiveLlm::Unavailable {
+                    configured: "claude".into(),
+                    reason: "ingen Anthropic API-nyckel".into(),
+                }
+            }
+        }
+        P::Ollama => {
+            if probe_ollama().await {
+                ActiveLlm::Ollama {
+                    model: settings.ollama_model.clone(),
+                    base_url: settings.ollama_url.clone(),
+                }
+            } else {
+                ActiveLlm::Unavailable {
+                    configured: "ollama".into(),
+                    reason: "Ollama-tjänsten svarar inte".into(),
+                }
+            }
+        }
+        P::Groq => {
+            if has_groq {
+                ActiveLlm::Groq {
+                    model: settings.groq_llm_model.clone(),
+                }
+            } else {
+                ActiveLlm::Unavailable {
+                    configured: "groq".into(),
+                    reason: "ingen Groq API-nyckel".into(),
+                }
+            }
+        }
+        P::Gemini => {
+            if has_gemini {
+                ActiveLlm::Gemini {
+                    model: settings.gemini_model.clone(),
+                }
+            } else {
+                ActiveLlm::Unavailable {
+                    configured: "gemini".into(),
+                    reason: "ingen Gemini API-nyckel".into(),
+                }
+            }
+        }
+        P::Auto => {
+            if probe_ollama().await {
+                ActiveLlm::Ollama {
+                    model: settings.ollama_model.clone(),
+                    base_url: settings.ollama_url.clone(),
+                }
+            } else if has_groq {
+                ActiveLlm::Groq {
+                    model: settings.groq_llm_model.clone(),
+                }
+            } else if has_gemini {
+                ActiveLlm::Gemini {
+                    model: settings.gemini_model.clone(),
+                }
+            } else if has_anthropic {
+                ActiveLlm::Claude {
+                    model: settings.anthropic_model.clone(),
+                }
+            } else {
+                ActiveLlm::Unavailable {
+                    configured: "auto".into(),
+                    reason: "ingen tillgänglig provider".into(),
+                }
+            }
+        }
+    }
+}
+
+/// Vilken stack som körs *just nu* (live-probe). Anropas från Settings
+/// vid mount + på intervall + efter save så vänsterspaltens "Aktiv
+/// stack"-kort speglar verkligheten istället för bara user-valet.
+#[tauri::command]
+pub async fn active_stack() -> ActiveStack {
+    let settings = Settings::load();
+
+    let stt = if !settings.stt_enabled {
+        ActiveStt::Disabled
+    } else {
+        match settings.stt_provider {
+            svoice_settings::SttProvider::Local => ActiveStt::Local {
+                model: settings.stt_model.clone(),
+                compute: match settings.stt_compute_mode {
+                    ComputeMode::Auto => "auto".into(),
+                    ComputeMode::Cpu => "cpu".into(),
+                    ComputeMode::Gpu => "gpu".into(),
+                },
+            },
+            svoice_settings::SttProvider::Groq => {
+                let has_groq = matches!(svoice_secrets::get_groq_key(), Ok(Some(ref k)) if !k.is_empty());
+                if has_groq {
+                    ActiveStt::Groq {
+                        model: settings.groq_stt_model.clone(),
+                    }
+                } else {
+                    // saknar nyckel → faller tillbaka till lokal (matchar
+                    // transcribe_dispatch i lib.rs).
+                    ActiveStt::Local {
+                        model: settings.stt_model.clone(),
+                        compute: match settings.stt_compute_mode {
+                            ComputeMode::Auto => "auto".into(),
+                            ComputeMode::Cpu => "cpu".into(),
+                            ComputeMode::Gpu => "gpu".into(),
+                        },
+                    }
+                }
+            }
+        }
+    };
+
+    let action_llm = if !settings.action_llm_enabled {
+        ActiveLlm::Disabled
+    } else {
+        resolve_llm(settings.action_llm_provider, &settings).await
+    };
+
+    let dictation_llm = if !settings.llm_polish_dictation {
+        ActiveLlm::Disabled
+    } else {
+        resolve_llm(settings.dictation_llm_provider, &settings).await
+    };
+
+    ActiveStack {
+        stt,
+        action_llm,
+        dictation_llm,
+    }
+}
+
 /// Ladda ned + kör Ollamas installer. Streamar progress via
 /// `ollama_install_progress`-events och avslutar med
 /// `ollama_install_done`. UAC-prompten är oundviklig (Windows-krav).

@@ -105,6 +105,80 @@ fn windows_candidate_paths() -> Vec<PathBuf> {
     out
 }
 
+/// Försök starta Ollama-tjänsten i bakgrunden. Föredrar tray-appen
+/// (`ollama app.exe`) eftersom den både startar `ollama serve` och
+/// sätter sig i system-tray:n; faller tillbaka till `ollama.exe serve`
+/// om tray-binären saknas.
+///
+/// Detached process — ingen child wait, inget terminal-fönster blinkar
+/// upp. Returnerar `Ok(true)` om en process spawnades, `Ok(false)` om
+/// ingen binär hittades. Säger inget om huruvida tjänsten faktiskt kom
+/// upp — caller får polla `/api/tags` för det.
+#[cfg(target_os = "windows")]
+pub fn try_autostart() -> std::io::Result<bool> {
+    use std::os::windows::process::CommandExt;
+    use std::process::{Command, Stdio};
+
+    // CREATE_NO_WINDOW (0x08000000) + DETACHED_PROCESS (0x00000008) så
+    // att en console-window inte flashar upp och så att processen
+    // överlever även om SVoice avslutas.
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    const DETACHED_PROCESS: u32 = 0x0000_0008;
+    let flags = CREATE_NO_WINDOW | DETACHED_PROCESS;
+
+    let local = std::env::var("LOCALAPPDATA").ok();
+    let pf = std::env::var("ProgramFiles").ok();
+
+    // 1. Tray-appen — den föredragna entry-pointen (visas i system-tray).
+    let tray_candidates: Vec<PathBuf> = [
+        local.as_ref().map(|p| {
+            PathBuf::from(p)
+                .join("Programs")
+                .join("Ollama")
+                .join("ollama app.exe")
+        }),
+        pf.as_ref()
+            .map(|p| PathBuf::from(p).join("Ollama").join("ollama app.exe")),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+
+    for path in &tray_candidates {
+        if path.exists() {
+            Command::new(path)
+                .creation_flags(flags)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()?;
+            return Ok(true);
+        }
+    }
+
+    // 2. Fallback: ollama.exe serve (headless, ingen tray-ikon men
+    //    tjänsten kör).
+    for path in windows_candidate_paths() {
+        if path.exists() {
+            Command::new(&path)
+                .arg("serve")
+                .creation_flags(flags)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()?;
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn try_autostart() -> std::io::Result<bool> {
+    Ok(false)
+}
+
 /// URL för Ollamas Windows-installer. Använder den officiella latest-URL:en
 /// från ollama.com (302-redirectar till GitHub Releases bakom kulisserna).
 #[cfg(target_os = "windows")]
