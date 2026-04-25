@@ -4316,7 +4316,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "svoice-audio"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "anyhow",
  "cpal",
@@ -4327,7 +4327,7 @@ dependencies = [
 
 [[package]]
 name = "svoice-hotkey"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "serde",
  "tauri",
@@ -4339,7 +4339,7 @@ dependencies = [
 
 [[package]]
 name = "svoice-inject"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "arboard",
  "thiserror 1.0.69",
@@ -4349,7 +4349,7 @@ dependencies = [
 
 [[package]]
 name = "svoice-integrations"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "anyhow",
  "oauth2",
@@ -4365,7 +4365,7 @@ dependencies = [
 
 [[package]]
 name = "svoice-ipc"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "serde",
  "serde_json",
@@ -4389,7 +4389,7 @@ dependencies = [
 
 [[package]]
 name = "svoice-llm"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -4407,7 +4407,7 @@ dependencies = [
 
 [[package]]
 name = "svoice-secrets"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "keyring",
  "thiserror 1.0.69",
@@ -4416,7 +4416,7 @@ dependencies = [
 
 [[package]]
 name = "svoice-settings"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "anyhow",
  "serde",
@@ -4426,7 +4426,7 @@ dependencies = [
 
 [[package]]
 name = "svoice-smart-functions"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "anyhow",
  "serde",
@@ -4438,7 +4438,7 @@ dependencies = [
 
 [[package]]
 name = "svoice-stt"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "anyhow",
  "reqwest 0.12.28",
@@ -4451,14 +4451,14 @@ dependencies = [
 
 [[package]]
 name = "svoice-stt-spike"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "anyhow",
 ]
 
 [[package]]
 name = "svoice-updates"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4472,7 +4472,7 @@ dependencies = [
 
 [[package]]
 name = "svoice-v3"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "anyhow",
  "chrono",
