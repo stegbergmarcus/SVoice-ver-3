@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { getSettings, type HotKeyChoice } from "../lib/settings-api";
 import SVoiceLogo from "../components/SVoiceLogo";
+import { FormattedActionResponse } from "./action-response-format";
 import "./ActionPopup.css";
 
 type PopupOpenPayload = {
@@ -294,10 +295,13 @@ export default function ActionPopup() {
         <div
           className={`action-popup-response${streaming ? " streaming" : ""}`}
         >
-          {response ||
-            (mode === "screen" && !streaming
-              ? `Håll Mellanslag eller ${HOTKEY_LABELS[actionHotkey]} och säg vad AI ska göra med skärmklippet.`
-              : "")}
+          {response ? (
+            <FormattedActionResponse text={response} />
+          ) : mode === "screen" && !streaming ? (
+            `Håll Mellanslag eller ${HOTKEY_LABELS[actionHotkey]} och säg vad AI ska göra med skärmklippet.`
+          ) : (
+            ""
+          )}
         </div>
       )}
 

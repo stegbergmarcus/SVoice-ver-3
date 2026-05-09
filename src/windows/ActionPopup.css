@@ -192,8 +192,39 @@ body,
   line-height: 1.65;
   color: var(--ink-primary);
   font-family: var(--font-body);
-  white-space: pre-wrap;
   padding: 2px 10px 2px 0;
+}
+
+.action-popup-response-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.action-popup-response-paragraph {
+  margin: 0;
+}
+
+.action-popup-response-heading {
+  margin-top: 6px;
+  font-weight: 700;
+  color: var(--ink-primary);
+}
+
+.action-popup-response-list {
+  margin: 0;
+  padding-left: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.action-popup-response-list li {
+  padding-left: 4px;
+}
+
+.action-popup-response strong {
+  font-weight: 700;
 }
 
 .action-popup-response:empty::before {

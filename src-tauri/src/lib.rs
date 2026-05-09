@@ -1993,7 +1993,8 @@ analysera det som syns, koppla det till användarens kontext och ge konkreta rå
 Om användaren bara ger bakgrundsinformation utan tydlig fråga ska du ändå tolka bilden och hjälpa \
 vidare. Svara aldrig bara med en tom bekräftelse som \"Okej\" eller \"Tack för informationen\" när \
 det finns något i bilden att resonera om. Avsluta gärna med en relevant följdfråga när det hjälper \
-samtalet vidare. Om kommandot tydligt ber dig läsa ut text, registreringsnummer, koder eller \
+samtalet vidare. Använd gärna punktlistor med bindestreck när det passar, men undvik Markdown-fetstil \
+och asterisker. Om kommandot tydligt ber dig läsa ut text, registreringsnummer, koder eller \
 liknande: returnera bara det avlästa värdet utan förklaring, markdown eller citattecken."
         .into()
 }
@@ -2244,6 +2245,7 @@ mod screen_vision_tests {
         assert!(prompt.contains("utvecklande"));
         assert!(prompt.contains("följdfråga"));
         assert!(prompt.contains("Svara aldrig bara"));
+        assert!(prompt.contains("undvik Markdown-fetstil"));
     }
 
     #[test]
