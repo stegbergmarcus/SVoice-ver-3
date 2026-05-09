@@ -154,7 +154,7 @@ fn build_request_body(req: &LlmRequest, enable_grounding: bool) -> serde_json::V
     body
 }
 
-fn build_vision_request_body(req: &VisionRequest) -> serde_json::Value {
+fn build_vision_request_body(req: &VisionRequest, enable_grounding: bool) -> serde_json::Value {
     let mut body = serde_json::json!({
         "contents": [{
             "role": "user",
@@ -178,6 +178,10 @@ fn build_vision_request_body(req: &VisionRequest) -> serde_json::Value {
         body["systemInstruction"] = serde_json::json!({
             "parts": [{ "text": sys }]
         });
+    }
+
+    if enable_grounding {
+        body["tools"] = serde_json::json!([{ "googleSearch": {} }]);
     }
 
     body
@@ -219,7 +223,7 @@ impl VisionLlmProvider for GeminiClient {
             "{API_BASE}/{model}:streamGenerateContent?alt=sse",
             model = self.model
         );
-        let body = build_vision_request_body(&req);
+        let body = build_vision_request_body(&req, self.enable_grounding);
 
         let resp = self
             .client
@@ -589,13 +593,30 @@ mod tests {
             },
             temperature: 0.2,
             max_tokens: 128,
-        });
+        }, false);
 
         let parts = body["contents"][0]["parts"].as_array().unwrap();
         assert_eq!(parts[0]["inline_data"]["mime_type"], "image/png");
         assert_eq!(parts[0]["inline_data"]["data"], "abc123");
         assert_eq!(parts[1]["text"], "Vad föreställer bilden?");
         assert_eq!(body["systemInstruction"]["parts"][0]["text"], "Svara kort.");
+        assert!(body.get("tools").is_none());
+    }
+
+    #[test]
+    fn vision_body_includes_google_search_when_grounding_on() {
+        let body = build_vision_request_body(&VisionRequest {
+            system: None,
+            prompt: "Hjälp mig med questen.".into(),
+            image: VisionImage {
+                media_type: "image/png".into(),
+                data_base64: "abc123".into(),
+            },
+            temperature: 0.2,
+            max_tokens: 128,
+        }, true);
+
+        assert_eq!(body["tools"][0]["googleSearch"], serde_json::json!({}));
     }
 
     #[test]

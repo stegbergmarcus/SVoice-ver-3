@@ -1927,6 +1927,7 @@ async fn select_vision_provider(
     choice: ProviderChoice,
     settings: &Settings,
     anthropic_key: Option<&str>,
+    prefer_web_grounding: bool,
 ) -> Option<Arc<dyn VisionLlmProvider>> {
     let build_anthropic = || -> Option<Arc<dyn VisionLlmProvider>> {
         anthropic_key.filter(|k| !k.is_empty()).map(|key| {
@@ -1941,8 +1942,11 @@ async fn select_vision_provider(
             .flatten()
             .filter(|k| !k.is_empty())
             .map(|key| {
-                Arc::new(GeminiClient::new(key).with_model(settings.gemini_model.clone()))
-                    as Arc<dyn VisionLlmProvider>
+                Arc::new(
+                    GeminiClient::new(key)
+                        .with_model(settings.gemini_model.clone())
+                        .with_grounding(prefer_web_grounding),
+                ) as Arc<dyn VisionLlmProvider>
             })
     };
     let build_ollama = || -> Arc<dyn VisionLlmProvider> {
@@ -1958,6 +1962,11 @@ async fn select_vision_provider(
         ProviderChoice::Ollama => Some(build_ollama()),
         ProviderChoice::Groq => None,
         ProviderChoice::Auto => {
+            if prefer_web_grounding {
+                if let Some(gemini) = build_gemini() {
+                    return Some(gemini);
+                }
+            }
             let ollama = OllamaClient::new(settings.ollama_model.clone())
                 .with_base_url(settings.ollama_url.clone());
             if looks_like_ollama_vision_model(&settings.ollama_model) && ollama.is_healthy().await {
@@ -1994,7 +2003,9 @@ Om användaren bara ger bakgrundsinformation utan tydlig fråga ska du ändå to
 vidare. Svara aldrig bara med en tom bekräftelse som \"Okej\" eller \"Tack för informationen\" när \
 det finns något i bilden att resonera om. Avsluta gärna med en relevant följdfråga när det hjälper \
 samtalet vidare. Använd gärna punktlistor med bindestreck när det passar, men undvik Markdown-fetstil \
-och asterisker. Om kommandot tydligt ber dig läsa ut text, registreringsnummer, koder eller \
+och asterisker. När webbsökning är tillgänglig och frågan gäller spel, quests, guider, aktuella \
+fakta eller sådant som kan ha ändrats, ska du använda nätet i stället för att gissa. Om kommandot \
+tydligt ber dig läsa ut text, registreringsnummer, koder eller \
 liknande: returnera bara det avlästa värdet utan förklaring, markdown eller citattecken."
         .into()
 }
@@ -2141,6 +2152,7 @@ fn handle_screen_vision_command(
         settings.action_llm_provider,
         settings,
         anthropic_key.as_deref(),
+        !text_mode,
     ));
     let Some(llm) = llm else {
         anyhow::bail!(
@@ -2246,6 +2258,7 @@ mod screen_vision_tests {
         assert!(prompt.contains("följdfråga"));
         assert!(prompt.contains("Svara aldrig bara"));
         assert!(prompt.contains("undvik Markdown-fetstil"));
+        assert!(prompt.contains("använda nätet"));
     }
 
     #[test]
