@@ -1987,10 +1987,14 @@ fn looks_like_ollama_vision_model(model: &str) -> bool {
 }
 
 fn screen_vision_system_prompt() -> String {
-    "Du är en svensk multimodal assistent. Användaren skickar ett skärmklipp och ett röstkommando. \
-Svara kort på svenska. Om kommandot ber dig läsa ut text, registreringsnummer, koder eller liknande: \
-returnera bara det avlästa värdet utan förklaring, markdown eller citattecken. Om bilden är oklar, \
-säg att du är osäker och ge bästa läsningen kort."
+    "Du är en svensk multimodal samtalspartner. Användaren skickar ett skärmklipp och ett \
+röstkommando och vill kunna bolla, förstå, felsöka och få hjälp. Svara utvecklande på svenska: \
+analysera det som syns, koppla det till användarens kontext och ge konkreta råd eller nästa steg. \
+Om användaren bara ger bakgrundsinformation utan tydlig fråga ska du ändå tolka bilden och hjälpa \
+vidare. Svara aldrig bara med en tom bekräftelse som \"Okej\" eller \"Tack för informationen\" när \
+det finns något i bilden att resonera om. Avsluta gärna med en relevant följdfråga när det hjälper \
+samtalet vidare. Om kommandot tydligt ber dig läsa ut text, registreringsnummer, koder eller \
+liknande: returnera bara det avlästa värdet utan förklaring, markdown eller citattecken."
         .into()
 }
 
@@ -2057,6 +2061,14 @@ fn screen_image_base64_for_request(
         image.text_data_base64.clone()
     } else {
         image.data_base64.clone()
+    }
+}
+
+fn screen_vision_max_tokens(text_mode: bool) -> u32 {
+    if text_mode {
+        256
+    } else {
+        2048
     }
 }
 
@@ -2148,7 +2160,7 @@ fn handle_screen_vision_command(
             data_base64,
         },
         temperature: if text_mode { 0.0 } else { 0.2 },
-        max_tokens: if text_mode { 256 } else { 1024 },
+        max_tokens: screen_vision_max_tokens(text_mode),
     };
     let app_clone = app_handle.clone();
     rt.spawn(async move {
@@ -2222,6 +2234,22 @@ mod screen_vision_tests {
 
         assert!(prompt.contains("Returnera endast"));
         assert!(prompt.contains("ingen markdown"));
+    }
+
+    #[test]
+    fn vision_prompt_encourages_developed_discussion() {
+        let prompt = screen_vision_system_prompt();
+
+        assert!(!prompt.contains("Svara kort"));
+        assert!(prompt.contains("utvecklande"));
+        assert!(prompt.contains("följdfråga"));
+        assert!(prompt.contains("Svara aldrig bara"));
+    }
+
+    #[test]
+    fn general_screen_discussion_has_room_for_longer_answers() {
+        assert!(screen_vision_max_tokens(false) >= 1800);
+        assert_eq!(screen_vision_max_tokens(true), 256);
     }
 
     #[test]
