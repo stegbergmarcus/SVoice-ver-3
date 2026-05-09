@@ -1017,7 +1017,7 @@ export default function SettingsView() {
                     ok: hasAnthropic || hasGroq,
                     title: "2. Action-LLM (Claude eller Groq)",
                     hint: hasAnthropic || hasGroq
-                      ? `Håll ${HOTKEY_LABELS[draft.action_hotkey]} + säg kommando → AI-popup med svar. Markera text innan för transformering.`
+                      ? `Håll ${HOTKEY_LABELS[draft.action_hotkey]} och prata → AI-popup. Kort tryck öppnar skärmklipp.`
                       : "Lägg till Anthropic- eller Groq-nyckel under 'Action-LLM' för att aktivera AI-popup.",
                   },
                   {
@@ -1833,8 +1833,8 @@ export default function SettingsView() {
           <div className="settings-section-label">
             <h2>Snabbkommandon</h2>
             <p>
-              Vilken tangent som ska hållas för diktering respektive action-popup.
-              Samma tangent kan inte användas för båda.
+              Vilken tangent som ska hållas för diktering, action-popup och skärmklipp.
+              Samma tangent kan inte användas för flera funktioner.
             </p>
           </div>
           <div className="settings-section-body">
@@ -1854,7 +1854,11 @@ export default function SettingsView() {
                 }
               >
                 {HOTKEY_ORDER.map((k) => (
-                  <option key={k} value={k} disabled={k === draft.action_hotkey}>
+                  <option
+                    key={k}
+                    value={k}
+                    disabled={k === draft.action_hotkey || k === draft.screen_hotkey}
+                  >
                     {HOTKEY_LABELS[k]}
                   </option>
                 ))}
@@ -1879,13 +1883,46 @@ export default function SettingsView() {
                 }
               >
                 {HOTKEY_ORDER.map((k) => (
-                  <option key={k} value={k} disabled={k === draft.dictation_hotkey}>
+                  <option
+                    key={k}
+                    value={k}
+                    disabled={k === draft.dictation_hotkey || k === draft.screen_hotkey}
+                  >
                     {HOTKEY_LABELS[k]}
                   </option>
                 ))}
               </select>
               <div className="field-help">
-                Öppnar LLM-popupen. Default: Insert.
+                Håll för AI-röst. Kort tryck öppnar skärmklipp. Default: Insert.
+              </div>
+            </div>
+            <div className="field">
+              <label className="field-label" htmlFor="screen-hotkey">
+                Skärmklipps-tangent
+              </label>
+              <select
+                id="screen-hotkey"
+                className="select"
+                value={draft.screen_hotkey}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    screen_hotkey: e.target.value as HotKeyChoice,
+                  })
+                }
+              >
+                {HOTKEY_ORDER.map((k) => (
+                  <option
+                    key={k}
+                    value={k}
+                    disabled={k === draft.dictation_hotkey || k === draft.action_hotkey}
+                  >
+                    {HOTKEY_LABELS[k]}
+                  </option>
+                ))}
+              </select>
+              <div className="field-help">
+                Alternativ separat knapp för skärmklipp till AI. Default: Scroll Lock.
               </div>
             </div>
             <div
@@ -2259,6 +2296,65 @@ export default function SettingsView() {
         </>)}
 
         {activeTab === "advanced" && (<>
+
+        {/* Skärmklipp */} 
+        <article className="settings-section">
+          <div className="settings-section-label">
+            <h2>Skärmklipp</h2>
+            <p>
+              Finjustering av hur AI tolkar bildklipp när kommandot handlar om
+              text, koder eller registreringsnummer.
+            </p>
+          </div>
+          <div className="settings-section-body">
+            <ToggleRow
+              label="Automatiskt textläge"
+              help="När kommandot låter som textläsning använder skärmklipp ett strikt OCR-läge som försöker returnera bara det avlästa värdet."
+              value={draft.screen_clip_auto_text_mode}
+              onChange={(v) =>
+                setDraft({ ...draft, screen_clip_auto_text_mode: v })
+              }
+              details={
+                <FieldDetails>
+                  <DetailsRow label="Om på">
+                    Kommandon som &quot;läs registreringsnumret&quot;,
+                    &quot;kopiera texten&quot; och &quot;vad står det&quot; skickas med
+                    en kortare, striktare prompt så svaret passar bättre för
+                    direkt inklistring.
+                  </DetailsRow>
+                  <DetailsRow label="Om av">
+                    Alla skärmklipp behandlas som vanliga bildfrågor, även när
+                    du ber appen läsa text. Använd detta om auto-läget triggar
+                    för ofta.
+                  </DetailsRow>
+                </FieldDetails>
+              }
+            />
+
+            <ToggleRow
+              label="OCR-bildförbättring"
+              help="I textläge skickas en gråskale/kontrastad kopia av klippet till AI-modellen för att små bokstäver och skyltar ska bli lättare att läsa."
+              value={draft.screen_clip_ocr_enhancement}
+              onChange={(v) =>
+                setDraft({ ...draft, screen_clip_ocr_enhancement: v })
+              }
+              details={
+                <FieldDetails>
+                  <DetailsRow label="Om på">
+                    Appen skapar en extra RAM-only bildvariant med mer kontrast
+                    och skickar den bara när textläget används. Previewn och
+                    vanliga bildfrågor fortsätter använda originalklippet.
+                  </DetailsRow>
+                  <DetailsRow label="Om av">
+                    Textläge använder originalbilden. Det kan vara bättre för
+                    färgkodad text eller bilder där kontrastningen gör detaljer
+                    sämre.
+                  </DetailsRow>
+                </FieldDetails>
+              }
+            />
+          </div>
+        </article>
 
         {/* STT-parametrar */}
         <article className="settings-section">

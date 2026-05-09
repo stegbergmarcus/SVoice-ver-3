@@ -26,6 +26,8 @@ tracing-subscriber = { workspace = true }
 tracing-appender = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }
+base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["png"] }
 svoice-audio = { path = "crates/audio" }
 svoice-hotkey = { path = "crates/hotkey" }
 svoice-inject = { path = "crates/inject" }

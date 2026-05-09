@@ -22,7 +22,10 @@ pub use ollama_install::{
     detect_install as ollama_detect_install, install as ollama_install_exec,
     try_autostart as ollama_try_autostart, InstallError, InstallProgress, InstallStatus,
 };
-pub use provider::{LlmError, LlmProvider, LlmRequest, LlmStream, Role, TurnContent};
+pub use provider::{
+    LlmError, LlmProvider, LlmRequest, LlmStream, Role, TurnContent, VisionImage,
+    VisionLlmProvider, VisionRequest,
+};
 pub use tools::{
     step as tool_step, step_with_choice as tool_step_with_choice, StepOutcome, ToolCall,
     ToolConversation, ToolDef, ToolResult,

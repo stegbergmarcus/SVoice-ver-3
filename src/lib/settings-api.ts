@@ -50,6 +50,11 @@ export interface Settings {
   stt_condition_on_previous_text: boolean;
   dictation_hotkey: HotKeyChoice;
   action_hotkey: HotKeyChoice;
+  screen_hotkey: HotKeyChoice;
+  /** Avancerat: autoidentifiera text/OCR-kommandon i skärmklipp */
+  screen_clip_auto_text_mode: boolean;
+  /** Avancerat: skicka OCR-vänlig kontrastbild vid textläge */
+  screen_clip_ocr_enhancement: boolean;
   google_oauth_client_id: string | null;
   google_oauth_client_secret: string | null;
   autostart: boolean;

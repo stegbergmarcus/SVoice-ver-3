@@ -2,16 +2,18 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { getSettings, type HotKeyChoice } from "../lib/settings-api";
 import SVoiceLogo from "../components/SVoiceLogo";
 import "./ActionPopup.css";
 
 type PopupOpenPayload = {
   selection: string | null;
   command: string;
-  mode: "transform" | "query" | "follow_up";
+  mode: "transform" | "query" | "follow_up" | "screen";
+  image_preview: string | null;
 };
 
-type PopupMode = "transform" | "query" | "follow_up";
+type PopupMode = "transform" | "query" | "follow_up" | "screen";
 
 type ToolCallPayload = {
   name: string;
@@ -19,11 +21,34 @@ type ToolCallPayload = {
   summary: string | null;
 };
 
-// Keys som triggar follow-up PTT när popup är fokuserad. Mellanslag är
-// primär (har ingen default-handler i de flesta text-widgets). Insert
-// mirrorar main-hotkey så user slipper lära sig ny genväg för follow-up.
-function isFollowupKey(key: string): boolean {
-  return key === " " || key === "Spacebar" || key === "Insert";
+const HOTKEY_KEYBOARD_KEYS: Record<HotKeyChoice, string[]> = {
+  right_ctrl: ["Control"],
+  insert: ["Insert"],
+  right_alt: ["Alt"],
+  f12: ["F12"],
+  pause: ["Pause"],
+  scroll_lock: ["ScrollLock"],
+  caps_lock: ["CapsLock"],
+  home: ["Home"],
+  end: ["End"],
+};
+
+const HOTKEY_LABELS: Record<HotKeyChoice, string> = {
+  right_ctrl: "Höger Ctrl",
+  insert: "Insert",
+  right_alt: "Höger Alt",
+  f12: "F12",
+  pause: "Pause / Break",
+  scroll_lock: "Scroll Lock",
+  caps_lock: "Caps Lock",
+  home: "Home",
+  end: "End",
+};
+
+// Keys som triggar follow-up PTT när popup är fokuserad. Mellanslag är alltid
+// fallback; den vanliga Action-popup-tangenten används för konsekvens.
+function isFollowupKey(key: string, actionHotkey: HotKeyChoice): boolean {
+  return key === " " || key === "Spacebar" || HOTKEY_KEYBOARD_KEYS[actionHotkey].includes(key);
 }
 
 const TOOL_LABELS: Record<string, string> = {
@@ -44,6 +69,8 @@ export default function ActionPopup() {
   // Räknar antal follow-up-turns för att visa "uppföljning 2", "uppföljning 3" etc.
   const [turnCount, setTurnCount] = useState(1);
   const [response, setResponse] = useState("");
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [actionHotkey, setActionHotkey] = useState<HotKeyChoice>("insert");
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
@@ -55,6 +82,7 @@ export default function ActionPopup() {
     setVisible(false);
     try {
       await invoke("action_cancel");
+      await invoke("screen_clip_clear");
     } catch (e) {
       console.error("[action-popup] cancel failed", e);
     }
@@ -70,6 +98,7 @@ export default function ActionPopup() {
     setVisible(false);
     try {
       await invoke("action_apply", { result: resultToApply });
+      await invoke("screen_clip_clear");
     } catch (e) {
       console.error("[action-popup] apply failed", e);
     } finally {
@@ -80,20 +109,27 @@ export default function ActionPopup() {
   // Lyssna på open/token/done/error-events från backend.
   useEffect(() => {
     const unOpen = listen<PopupOpenPayload>("action_popup_open", async (ev) => {
+      getSettings()
+        .then((settings) => setActionHotkey(settings.action_hotkey))
+        .catch((e) => console.error("[action-popup] get_settings failed", e));
       const isFollowUp = ev.payload.mode === "follow_up";
+      const isScreenIdle =
+        ev.payload.mode === "screen" && ev.payload.command === "skärmklipp klart";
       // Follow-up: bevara selection från original-konversationen (backend
       // skickar null). Öka turn-count. Rensa bara response.
       if (!isFollowUp) {
         setSelection(ev.payload.selection);
+        setImagePreview(ev.payload.image_preview);
         setTurnCount(1);
       } else {
+        if (ev.payload.image_preview) setImagePreview(ev.payload.image_preview);
         setTurnCount((t) => t + 1);
       }
       setCommand(ev.payload.command);
       setMode(ev.payload.mode);
       setResponse("");
       setError(null);
-      setStreaming(true);
+      setStreaming(!isScreenIdle);
       setApplying(false);
       setToolCalls([]);
       setVisible(true);
@@ -162,12 +198,10 @@ export default function ActionPopup() {
       } else if (ev.key === "Enter" && !ev.shiftKey && !streaming && !applying) {
         ev.preventDefault();
         await applyResult();
-      } else if (isFollowupKey(ev.key) && !streaming && !ev.repeat) {
-        // Mellanslag ELLER Insert = starta follow-up PTT. LL-hook fångar inte
-        // Insert när popup-webviewen har fokus (WebView2/systemhookar filter:ar
-        // den bort från systemhook-kedjan), så vi använder popup-keydown
-        // istället. Backend action_followup_start → action_followup_stop (keyup)
-        // översätter till samma LlKeyEvent som LL-hook hade skickat.
+      } else if (isFollowupKey(ev.key, actionHotkey) && !streaming && !ev.repeat) {
+        // Mellanslag ELLER user's Action-popup-tangent = starta follow-up PTT.
+        // LL-hook fångar inte alltid hotkeyn när popup-webviewen har fokus, så
+        // frontend översätter keydown/keyup till samma backend-events.
         ev.preventDefault();
         try {
           await invoke("action_followup_start");
@@ -177,7 +211,7 @@ export default function ActionPopup() {
       }
     };
     const keyupHandler = async (ev: KeyboardEvent) => {
-      if (isFollowupKey(ev.key) && !streaming) {
+      if (isFollowupKey(ev.key, actionHotkey) && !streaming) {
         ev.preventDefault();
         try {
           await invoke("action_followup_stop");
@@ -192,7 +226,7 @@ export default function ActionPopup() {
       window.removeEventListener("keydown", handler);
       window.removeEventListener("keyup", keyupHandler);
     };
-  }, [visible, streaming, applying, response]);
+  }, [visible, streaming, applying, response, actionHotkey]);
 
   return (
     <div ref={rootRef} className={`action-popup-root${visible ? " visible" : ""}`}>
@@ -211,6 +245,8 @@ export default function ActionPopup() {
         <div className="action-popup-mode">
           {mode === "transform"
             ? "Transformera"
+            : mode === "screen"
+              ? "Skärmklipp"
             : mode === "follow_up"
               ? "Uppföljning"
               : "Fråga"}
@@ -221,6 +257,13 @@ export default function ActionPopup() {
         <div className="action-popup-context">
           <span className="action-popup-context-label">markerad text</span>
           {selection}
+        </div>
+      )}
+
+      {imagePreview && (
+        <div className="action-popup-image-context">
+          <span className="action-popup-context-label">skärmklipp</span>
+          <img src={imagePreview} alt="" />
         </div>
       )}
 
@@ -251,7 +294,10 @@ export default function ActionPopup() {
         <div
           className={`action-popup-response${streaming ? " streaming" : ""}`}
         >
-          {response}
+          {response ||
+            (mode === "screen" && !streaming
+              ? `Håll Mellanslag eller ${HOTKEY_LABELS[actionHotkey]} och säg vad AI ska göra med skärmklippet.`
+              : "")}
         </div>
       )}
 
@@ -259,6 +305,8 @@ export default function ActionPopup() {
         <div>
           {streaming
             ? "genererar…"
+            : mode === "screen" && !response && !error
+              ? `håll Mellanslag eller ${HOTKEY_LABELS[actionHotkey]} och ställ en fråga om bilden`
             : mode === "transform" && !error && response
               ? "Enter ersätter markerad text"
               : !error && response

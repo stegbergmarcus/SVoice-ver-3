@@ -76,6 +76,11 @@ pub fn snapshot_conversation() -> Option<(Option<String>, Vec<TurnContent>)> {
     Some((conv.system.clone(), conv.turns.clone()))
 }
 
+pub fn active_conversation_mode() -> Option<&'static str> {
+    let guard = ACTIVE_CONVERSATION.lock().ok()?;
+    guard.as_ref().map(|conv| conv.mode)
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub struct InjectResult {
@@ -114,20 +119,31 @@ pub async fn set_settings(
 
     // Hot-reload hotkeys om de ändrats. Fallback till default om user råkat
     // sätta båda samma (validering sker också i setup, men vi skyddar här).
-    let (d_new, a_new) = if settings.dictation_hotkey == settings.action_hotkey {
-        tracing::warn!("dictation_hotkey == action_hotkey — faller tillbaka till default");
+    let has_duplicate = settings.dictation_hotkey == settings.action_hotkey
+        || settings.dictation_hotkey == settings.screen_hotkey
+        || settings.action_hotkey == settings.screen_hotkey;
+    let (d_new, a_new, s_new) = if has_duplicate {
+        tracing::warn!("hotkey-konflikt — faller tillbaka till defaults");
         (
             svoice_hotkey::HotKey::RightCtrl,
             svoice_hotkey::HotKey::Insert,
+            svoice_hotkey::HotKey::ScrollLock,
         )
     } else {
-        (settings.dictation_hotkey, settings.action_hotkey)
+        (
+            settings.dictation_hotkey,
+            settings.action_hotkey,
+            settings.screen_hotkey,
+        )
     };
     if let Err(e) = svoice_hotkey::rebind_role("dictation", old.dictation_hotkey, d_new) {
         tracing::error!("kunde inte rebinda dictation-hotkey: {e}");
     }
     if let Err(e) = svoice_hotkey::rebind_role("action", old.action_hotkey, a_new) {
         tracing::error!("kunde inte rebinda action-hotkey: {e}");
+    }
+    if let Err(e) = svoice_hotkey::rebind_role("screen", old.screen_hotkey, s_new) {
+        tracing::error!("kunde inte rebinda screen-hotkey: {e}");
     }
 
     // Bygg SttConfig från ny settings och be PythonStt reload om det ändrats.
@@ -512,13 +528,8 @@ pub enum ActiveLlm {
 #[derive(Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ActiveStt {
-    Local {
-        model: String,
-        compute: String,
-    },
-    Groq {
-        model: String,
-    },
+    Local { model: String, compute: String },
+    Groq { model: String },
     Disabled,
 }
 
@@ -540,8 +551,8 @@ async fn resolve_llm(choice: svoice_settings::LlmProvider, settings: &Settings) 
     let has_gemini = matches!(svoice_secrets::get_gemini_key(), Ok(Some(ref k)) if !k.is_empty());
 
     let probe_ollama = || async {
-        let client =
-            OllamaClient::new(settings.ollama_model.clone()).with_base_url(settings.ollama_url.clone());
+        let client = OllamaClient::new(settings.ollama_model.clone())
+            .with_base_url(settings.ollama_url.clone());
         client.is_healthy().await
     };
 
@@ -643,7 +654,8 @@ pub async fn active_stack() -> ActiveStack {
                 },
             },
             svoice_settings::SttProvider::Groq => {
-                let has_groq = matches!(svoice_secrets::get_groq_key(), Ok(Some(ref k)) if !k.is_empty());
+                let has_groq =
+                    matches!(svoice_secrets::get_groq_key(), Ok(Some(ref k)) if !k.is_empty());
                 if has_groq {
                     ActiveStt::Groq {
                         model: settings.groq_stt_model.clone(),

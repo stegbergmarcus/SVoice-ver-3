@@ -9,7 +9,9 @@ use futures_util::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::pin::Pin;
 
-use crate::provider::{LlmError, LlmProvider, LlmRequest, LlmStream, Role};
+use crate::provider::{
+    LlmError, LlmProvider, LlmRequest, LlmStream, Role, VisionLlmProvider, VisionRequest,
+};
 
 const API_URL: &str = "https://api.anthropic.com/v1/messages";
 const API_VERSION: &str = "2023-06-01";
@@ -51,6 +53,36 @@ struct ApiRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     system: Option<String>,
     messages: Vec<ApiMessage>,
+}
+
+fn build_vision_request_body(req: &VisionRequest) -> serde_json::Value {
+    let mut body = serde_json::json!({
+        "model": DEFAULT_MODEL,
+        "max_tokens": req.max_tokens.max(64),
+        "temperature": req.temperature,
+        "stream": true,
+        "messages": [{
+            "role": "user",
+            "content": [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": req.image.media_type,
+                        "data": req.image.data_base64,
+                    }
+                },
+                {
+                    "type": "text",
+                    "text": req.prompt,
+                }
+            ]
+        }]
+    });
+    if let Some(system) = &req.system {
+        body["system"] = serde_json::json!(system);
+    }
+    body
 }
 
 #[derive(Debug, Deserialize)]
@@ -230,5 +262,72 @@ fn process_sse_chunk(chunk: &str, out: &mut std::collections::VecDeque<Result<St
                 }
             }
         }
+    }
+}
+
+#[async_trait]
+impl VisionLlmProvider for AnthropicClient {
+    fn name(&self) -> &'static str {
+        "anthropic"
+    }
+
+    async fn complete_vision_stream(&self, req: VisionRequest) -> Result<LlmStream, LlmError> {
+        if self.api_key.is_empty() {
+            return Err(LlmError::MissingApiKey);
+        }
+
+        let mut body = build_vision_request_body(&req);
+        body["model"] = serde_json::json!(self.model);
+
+        let resp = self
+            .client
+            .post(API_URL)
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", API_VERSION)
+            .header("content-type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| LlmError::Http(e.to_string()))?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(LlmError::Api {
+                status: status.as_u16(),
+                body,
+            });
+        }
+
+        Ok(Box::pin(sse_text_deltas(resp.bytes_stream())))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::provider::{VisionImage, VisionRequest};
+
+    #[test]
+    fn vision_body_places_image_before_text() {
+        let body = build_vision_request_body(&VisionRequest {
+            system: Some("Svara på svenska.".into()),
+            prompt: "Läs registreringsnumret.".into(),
+            image: VisionImage {
+                media_type: "image/png".into(),
+                data_base64: "abc123".into(),
+            },
+            temperature: 0.2,
+            max_tokens: 128,
+        });
+
+        assert_eq!(body["system"], "Svara på svenska.");
+        let content = body["messages"][0]["content"].as_array().unwrap();
+        assert_eq!(content[0]["type"], "image");
+        assert_eq!(content[0]["source"]["type"], "base64");
+        assert_eq!(content[0]["source"]["media_type"], "image/png");
+        assert_eq!(content[0]["source"]["data"], "abc123");
+        assert_eq!(content[1]["type"], "text");
+        assert_eq!(content[1]["text"], "Läs registreringsnumret.");
     }
 }

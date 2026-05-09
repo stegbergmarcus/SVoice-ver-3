@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Default capabilities — events + core API för main- och overlay-webview",
-  "windows": ["main", "overlay", "action-popup", "palette"],
+  "windows": ["main", "overlay", "action-popup", "palette", "screen-clip"],
   "permissions": [
     "core:default",
     "core:event:default",

@@ -106,6 +106,20 @@ pub struct Settings {
     pub dictation_hotkey: HotKey,
     /// Hotkey för action-popup. Standard: Insert.
     pub action_hotkey: HotKey,
+    /// Hotkey för skärmklipp till AI. Standard: Scroll Lock.
+    #[serde(default = "default_screen_hotkey")]
+    pub screen_hotkey: HotKey,
+
+    /// Om true: kommandon som "läs registreringsnumret" triggar ett strikt
+    /// textläge för skärmklipp. Om false behandlas alla klipp som vanliga
+    /// bildfrågor.
+    #[serde(default = "default_true")]
+    pub screen_clip_auto_text_mode: bool,
+
+    /// Om true: textläget skickar en gråskale/kontrastad kopia av klippet till
+    /// vision-modellen. Originalbilden sparas fortfarande bara i RAM.
+    #[serde(default = "default_true")]
+    pub screen_clip_ocr_enhancement: bool,
 
     /// Google OAuth client-ID (från Google Cloud Console → "Desktop app").
     /// Om None: Google-integration disabled.
@@ -180,6 +194,10 @@ fn default_no_speech_threshold() -> f32 {
     0.5
 }
 
+fn default_screen_hotkey() -> HotKey {
+    HotKey::ScrollLock
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -209,6 +227,9 @@ impl Default for Settings {
             stt_language: "sv".into(),
             dictation_hotkey: HotKey::RightCtrl,
             action_hotkey: HotKey::Insert,
+            screen_hotkey: default_screen_hotkey(),
+            screen_clip_auto_text_mode: true,
+            screen_clip_ocr_enhancement: true,
             google_oauth_client_id: None,
             google_oauth_client_secret: None,
             autostart: false,
@@ -268,6 +289,9 @@ mod tests {
         assert_eq!(s.ollama_model, "qwen2.5:14b");
         assert_eq!(s.dictation_hotkey, HotKey::RightCtrl);
         assert_eq!(s.action_hotkey, HotKey::Insert);
+        assert_eq!(s.screen_hotkey, HotKey::ScrollLock);
+        assert!(s.screen_clip_auto_text_mode);
+        assert!(s.screen_clip_ocr_enhancement);
         assert_eq!(s.stt_provider, SttProvider::Local);
         assert_eq!(s.stt_language, "sv");
         assert_eq!(s.groq_llm_model, "llama-3.3-70b-versatile");
@@ -304,6 +328,9 @@ mod tests {
             stt_language: "en".into(),
             dictation_hotkey: HotKey::F12,
             action_hotkey: HotKey::Pause,
+            screen_hotkey: HotKey::ScrollLock,
+            screen_clip_auto_text_mode: false,
+            screen_clip_ocr_enhancement: false,
             google_oauth_client_id: Some("1234.apps.googleusercontent.com".into()),
             google_oauth_client_secret: Some("GOCSPX-abc123".into()),
             autostart: false,
@@ -323,6 +350,15 @@ mod tests {
         assert_eq!(original.gemini_model, restored.gemini_model);
         assert_eq!(original.dictation_hotkey, restored.dictation_hotkey);
         assert_eq!(original.action_hotkey, restored.action_hotkey);
+        assert_eq!(original.screen_hotkey, restored.screen_hotkey);
+        assert_eq!(
+            original.screen_clip_auto_text_mode,
+            restored.screen_clip_auto_text_mode
+        );
+        assert_eq!(
+            original.screen_clip_ocr_enhancement,
+            restored.screen_clip_ocr_enhancement
+        );
         assert_eq!(
             original.google_oauth_client_id,
             restored.google_oauth_client_id

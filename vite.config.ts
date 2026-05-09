@@ -20,6 +20,7 @@ export default defineConfig({
         main: resolve(__dirname, "index.html"),
         overlay: resolve(__dirname, "src/overlays/overlay.html"),
         actionPopup: resolve(__dirname, "src/overlays/action-popup.html"),
+        screenClip: resolve(__dirname, "src/overlays/screen-clip.html"),
         palette: resolve(__dirname, "src/palette/palette.html"),
       },
     },

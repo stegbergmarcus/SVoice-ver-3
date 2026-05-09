@@ -20,7 +20,10 @@ use async_trait::async_trait;
 use futures_util::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 
-use crate::provider::{LlmError, LlmProvider, LlmRequest, LlmStream, Role, TurnContent};
+use crate::provider::{
+    LlmError, LlmProvider, LlmRequest, LlmStream, Role, TurnContent, VisionLlmProvider,
+    VisionRequest,
+};
 
 const API_BASE: &str = "https://generativelanguage.googleapis.com/v1beta/models";
 pub const DEFAULT_MODEL: &str = "gemini-2.5-flash";
@@ -151,6 +154,35 @@ fn build_request_body(req: &LlmRequest, enable_grounding: bool) -> serde_json::V
     body
 }
 
+fn build_vision_request_body(req: &VisionRequest) -> serde_json::Value {
+    let mut body = serde_json::json!({
+        "contents": [{
+            "role": "user",
+            "parts": [
+                {
+                    "inline_data": {
+                        "mime_type": req.image.media_type,
+                        "data": req.image.data_base64,
+                    }
+                },
+                { "text": req.prompt }
+            ]
+        }],
+        "generationConfig": {
+            "temperature": req.temperature,
+            "maxOutputTokens": req.max_tokens,
+        }
+    });
+
+    if let Some(sys) = &req.system {
+        body["systemInstruction"] = serde_json::json!({
+            "parts": [{ "text": sys }]
+        });
+    }
+
+    body
+}
+
 #[async_trait]
 impl LlmProvider for GeminiClient {
     fn name(&self) -> &'static str {
@@ -169,6 +201,54 @@ impl LlmProvider for GeminiClient {
             }
         });
         Ok(Box::pin(text_only) as LlmStream)
+    }
+}
+
+#[async_trait]
+impl VisionLlmProvider for GeminiClient {
+    fn name(&self) -> &'static str {
+        "gemini"
+    }
+
+    async fn complete_vision_stream(&self, req: VisionRequest) -> Result<LlmStream, LlmError> {
+        if self.api_key.is_empty() {
+            return Err(LlmError::MissingApiKey);
+        }
+
+        let url = format!(
+            "{API_BASE}/{model}:streamGenerateContent?alt=sse",
+            model = self.model
+        );
+        let body = build_vision_request_body(&req);
+
+        let resp = self
+            .client
+            .post(&url)
+            .header("x-goog-api-key", &self.api_key)
+            .header("content-type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| LlmError::Http(e.to_string()))?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            let short = short_error_message(&body);
+            return Err(LlmError::Api {
+                status: status.as_u16(),
+                body: short.unwrap_or(body),
+            });
+        }
+
+        let events = sse_to_event_stream(resp.bytes_stream()).filter_map(|ev| async move {
+            match ev {
+                Ok(GeminiEvent::Text(t)) => Some(Ok(t)),
+                Ok(GeminiEvent::Grounding { .. }) | Ok(GeminiEvent::FunctionCall { .. }) => None,
+                Err(e) => Some(Err(e)),
+            }
+        });
+        Ok(Box::pin(events) as LlmStream)
     }
 }
 
@@ -496,7 +576,27 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::provider::TurnContent;
+    use crate::provider::{TurnContent, VisionImage, VisionRequest};
+
+    #[test]
+    fn vision_body_uses_inline_data_before_text() {
+        let body = build_vision_request_body(&VisionRequest {
+            system: Some("Svara kort.".into()),
+            prompt: "Vad föreställer bilden?".into(),
+            image: VisionImage {
+                media_type: "image/png".into(),
+                data_base64: "abc123".into(),
+            },
+            temperature: 0.2,
+            max_tokens: 128,
+        });
+
+        let parts = body["contents"][0]["parts"].as_array().unwrap();
+        assert_eq!(parts[0]["inline_data"]["mime_type"], "image/png");
+        assert_eq!(parts[0]["inline_data"]["data"], "abc123");
+        assert_eq!(parts[1]["text"], "Vad föreställer bilden?");
+        assert_eq!(body["systemInstruction"]["parts"][0]["text"], "Svara kort.");
+    }
 
     #[test]
     fn missing_api_key_returns_error() {

@@ -1,5 +1,6 @@
 mod agentic;
 mod migrate;
+mod screen_clip;
 
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::mpsc;
@@ -12,6 +13,7 @@ const OWNER_NONE: u8 = 0;
 const OWNER_DICTATION: u8 = 1;
 const OWNER_ACTION: u8 = 2;
 static PTT_OWNER: AtomicU8 = AtomicU8::new(OWNER_NONE);
+const ACTION_TAP_MAX_MS: u64 = 260;
 
 /// Senaste selection fångad när palette-hotkey trycktes. Läses av
 /// `run_smart_function`-IPC när user väljer en function.
@@ -24,6 +26,9 @@ static PALETTE_SELECTION: std::sync::Mutex<Option<String>> = std::sync::Mutex::n
 static LAST_DICTATION_INJECT: std::sync::Mutex<Option<(std::time::Instant, char)>> =
     std::sync::Mutex::new(None);
 
+static PENDING_SCREEN_IMAGE: std::sync::Mutex<Option<screen_clip::CapturedImage>> =
+    std::sync::Mutex::new(None);
+
 use futures_util::StreamExt;
 use svoice_audio::vad::trim_silence;
 use svoice_audio::{AudioCapture, AudioRing, VolumeMeter};
@@ -31,7 +36,7 @@ use svoice_hotkey::{register_with_role, HotKey, LlCallback, LlKeyEvent, PttMachi
 use svoice_inject::{capture_selection, inject, remember_foreground_target, InjectMethod};
 use svoice_llm::{
     AnthropicClient, GeminiClient, GroqClient, LlmProvider, LlmRequest, OllamaClient, Role,
-    TurnContent,
+    TurnContent, VisionImage, VisionLlmProvider, VisionRequest,
 };
 use svoice_settings::{ComputeMode, LlmProvider as ProviderChoice, Settings, SttProvider};
 use svoice_stt::{GroqStt, PythonStt, SttConfig};
@@ -50,6 +55,7 @@ const EV_ACTION_POPUP_OPEN: &str = "action_popup_open";
 const EV_ACTION_LLM_TOKEN: &str = "action_llm_token";
 const EV_ACTION_LLM_DONE: &str = "action_llm_done";
 const EV_ACTION_LLM_ERROR: &str = "action_llm_error";
+const EV_SCREEN_CLIP_OPEN: &str = "screen_clip_open";
 
 #[derive(serde::Serialize, Clone, Copy)]
 struct VolumeEvent {
@@ -61,6 +67,27 @@ struct ActionPopupOpen {
     selection: Option<String>,
     command: String,
     mode: &'static str,
+    image_preview: Option<String>,
+}
+
+#[derive(serde::Serialize, Clone, Copy)]
+struct ScreenClipOpen {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ScreenClipSelection {
+    start_x: f64,
+    start_y: f64,
+    end_x: f64,
+    end_y: f64,
+    scale_factor: f64,
+    origin_x: i32,
+    origin_y: i32,
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -190,7 +217,7 @@ pub fn run() {
             //   3. DWMWA_USE_HOSTBACKDROPBRUSH=0 hindrar DWM från att rita en
             //      host-backdrop-brush för parent-fönstret.
             // Utan dessa visas en grå/svart fyrkant under popup-cardet på Win11.
-            for label in &["action-popup", "palette", "overlay"] {
+            for label in &["action-popup", "palette", "overlay", "screen-clip"] {
                 if let Some(win) = app.get_webview_window(label) {
                     if let Err(e) = win.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)))
                     {
@@ -584,17 +611,20 @@ pub fn run() {
                 .expect("kunde inte starta PTT worker-thread");
 
             // Läs hotkey-val. Validera: om båda är samma, använd default.
-            let (dict_key, action_key) = {
+            let (dict_key, action_key, screen_key) = {
                 let d = user_settings.dictation_hotkey;
                 let a = user_settings.action_hotkey;
-                if d == a {
+                let s = user_settings.screen_hotkey;
+                if d == a || d == s || a == s {
                     tracing::warn!(
-                        "dictation_hotkey == action_hotkey ({:?}) — faller tillbaka till default",
-                        d
+                        "hotkey-konflikt ({:?}, {:?}, {:?}) — faller tillbaka till default",
+                        d,
+                        a,
+                        s
                     );
-                    (HotKey::RightCtrl, HotKey::Insert)
+                    (HotKey::RightCtrl, HotKey::Insert, HotKey::ScrollLock)
                 } else {
-                    (d, a)
+                    (d, a, s)
                 }
             };
 
@@ -641,6 +671,22 @@ pub fn run() {
             match register_with_role("action", action_key, action_cb) {
                 Ok(()) => tracing::info!("Action-PTT aktiv: håll {:?} för LLM-popup", action_key),
                 Err(e) => tracing::error!("kunde inte registrera action-hotkey: {e}"),
+            }
+
+            let screen_app = app_handle.clone();
+            let screen_cb: LlCallback = Arc::new(move |ev: LlKeyEvent| {
+                if ev != LlKeyEvent::Pressed {
+                    return;
+                }
+                clear_pending_screen_image();
+                if let Err(e) = open_screen_clip_overlay(&screen_app) {
+                    tracing::warn!("screen-clip kunde inte öppnas: {e}");
+                    emit_error_toast(&screen_app, "Skärmklipp misslyckades", &e.to_string());
+                }
+            });
+            match register_with_role("screen", screen_key, screen_cb) {
+                Ok(()) => tracing::info!("Skärmklipp aktivt: tryck {:?} för AI-klipp", screen_key),
+                Err(e) => tracing::error!("kunde inte registrera screen-hotkey: {e}"),
             }
 
             // Follow-up-poll-thread: frontend IPC action_followup_start/stop sätter
@@ -784,6 +830,9 @@ pub fn run() {
             svoice_ipc::pull_ollama_model,
             palette_close,
             run_smart_function,
+            screen_clip_cancel,
+            screen_clip_clear,
+            screen_clip_commit,
             svoice_ipc::set_anthropic_key,
             svoice_ipc::set_gemini_key,
             svoice_ipc::set_groq_key,
@@ -889,6 +938,106 @@ fn show_main_window(app: &AppHandle) {
         let _ = win.unminimize();
         let _ = win.set_focus();
     }
+}
+
+fn pending_screen_image() -> Option<screen_clip::CapturedImage> {
+    PENDING_SCREEN_IMAGE
+        .lock()
+        .ok()
+        .and_then(|guard| guard.clone())
+}
+
+fn pending_screen_preview() -> Option<String> {
+    pending_screen_image().map(|img| img.data_url)
+}
+
+fn clear_pending_screen_image() {
+    if let Ok(mut guard) = PENDING_SCREEN_IMAGE.lock() {
+        *guard = None;
+    }
+}
+
+fn open_screen_clip_overlay(app: &AppHandle) -> anyhow::Result<()> {
+    if !remember_foreground_target() {
+        anyhow::bail!("target är SVoice eller saknas");
+    }
+    let monitor = screen_clip::monitor_under_cursor()?;
+    let Some(win) = app.get_webview_window("screen-clip") else {
+        anyhow::bail!("screen-clip-fönster saknas");
+    };
+    win.set_position(tauri::PhysicalPosition::new(monitor.x, monitor.y))?;
+    win.set_size(tauri::PhysicalSize::new(monitor.width, monitor.height))?;
+    win.show()?;
+    win.set_focus()?;
+    emit_event(
+        app,
+        EV_SCREEN_CLIP_OPEN,
+        ScreenClipOpen {
+            x: monitor.x,
+            y: monitor.y,
+            width: monitor.width,
+            height: monitor.height,
+        },
+    );
+    Ok(())
+}
+
+#[tauri::command]
+fn screen_clip_cancel(app: AppHandle) {
+    if let Some(win) = app.get_webview_window("screen-clip") {
+        let _ = win.hide();
+    }
+}
+
+#[tauri::command]
+fn screen_clip_clear() {
+    clear_pending_screen_image();
+}
+
+#[tauri::command]
+fn screen_clip_commit(app: AppHandle, selection: ScreenClipSelection) -> Result<(), String> {
+    let drag = screen_clip::DragRect {
+        start_x: selection.start_x,
+        start_y: selection.start_y,
+        end_x: selection.end_x,
+        end_y: selection.end_y,
+        scale_factor: selection.scale_factor,
+        origin_x: selection.origin_x,
+        origin_y: selection.origin_y,
+    };
+    let rect = screen_clip::normalize_drag_rect(drag)
+        .ok_or_else(|| "Skärmklippet är för litet.".to_string())?;
+    let image = screen_clip::capture_region(rect).map_err(|e| e.to_string())?;
+    if let Some(win) = app.get_webview_window("screen-clip") {
+        let _ = win.hide();
+    }
+
+    let preview = image.data_url.clone();
+    if let Ok(mut guard) = PENDING_SCREEN_IMAGE.lock() {
+        *guard = Some(image);
+    }
+    svoice_ipc::set_active_conversation(svoice_ipc::ActiveConversation {
+        system: Some(screen_vision_system_prompt()),
+        selection: None,
+        turns: Vec::new(),
+        mode: "screen",
+    });
+
+    if let Some(win) = app.get_webview_window("action-popup") {
+        let _ = win.show();
+        let _ = win.set_focus();
+    }
+    emit_event(
+        &app,
+        EV_ACTION_POPUP_OPEN,
+        ActionPopupOpen {
+            selection: None,
+            command: "skärmklipp klart".into(),
+            mode: "screen",
+            image_preview: Some(preview),
+        },
+    );
+    Ok(())
 }
 
 /// Placerar overlay centrerat horisontellt i primär-monitorns work-area,
@@ -1226,6 +1375,8 @@ fn action_worker_loop(
     stt: Arc<PythonStt>,
     rt: Arc<tokio::runtime::Runtime>,
 ) {
+    let mut action_pressed_at: Option<std::time::Instant> = None;
+
     for ev in rx {
         match ev {
             LlKeyEvent::Pressed => {
@@ -1258,6 +1409,7 @@ fn action_worker_loop(
                     }
                 }
                 ring.clear();
+                action_pressed_at = Some(std::time::Instant::now());
                 tracing::debug!(
                     "action-PTT: recording (follow_up={})",
                     popup_already_visible
@@ -1268,6 +1420,27 @@ fn action_worker_loop(
             LlKeyEvent::Released => {
                 // Bara hantera Released om vi är ägare.
                 if PTT_OWNER.load(Ordering::SeqCst) != OWNER_ACTION {
+                    continue;
+                }
+                let held_for = action_pressed_at
+                    .take()
+                    .map(|t| t.elapsed())
+                    .unwrap_or_else(|| std::time::Duration::from_millis(ACTION_TAP_MAX_MS + 1));
+                let popup_visible = app_handle
+                    .get_webview_window("action-popup")
+                    .and_then(|w| w.is_visible().ok())
+                    .unwrap_or(false);
+                if held_for <= std::time::Duration::from_millis(ACTION_TAP_MAX_MS) && !popup_visible
+                {
+                    tracing::info!("action-PTT: kort tap ({:?}) → skärmklipp", held_for);
+                    emit_event(&app_handle, EV_PTT_STATE, PttState::Idle);
+                    update_tray_for_state(&app_handle, PttState::Idle);
+                    clear_pending_screen_image();
+                    if let Err(e) = open_screen_clip_overlay(&app_handle) {
+                        tracing::warn!("screen-clip via action-tap misslyckades: {e}");
+                        emit_error_toast(&app_handle, "Skärmklipp misslyckades", &e.to_string());
+                    }
+                    PTT_OWNER.store(OWNER_NONE, Ordering::SeqCst);
                     continue;
                 }
                 // Hot-reload settings — kolla action-LLM-toggle först.
@@ -1288,10 +1461,6 @@ fn action_worker_loop(
                 // som en uppföljningsfråga. Då skippas capture_selection (det
                 // ger ändå fel — popupen äger fokus) och nytt user-turn läggs
                 // till i existerande konversation.
-                let popup_visible = app_handle
-                    .get_webview_window("action-popup")
-                    .and_then(|w| w.is_visible().ok())
-                    .unwrap_or(false);
                 let has_active_conv = svoice_ipc::snapshot_conversation().is_some();
                 let is_follow_up = popup_visible && has_active_conv;
 
@@ -1301,6 +1470,7 @@ fn action_worker_loop(
                 } else {
                     // Fresh session — rensa ev. stale state och fånga ny selection.
                     svoice_ipc::clear_active_conversation();
+                    clear_pending_screen_image();
                     // KRITISK ORDNING: fånga markering INNAN popup öppnas. Popup.show()
                     // stjäl fokus från target-appen, så om capture_selection körs
                     // efter stjäls Ctrl+C av popup-webviewen och inget läses.
@@ -1345,6 +1515,7 @@ fn action_worker_loop(
                         } else {
                             "query"
                         },
+                        image_preview: None,
                     },
                 );
 
@@ -1426,15 +1597,31 @@ fn handle_action_released(
 
     // Emit popup-open-event med riktig command-text. Popup redan synlig
     // (action_worker_loop öppnade den), bara uppdatera innehåll.
+    let active_mode = if is_follow_up {
+        svoice_ipc::active_conversation_mode()
+    } else {
+        None
+    };
     emit_event(
         app_handle,
         EV_ACTION_POPUP_OPEN,
         ActionPopupOpen {
             selection: selection.clone(),
             command: command.clone(),
-            mode: if is_follow_up { "follow_up" } else { mode },
+            mode: if active_mode == Some("screen") {
+                "screen"
+            } else if is_follow_up {
+                "follow_up"
+            } else {
+                mode
+            },
+            image_preview: pending_screen_preview(),
         },
     );
+
+    if active_mode == Some("screen") {
+        return handle_screen_vision_command(app_handle, rt, settings, command);
+    }
 
     // Gemini-agentic-path: om user valt Gemini som action-provider, kör med
     // Google Search-grounding istället för Claude's agentic flow. Skarpare
@@ -1736,8 +1923,347 @@ async fn select_llm_provider(
     }
 }
 
+async fn select_vision_provider(
+    choice: ProviderChoice,
+    settings: &Settings,
+    anthropic_key: Option<&str>,
+) -> Option<Arc<dyn VisionLlmProvider>> {
+    let build_anthropic = || -> Option<Arc<dyn VisionLlmProvider>> {
+        anthropic_key.filter(|k| !k.is_empty()).map(|key| {
+            Arc::new(
+                AnthropicClient::new(key.to_string()).with_model(settings.anthropic_model.clone()),
+            ) as Arc<dyn VisionLlmProvider>
+        })
+    };
+    let build_gemini = || -> Option<Arc<dyn VisionLlmProvider>> {
+        svoice_secrets::get_gemini_key()
+            .ok()
+            .flatten()
+            .filter(|k| !k.is_empty())
+            .map(|key| {
+                Arc::new(GeminiClient::new(key).with_model(settings.gemini_model.clone()))
+                    as Arc<dyn VisionLlmProvider>
+            })
+    };
+    let build_ollama = || -> Arc<dyn VisionLlmProvider> {
+        Arc::new(
+            OllamaClient::new(settings.ollama_model.clone())
+                .with_base_url(settings.ollama_url.clone()),
+        )
+    };
+
+    match choice {
+        ProviderChoice::Claude => build_anthropic(),
+        ProviderChoice::Gemini => build_gemini(),
+        ProviderChoice::Ollama => Some(build_ollama()),
+        ProviderChoice::Groq => None,
+        ProviderChoice::Auto => {
+            let ollama = OllamaClient::new(settings.ollama_model.clone())
+                .with_base_url(settings.ollama_url.clone());
+            if looks_like_ollama_vision_model(&settings.ollama_model) && ollama.is_healthy().await {
+                Some(Arc::new(ollama))
+            } else if let Some(gemini) = build_gemini() {
+                Some(gemini)
+            } else {
+                build_anthropic()
+            }
+        }
+    }
+}
+
+fn looks_like_ollama_vision_model(model: &str) -> bool {
+    let m = model.to_ascii_lowercase();
+    [
+        "llava",
+        "bakllava",
+        "minicpm",
+        "vision",
+        "qwen2.5vl",
+        "qwen2.5-vl",
+        "gemma3",
+    ]
+    .iter()
+    .any(|needle| m.contains(needle))
+}
+
+fn screen_vision_system_prompt() -> String {
+    "Du är en svensk multimodal assistent. Användaren skickar ett skärmklipp och ett röstkommando. \
+Svara kort på svenska. Om kommandot ber dig läsa ut text, registreringsnummer, koder eller liknande: \
+returnera bara det avlästa värdet utan förklaring, markdown eller citattecken. Om bilden är oklar, \
+säg att du är osäker och ge bästa läsningen kort."
+        .into()
+}
+
+fn screen_text_system_prompt() -> String {
+    "Du är en OCR-assistent. Returnera endast texten eller värdet användaren ber om. \
+Ingen förklaring, ingen markdown, inga citattecken och inget prefix. Om du inte kan läsa \
+det: returnera OLÄSBART."
+        .into()
+}
+
+fn is_screen_text_extraction_command(command: &str) -> bool {
+    let command = command.to_lowercase();
+    let strong_text_requests = [
+        "kopiera",
+        "skriv av",
+        "extrahera",
+        "ocr",
+        "vad star",
+        "vad står",
+        "står det",
+        "star det",
+    ];
+    if strong_text_requests
+        .iter()
+        .any(|needle| command.contains(needle))
+    {
+        return true;
+    }
+
+    let asks_to_read = command.contains("läs") || command.contains("las");
+    let text_targets = [
+        "registreringsnummer",
+        "regnummer",
+        "reg nr",
+        "nummerplåt",
+        "nummerplat",
+        "skylt",
+        "text",
+        "kod",
+        "felkod",
+        "serienummer",
+        "artikelnummer",
+        "personnummer",
+        "datum",
+        "belopp",
+        "ordet",
+        "numret",
+        "nummer",
+    ];
+
+    asks_to_read && text_targets.iter().any(|needle| command.contains(needle))
+}
+
+fn should_use_screen_text_mode(settings: &Settings, command: &str) -> bool {
+    settings.screen_clip_auto_text_mode && is_screen_text_extraction_command(command)
+}
+
+fn screen_image_base64_for_request(
+    image: &screen_clip::CapturedImage,
+    text_mode: bool,
+    settings: &Settings,
+) -> String {
+    if text_mode && settings.screen_clip_ocr_enhancement {
+        image.text_data_base64.clone()
+    } else {
+        image.data_base64.clone()
+    }
+}
+
+fn build_screen_prompt(turns: &[TurnContent], command: &str) -> String {
+    if turns.len() <= 1 {
+        return command.to_string();
+    }
+    let mut out = String::from("Kontext från tidigare frågor om samma skärmklipp:\n");
+    for turn in turns.iter().take(turns.len().saturating_sub(1)) {
+        let role = match turn.role {
+            Role::User => "Användare",
+            Role::Assistant => "Assistent",
+            Role::System => "System",
+        };
+        out.push_str(role);
+        out.push_str(": ");
+        out.push_str(&turn.text);
+        out.push('\n');
+    }
+    out.push_str("\nNytt kommando: ");
+    out.push_str(command);
+    out
+}
+
+fn build_screen_text_prompt(turns: &[TurnContent], command: &str) -> String {
+    let instruction = "Läs skärmklippet enligt kommandot. Returnera endast det avlästa värdet.";
+    if turns.len() <= 1 {
+        return format!("{instruction}\n\nKommando: {command}");
+    }
+
+    let mut out = String::from("Kontext från tidigare frågor om samma skärmklipp:\n");
+    for turn in turns.iter().take(turns.len().saturating_sub(1)) {
+        let role = match turn.role {
+            Role::User => "Användare",
+            Role::Assistant => "Assistent",
+            Role::System => "System",
+        };
+        out.push_str(role);
+        out.push_str(": ");
+        out.push_str(&turn.text);
+        out.push('\n');
+    }
+    out.push_str("\n");
+    out.push_str(instruction);
+    out.push_str("\n\nKommando: ");
+    out.push_str(command);
+    out
+}
+
+fn handle_screen_vision_command(
+    app_handle: &AppHandle,
+    rt: &Arc<tokio::runtime::Runtime>,
+    settings: &Settings,
+    command: String,
+) -> anyhow::Result<()> {
+    let image = pending_screen_image()
+        .ok_or_else(|| anyhow::anyhow!("skärmklippsbild saknas; ta ett nytt klipp"))?;
+    svoice_ipc::append_user_turn(command.clone());
+    let (system, turns) = svoice_ipc::snapshot_conversation()
+        .ok_or_else(|| anyhow::anyhow!("screen-konversation saknas"))?;
+    let text_mode = should_use_screen_text_mode(settings, &command);
+    let prompt = if text_mode {
+        build_screen_text_prompt(&turns, &command)
+    } else {
+        build_screen_prompt(&turns, &command)
+    };
+    let anthropic_key = svoice_secrets::get_anthropic_key().ok().flatten();
+    let llm = rt.block_on(select_vision_provider(
+        settings.action_llm_provider,
+        settings,
+        anthropic_key.as_deref(),
+    ));
+    let Some(llm) = llm else {
+        anyhow::bail!(
+            "Ingen bildkompatibel AI-provider tillgänglig. Välj Claude, Gemini eller en Ollama vision-modell."
+        );
+    };
+
+    let data_base64 = screen_image_base64_for_request(&image, text_mode, settings);
+    let req = VisionRequest {
+        system: if text_mode {
+            Some(screen_text_system_prompt())
+        } else {
+            system
+        },
+        prompt,
+        image: VisionImage {
+            media_type: image.media_type,
+            data_base64,
+        },
+        temperature: if text_mode { 0.0 } else { 0.2 },
+        max_tokens: if text_mode { 256 } else { 1024 },
+    };
+    let app_clone = app_handle.clone();
+    rt.spawn(async move {
+        let mut assistant_accum = String::new();
+        match llm.complete_vision_stream(req).await {
+            Ok(mut stream) => {
+                while let Some(chunk) = stream.next().await {
+                    match chunk {
+                        Ok(text) => {
+                            assistant_accum.push_str(&text);
+                            emit_action_token(&app_clone, text);
+                        }
+                        Err(e) => {
+                            emit_event(
+                                &app_clone,
+                                EV_ACTION_LLM_ERROR,
+                                ActionError {
+                                    message: e.to_string(),
+                                },
+                            );
+                            svoice_ipc::clear_action_streaming();
+                            return;
+                        }
+                    }
+                }
+                if !assistant_accum.is_empty() {
+                    svoice_ipc::append_assistant_turn(assistant_accum);
+                }
+                emit_action_done(&app_clone);
+            }
+            Err(e) => {
+                emit_event(
+                    &app_clone,
+                    EV_ACTION_LLM_ERROR,
+                    ActionError {
+                        message: e.to_string(),
+                    },
+                );
+                svoice_ipc::clear_action_streaming();
+            }
+        }
+    });
+    Ok(())
+}
+
 /// Transkribera via vald STT-provider. För Groq krävs API-nyckel i keyring —
 /// saknas den (eller om API-call failar) faller vi tillbaka till lokal STT.
+#[cfg(test)]
+mod screen_vision_tests {
+    use super::*;
+
+    #[test]
+    fn text_extraction_commands_enable_text_mode() {
+        assert!(is_screen_text_extraction_command("läs registreringsnumret"));
+        assert!(is_screen_text_extraction_command("kopiera texten"));
+        assert!(is_screen_text_extraction_command("vad står det?"));
+        assert!(is_screen_text_extraction_command("läs koden"));
+    }
+
+    #[test]
+    fn general_image_questions_stay_in_vision_mode() {
+        assert!(!is_screen_text_extraction_command(
+            "vad är detta för blomma?"
+        ));
+        assert!(!is_screen_text_extraction_command("förklara bilden"));
+    }
+
+    #[test]
+    fn text_prompt_requests_raw_value_only() {
+        let prompt = screen_text_system_prompt();
+
+        assert!(prompt.contains("Returnera endast"));
+        assert!(prompt.contains("ingen markdown"));
+    }
+
+    #[test]
+    fn text_mode_can_be_disabled_from_settings() {
+        let mut settings = Settings::default();
+        assert!(should_use_screen_text_mode(
+            &settings,
+            "läs registreringsnumret"
+        ));
+
+        settings.screen_clip_auto_text_mode = false;
+
+        assert!(!should_use_screen_text_mode(
+            &settings,
+            "läs registreringsnumret"
+        ));
+    }
+
+    #[test]
+    fn ocr_enhancement_can_be_disabled_from_settings() {
+        let image = screen_clip::CapturedImage {
+            media_type: "image/png".into(),
+            data_base64: "original".into(),
+            text_data_base64: "enhanced".into(),
+            data_url: "data:image/png;base64,original".into(),
+        };
+        let mut settings = Settings::default();
+
+        assert_eq!(
+            screen_image_base64_for_request(&image, true, &settings),
+            "enhanced"
+        );
+
+        settings.screen_clip_ocr_enhancement = false;
+
+        assert_eq!(
+            screen_image_base64_for_request(&image, true, &settings),
+            "original"
+        );
+    }
+}
+
 async fn transcribe_dispatch(
     settings: &Settings,
     local: &PythonStt,
@@ -1822,6 +2348,7 @@ async fn run_smart_function(app: AppHandle, id: String) -> Result<(), String> {
             selection: selection.clone(),
             command: sf.name.clone(),
             mode,
+            image_preview: None,
         },
     );
 

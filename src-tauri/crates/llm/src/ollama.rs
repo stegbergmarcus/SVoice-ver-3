@@ -18,7 +18,9 @@ use serde::{Deserialize, Serialize};
 use std::pin::Pin;
 use std::time::Duration;
 
-use crate::provider::{LlmError, LlmProvider, LlmRequest, LlmStream, Role};
+use crate::provider::{
+    LlmError, LlmProvider, LlmRequest, LlmStream, Role, VisionLlmProvider, VisionRequest,
+};
 
 const DEFAULT_URL: &str = "http://127.0.0.1:11434";
 const HEALTH_TIMEOUT: Duration = Duration::from_millis(800);
@@ -64,6 +66,8 @@ impl OllamaClient {
 struct ChatMessage {
     role: String,
     content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    images: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -241,6 +245,7 @@ impl LlmProvider for OllamaClient {
             messages.push(ChatMessage {
                 role: "system".into(),
                 content: sys.clone(),
+                images: None,
             });
         }
         for turn in &req.turns {
@@ -252,6 +257,7 @@ impl LlmProvider for OllamaClient {
             messages.push(ChatMessage {
                 role: role.into(),
                 content: turn.text.clone(),
+                images: None,
             });
         }
 
@@ -356,5 +362,85 @@ fn process_ndjson_line(line: &str, out: &mut std::collections::VecDeque<Result<S
         Err(e) => {
             tracing::debug!("ollama ndjson parse miss: {e} — payload: {line}");
         }
+    }
+}
+
+fn build_vision_request_body(req: &VisionRequest) -> serde_json::Value {
+    let mut messages = Vec::new();
+    if let Some(system) = &req.system {
+        messages.push(serde_json::json!({
+            "role": "system",
+            "content": system,
+        }));
+    }
+    messages.push(serde_json::json!({
+        "role": "user",
+        "content": req.prompt,
+        "images": [req.image.data_base64],
+    }));
+    serde_json::json!({
+        "model": "",
+        "messages": messages,
+        "stream": true,
+        "options": {
+            "temperature": req.temperature,
+            "num_predict": req.max_tokens as i32,
+        }
+    })
+}
+
+#[async_trait]
+impl VisionLlmProvider for OllamaClient {
+    fn name(&self) -> &'static str {
+        "ollama"
+    }
+
+    async fn complete_vision_stream(&self, req: VisionRequest) -> Result<LlmStream, LlmError> {
+        let mut body = build_vision_request_body(&req);
+        body["model"] = serde_json::json!(self.model);
+
+        let resp = self
+            .client
+            .post(format!("{}/api/chat", self.base_url))
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| LlmError::Http(e.to_string()))?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(LlmError::Api {
+                status: status.as_u16(),
+                body,
+            });
+        }
+
+        Ok(Box::pin(ndjson_content_deltas(resp.bytes_stream())))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::provider::{VisionImage, VisionRequest};
+
+    #[test]
+    fn vision_body_adds_images_to_user_message() {
+        let body = build_vision_request_body(&VisionRequest {
+            system: Some("Svara på svenska.".into()),
+            prompt: "Läs texten.".into(),
+            image: VisionImage {
+                media_type: "image/png".into(),
+                data_base64: "abc123".into(),
+            },
+            temperature: 0.2,
+            max_tokens: 128,
+        });
+
+        assert_eq!(body["messages"][0]["role"], "system");
+        assert_eq!(body["messages"][1]["role"], "user");
+        assert_eq!(body["messages"][1]["content"], "Läs texten.");
+        assert_eq!(body["messages"][1]["images"][0], "abc123");
     }
 }

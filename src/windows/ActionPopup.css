@@ -20,9 +20,9 @@ body,
   position: fixed;
   inset: 0;
   display: grid;
-  grid-template-rows: auto auto 1fr auto;
-  gap: var(--space-4);
-  padding: var(--space-6) var(--space-6) var(--space-5);
+  grid-template-rows: auto auto auto 1fr auto;
+  gap: 12px;
+  padding: 22px 24px 18px;
   /* Card fyller hela webview-fönstret. Tidigare `inset: 16px` lämnade en 16 px
    * band runt kortet där WebView2:s default-bakgrund (ljusgrå på Win11) syntes
    * igenom trots `"transparent": true`. Utan insetet är hela popup-fönstret
@@ -71,14 +71,14 @@ body,
   z-index: 2;
   display: flex;
   align-items: center;
-  gap: var(--space-4);
-  padding-bottom: var(--space-3);
+  gap: 14px;
+  padding-bottom: 12px;
   border-bottom: 1px solid var(--ink-divider);
 }
 
 .action-popup-logo {
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   border-radius: 999px;
   background: radial-gradient(
     ellipse at 30% 30%,
@@ -115,8 +115,8 @@ body,
   font-family: var(--font-display);
   font-style: italic;
   font-weight: 400;
-  font-size: 20px;
-  line-height: 1.25;
+  font-size: 18px;
+  line-height: 1.22;
   color: var(--ink-primary);
   font-variation-settings: "opsz" 72;
 }
@@ -143,12 +143,32 @@ body,
   border-left: 2px solid var(--accent);
   border-radius: 8px;
   padding: var(--space-3) var(--space-4);
-  max-height: 100px;
+  max-height: 86px;
   overflow-y: auto;
   font-size: 13px;
   line-height: 1.5;
   color: var(--ink-secondary);
   font-style: italic;
+}
+
+.action-popup-image-context {
+  margin: 0;
+  padding: 10px;
+  border: 1px solid rgba(243, 237, 227, 0.1);
+  border-radius: 8px;
+  background: rgba(243, 237, 227, 0.035);
+  max-height: 116px;
+  overflow: hidden;
+}
+
+.action-popup-image-context img {
+  display: block;
+  width: 100%;
+  max-height: 82px;
+  object-fit: contain;
+  margin-top: 6px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.25);
 }
 
 .action-popup-context-label {
@@ -167,12 +187,13 @@ body,
   position: relative;
   z-index: 2;
   overflow-y: auto;
-  font-size: 14.5px;
-  line-height: 1.6;
+  min-height: 0;
+  font-size: 16px;
+  line-height: 1.65;
   color: var(--ink-primary);
   font-family: var(--font-body);
   white-space: pre-wrap;
-  padding-right: 4px;
+  padding: 2px 10px 2px 0;
 }
 
 .action-popup-response:empty::before {
@@ -219,7 +240,7 @@ body,
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding-top: var(--space-3);
+  padding-top: 12px;
   border-top: 1px solid var(--ink-divider);
   font-family: var(--font-mono);
   font-size: 11px;

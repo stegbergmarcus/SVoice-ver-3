@@ -25,6 +25,21 @@ pub struct LlmRequest {
     pub max_tokens: u32,
 }
 
+#[derive(Debug, Clone)]
+pub struct VisionImage {
+    pub media_type: String,
+    pub data_base64: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct VisionRequest {
+    pub system: Option<String>,
+    pub prompt: String,
+    pub image: VisionImage,
+    pub temperature: f32,
+    pub max_tokens: u32,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum LlmError {
     #[error("ingen API-nyckel konfigurerad")]
@@ -52,4 +67,11 @@ pub trait LlmProvider: Send + Sync {
 
     /// Starta en streaming-generering. Returnerar en stream av text-deltas.
     async fn complete_stream(&self, req: LlmRequest) -> Result<LlmStream, LlmError>;
+}
+
+#[async_trait::async_trait]
+pub trait VisionLlmProvider: Send + Sync {
+    fn name(&self) -> &'static str;
+
+    async fn complete_vision_stream(&self, req: VisionRequest) -> Result<LlmStream, LlmError>;
 }

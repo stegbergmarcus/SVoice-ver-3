@@ -4475,8 +4475,10 @@ name = "svoice-v3"
 version = "0.1.5"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "chrono",
  "futures-util",
+ "image",
  "serde",
  "serde_json",
  "svoice-audio",
