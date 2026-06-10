@@ -2507,6 +2507,36 @@ mod stt_replacement_tests {
     }
 
     #[test]
+    fn whisper_punctuation_after_spoken_command_is_stripped() {
+        // Regression: Whisper transkriberar ofta uttalade kommandon med egen
+        // punkt ("Nytt stycke.") — punkten ska inte inleda nya stycket.
+        let settings = Settings::default();
+        assert_eq!(
+            postprocess_transcript(
+                "Det verkar ändå funka. Nytt stycke. Vad hände sen då?",
+                &settings
+            ),
+            "Det verkar ändå funka.\n\nVad hände sen då?"
+        );
+    }
+
+    #[test]
+    fn edge_spaces_trimmed_but_leading_newline_kept() {
+        let settings = Settings::default();
+        // Regression: kant-mellanslag från Whisper gav dubbelspace när
+        // auto-space fogade ihop två dikteringar.
+        assert_eq!(
+            postprocess_transcript(" Det verkar ändå funka. ", &settings),
+            "Det verkar ändå funka."
+        );
+        // Medvetet "ny rad" i början av en diktering ska bevaras.
+        assert_eq!(
+            postprocess_transcript("ny rad fortsättning", &settings),
+            "\nfortsättning"
+        );
+    }
+
+    #[test]
     fn tidy_collapses_inserted_whitespace() {
         assert_eq!(
             tidy_inserted_whitespace("rad \n  nästa  ord ."),
@@ -2672,25 +2702,43 @@ fn postprocess_transcript(text: &str, settings: &Settings) -> String {
     tidy_inserted_whitespace(&result)
 }
 
-/// Städa mellanslag som blir kvar när ord ersätts med radbrytningar eller
-/// skiljetecken: "rad \n nästa" → "rad\nnästa", "bra ." → "bra.",
-/// dubbel-mellanslag efter borttagna utfyllnadsord → enkelt. STT
-/// producerar aldrig dessa mönster själv, så städningen är säker att köra
-/// på all text.
+/// Städa mellanslag och skiljetecken som blir kvar när ord ersätts med
+/// radbrytningar eller interpunktion:
+///   - "rad \n nästa" → "rad\nnästa", "bra ." → "bra.", dubbla mellanslag → enkla
+///   - "\n." → "\n" — Whisper hänger ofta en egen punkt på uttalade kommandon
+///     ("Nytt stycke.") och den ska inte inleda nya raden
+///   - trailing whitespace trimmas och inledande mellanslag tas bort (Whisper
+///     lämnar ibland kant-mellanslag som ger dubbelspace när auto-space fogar
+///     ihop två dikteringar). Inledande radbrytning bevaras — den kan vara ett
+///     medvetet "ny rad" i början av en diktering.
+///
+/// Reglerna kan mata varandra (borttagen punkt frilägger nytt mellanslag), så
+/// passet körs tills texten är stabil. STT producerar aldrig dessa mönster i
+/// vanlig text, så städningen är säker att köra på allt.
 fn tidy_inserted_whitespace(text: &str) -> String {
     let mut s = text.to_string();
-    for (from, to) in [("  ", " "), (" \n", "\n"), ("\n ", "\n")] {
-        while s.contains(from) {
-            s = s.replace(from, to);
+    loop {
+        let before = s.clone();
+        for (from, to) in [("  ", " "), (" \n", "\n"), ("\n ", "\n")] {
+            while s.contains(from) {
+                s = s.replace(from, to);
+            }
+        }
+        for p in [".", ",", "!", "?", ":", ";"] {
+            let spaced = format!(" {p}");
+            while s.contains(&spaced) {
+                s = s.replace(&spaced, p);
+            }
+            let after_newline = format!("\n{p}");
+            while s.contains(&after_newline) {
+                s = s.replace(&after_newline, "\n");
+            }
+        }
+        if s == before {
+            break;
         }
     }
-    for p in [".", ",", "!", "?", ":", ";"] {
-        let spaced = format!(" {p}");
-        while s.contains(&spaced) {
-            s = s.replace(&spaced, p);
-        }
-    }
-    s
+    s.trim_start_matches([' ', '\t']).trim_end().to_string()
 }
 
 /// Toast vid Groq→lokal-fallback — men bara en gång per avbrott, så en
