@@ -56,6 +56,8 @@ export interface Settings {
   stt_condition_on_previous_text: boolean;
   /** Egen ordbok: korrigeringar (från → till) som appliceras på all STT-text */
   stt_replacements: SttReplacement[];
+  /** Inbyggda röstkommandon: "ny rad" → radbrytning, "nytt stycke" → tomrad */
+  stt_voice_commands: boolean;
   dictation_hotkey: HotKeyChoice;
   action_hotkey: HotKeyChoice;
   screen_hotkey: HotKeyChoice;

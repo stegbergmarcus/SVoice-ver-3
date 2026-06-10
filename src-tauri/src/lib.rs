@@ -2468,6 +2468,56 @@ mod stt_replacement_tests {
             "det var  ganska bra"
         );
     }
+
+    #[test]
+    fn voice_commands_insert_clean_newlines() {
+        let settings = Settings::default();
+        assert_eq!(
+            postprocess_transcript("första raden ny rad andra raden", &settings),
+            "första raden\nandra raden"
+        );
+        assert_eq!(
+            postprocess_transcript("ett stycke Nytt stycke nästa stycke", &settings),
+            "ett stycke\n\nnästa stycke"
+        );
+    }
+
+    #[test]
+    fn voice_commands_can_be_disabled() {
+        let settings = Settings {
+            stt_voice_commands: false,
+            ..Settings::default()
+        };
+        assert_eq!(
+            postprocess_transcript("första ny rad andra", &settings),
+            "första ny rad andra"
+        );
+    }
+
+    #[test]
+    fn ordbok_punctuation_gets_clean_spacing() {
+        let settings = Settings {
+            stt_replacements: vec![rule("punkt", "."), rule("eh", "")],
+            ..Settings::default()
+        };
+        assert_eq!(
+            postprocess_transcript("det blev bra punkt sen eh gick vi hem", &settings),
+            "det blev bra. sen gick vi hem"
+        );
+    }
+
+    #[test]
+    fn tidy_collapses_inserted_whitespace() {
+        assert_eq!(
+            tidy_inserted_whitespace("rad \n  nästa  ord ."),
+            "rad\nnästa ord."
+        );
+        // Text utan insatta mönster lämnas orörd.
+        assert_eq!(
+            tidy_inserted_whitespace("Vanlig mening, helt normal."),
+            "Vanlig mening, helt normal."
+        );
+    }
 }
 
 #[cfg(test)]
@@ -2598,9 +2648,49 @@ async fn transcribe_dispatch(
             }
         }
     };
-    // Användarens ordbok appliceras på ALL transkriberad text (diktering,
-    // action-kommandon, follow-ups) — gemensam tratt för alla STT-vägar.
-    Ok(apply_stt_replacements(&text, &settings.stt_replacements))
+    // Användarens ordbok + röstkommandon appliceras på ALL transkriberad
+    // text (diktering, action-kommandon, follow-ups) — gemensam tratt.
+    Ok(postprocess_transcript(&text, settings))
+}
+
+/// Inbyggda röstkommandon för struktur. Bara fraser med låg risk att
+/// förekomma bokstavligt i vanlig diktering — interpunktionsord som
+/// "punkt"/"komma" är medvetet INTE inbyggda (de är vanliga i normalt tal;
+/// den som vill ha dem lägger dem i ordboken).
+const VOICE_COMMANDS: &[(&str, &str)] = &[("nytt stycke", "\n\n"), ("ny rad", "\n")];
+
+/// Efterbearbetning av transkriberad text: användarens ordbok →
+/// röstkommandon → whitespace-städning. Ordboken körs först så en egen
+/// regel för t.ex. "ny rad" vinner över den inbyggda.
+fn postprocess_transcript(text: &str, settings: &Settings) -> String {
+    let mut result = apply_stt_replacements(text, &settings.stt_replacements);
+    if settings.stt_voice_commands {
+        for (from, to) in VOICE_COMMANDS {
+            result = replace_word_ci(&result, from, to);
+        }
+    }
+    tidy_inserted_whitespace(&result)
+}
+
+/// Städa mellanslag som blir kvar när ord ersätts med radbrytningar eller
+/// skiljetecken: "rad \n nästa" → "rad\nnästa", "bra ." → "bra.",
+/// dubbel-mellanslag efter borttagna utfyllnadsord → enkelt. STT
+/// producerar aldrig dessa mönster själv, så städningen är säker att köra
+/// på all text.
+fn tidy_inserted_whitespace(text: &str) -> String {
+    let mut s = text.to_string();
+    for (from, to) in [("  ", " "), (" \n", "\n"), ("\n ", "\n")] {
+        while s.contains(from) {
+            s = s.replace(from, to);
+        }
+    }
+    for p in [".", ",", "!", "?", ":", ";"] {
+        let spaced = format!(" {p}");
+        while s.contains(&spaced) {
+            s = s.replace(&spaced, p);
+        }
+    }
+    s
 }
 
 /// Toast vid Groq→lokal-fallback — men bara en gång per avbrott, så en

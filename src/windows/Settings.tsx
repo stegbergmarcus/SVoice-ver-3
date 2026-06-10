@@ -1535,6 +1535,12 @@ export default function SettingsView() {
             </p>
           </div>
           <div className="settings-section-body">
+            <ToggleRow
+              label="Röstkommandon"
+              help={'Säg "ny rad" för radbrytning eller "nytt stycke" för tomrad. Orden "punkt"/"komma" är inte inbyggda (för vanliga i tal) — lägg dem i ordboken nedan om du vill ha dem.'}
+              value={draft.stt_voice_commands}
+              onChange={(v) => setDraft({ ...draft, stt_voice_commands: v })}
+            />
             {draft.stt_replacements.length === 0 && (
               <div className="field-help">
                 Inga korrigeringar ännu. Exempel: när den hör{" "}

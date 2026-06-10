@@ -61,6 +61,13 @@ pub struct Settings {
     #[serde(default)]
     pub stt_replacements: Vec<SttReplacement>,
 
+    /// Inbyggda röstkommandon för struktur: "ny rad" → radbrytning,
+    /// "nytt stycke" → tomrad. Interpunktionsord ("punkt", "komma") är
+    /// medvetet inte inbyggda — de är vanliga i normalt tal och läggs
+    /// istället i ordboken av den som vill ha dem.
+    #[serde(default = "default_true")]
+    pub stt_voice_commands: bool,
+
     /// Om false: Insert-PTT triggar inte action-popup. Sparar resurser om
     /// user bara vill ha ren diktering utan LLM alls.
     pub action_llm_enabled: bool,
@@ -228,6 +235,7 @@ impl Default for Settings {
             stt_no_speech_threshold: default_no_speech_threshold(),
             stt_condition_on_previous_text: false,
             stt_replacements: Vec::new(),
+            stt_voice_commands: true,
             action_llm_enabled: true,
             llm_polish_dictation: false,
             action_llm_provider: LlmProvider::Auto,
@@ -380,6 +388,7 @@ mod tests {
                 from: "sektra".into(),
                 to: "Sectra".into(),
             }],
+            stt_voice_commands: false,
             action_llm_enabled: true,
             llm_polish_dictation: true,
             action_llm_provider: LlmProvider::Gemini,
