@@ -635,6 +635,26 @@ pub fn run() {
                         default_model
                     );
                 }
+
+                // Förladda modellen så första dikteringen slipper kallstarten
+                // (~5-8 s: Python-spawn + modell till VRAM). Bara när modellen
+                // redan är cachad — vid auto-download värmer download-flödet
+                // sidecaren självt.
+                if user_settings.stt_preload && svoice_ipc::is_hf_model_cached(&default_model) {
+                    let stt_pre = stt.clone();
+                    rt.spawn(async move {
+                        // Låt boot-arbetet (tray, fönster, audio) bli klart först.
+                        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                        match stt_pre.preload().await {
+                            Ok(()) => {
+                                tracing::info!("STT förladdad — första dikteringen blir snabb")
+                            }
+                            Err(e) => tracing::warn!(
+                                "STT-förladdning misslyckades: {e} — laddar vid första diktering"
+                            ),
+                        }
+                    });
+                }
             }
 
             // Dikterings-PTT (höger Ctrl) — befintlig iter 2-workflow.
@@ -1176,6 +1196,13 @@ fn position_overlay_default(overlay: &tauri::WebviewWindow) {
 
 // === Dikterings-PTT (RCtrl) ===
 
+/// Paus som avslutar ett realtidssjok. Kortare = snabbare utskrift men fler
+/// sjok-gränser (mer risk för stylistiska skarvar); längre = tröger känsla.
+const REALTIME_PAUSE_MS: u32 = 700;
+/// Minsta mängd tal (samples @16 kHz) för att ett sjok ska transkriberas —
+/// kortare snuttar är oftast andetag/klick och ger bara hallucinationer.
+const REALTIME_MIN_SPEECH_SAMPLES: usize = 8000; // 0,5 s
+
 #[allow(unused_assignments, unused_variables)]
 fn ptt_worker_loop(
     rx: mpsc::Receiver<LlKeyEvent>,
@@ -1186,8 +1213,47 @@ fn ptt_worker_loop(
     rt: Arc<tokio::runtime::Runtime>,
 ) {
     let mut meter: Option<VolumeMeter> = None;
+    // Realtidsläge (beta): ljud ackumulerat sedan senaste injicerade sjok +
+    // text injicerad hittills under pågående diktering (kontext + historik).
+    let mut realtime: Option<Settings> = None;
+    let mut rt_buffer: Vec<f32> = Vec::new();
+    let mut rt_injected: Vec<String> = Vec::new();
 
-    for ev in rx {
+    loop {
+        // I realtidsläge pollas kanalen med timeout så vi kan sjok-
+        // transkribera vid talpauser; annars blockas tills nästa event.
+        let ev = if realtime.is_some() {
+            match rx.recv_timeout(std::time::Duration::from_millis(150)) {
+                Ok(ev) => Some(ev),
+                Err(mpsc::RecvTimeoutError::Timeout) => None,
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        } else {
+            match rx.recv() {
+                Ok(ev) => Some(ev),
+                Err(_) => break,
+            }
+        };
+
+        let Some(ev) = ev else {
+            // Timeout-tick under realtidsinspelning: hämta nytt ljud och
+            // injicera ett sjok om en talpaus har uppstått.
+            if let Some(settings) = &realtime {
+                rt_buffer.extend(ring.drain());
+                if let Some(text) = try_commit_realtime_chunk(
+                    &app_handle,
+                    &stt,
+                    &rt,
+                    settings,
+                    &mut rt_buffer,
+                    &rt_injected,
+                ) {
+                    rt_injected.push(text);
+                }
+            }
+            continue;
+        };
+
         // Simultan-PTT-lockout: ignorera dictation Pressed om action redan äger.
         if ev == LlKeyEvent::Pressed
             && PTT_OWNER
@@ -1214,6 +1280,12 @@ fn ptt_worker_loop(
         if ev == LlKeyEvent::Pressed && state_after == PttState::Recording {
             ring.clear();
             meter = start_volume_meter(&app_handle);
+            // Hot-reload settings vid varje dikteringsstart så beta-togglen
+            // träder i kraft direkt.
+            let current = Settings::load();
+            realtime = (current.stt_enabled && current.dictation_realtime).then_some(current);
+            rt_buffer.clear();
+            rt_injected.clear();
         }
 
         if ev == LlKeyEvent::Released && state_after == PttState::Processing {
@@ -1224,6 +1296,37 @@ fn ptt_worker_loop(
             let current = Settings::load();
             if !current.stt_enabled {
                 tracing::info!("STT avstängd — hoppar över transkribering");
+                realtime = None;
+            } else if let Some(settings) = realtime.take() {
+                // Realtid: sista sjoket = kvarvarande buffert + ringens rest.
+                rt_buffer.extend(ring.drain());
+                let (start, end) = trim_silence(
+                    &rt_buffer,
+                    16000,
+                    settings.vad_threshold,
+                    settings.vad_trim_padding_ms,
+                );
+                if end > start {
+                    let segment: Vec<f32> = rt_buffer[start..end].to_vec();
+                    let context = rt_injected.join(" ");
+                    if let Some(text) = transcribe_and_inject_segment(
+                        &app_handle,
+                        &stt,
+                        &rt,
+                        &settings,
+                        &segment,
+                        false,
+                        (!context.is_empty()).then_some(context.as_str()),
+                    ) {
+                        rt_injected.push(text);
+                    }
+                }
+                rt_buffer.clear();
+                // En historikpost för hela dikteringen, inte en per sjok.
+                if !rt_injected.is_empty() {
+                    push_dictation_history(&app_handle, &rt_injected.join(" "));
+                    rt_injected.clear();
+                }
             } else {
                 perform_transcribe_and_inject(&app_handle, &ring, &stt, &rt, &current);
             }
@@ -1239,6 +1342,70 @@ fn ptt_worker_loop(
             PTT_OWNER.store(OWNER_NONE, Ordering::SeqCst);
         }
     }
+}
+
+/// Realtidsläge: injicera ett sjok om bufferten slutar i en talpaus.
+/// Returnerar den injicerade texten, eller None om inget committades.
+/// Bufferten töms när ett sjok committas (eller när den bara innehåller
+/// tystnad) — kvarvarande svans-tystnad behövs inte för nästa sjok.
+fn try_commit_realtime_chunk(
+    app: &AppHandle,
+    stt: &PythonStt,
+    rt: &tokio::runtime::Runtime,
+    settings: &Settings,
+    buffer: &mut Vec<f32>,
+    injected_so_far: &[String],
+) -> Option<String> {
+    if buffer.len() < 16000 {
+        return None; // < 1 s totalt — för tidigt att bedöma.
+    }
+    // Committa bara när själva svansen är tyst — då klipper vi garanterat
+    // inte mitt i ett ord, och allt före tystnaden är ett komplett yttrande.
+    let silence_ms = trailing_silence_ms(buffer, 16000, settings.vad_threshold);
+    if silence_ms < REALTIME_PAUSE_MS {
+        return None;
+    }
+    let (start, end) = trim_silence(
+        buffer,
+        16000,
+        settings.vad_threshold,
+        settings.vad_trim_padding_ms,
+    );
+    if end <= start || end - start < REALTIME_MIN_SPEECH_SAMPLES {
+        // Bara tystnad (eller för lite tal) hittills — släng och vänta vidare.
+        buffer.clear();
+        return None;
+    }
+    let segment: Vec<f32> = buffer[start..end].to_vec();
+    buffer.clear();
+    let context = injected_so_far.join(" ");
+    transcribe_and_inject_segment(
+        app,
+        stt,
+        rt,
+        settings,
+        &segment,
+        false,
+        (!context.is_empty()).then_some(context.as_str()),
+    )
+}
+
+/// Längd (ms) på den sammanhängande tystnaden i slutet av bufferten,
+/// mätt i 20 ms RMS-fönster bakifrån.
+fn trailing_silence_ms(samples: &[f32], sample_rate: usize, threshold: f32) -> u32 {
+    let window = sample_rate / 50; // 20 ms
+    if window == 0 {
+        return 0;
+    }
+    let mut silent_samples = 0usize;
+    for chunk in samples.rchunks(window) {
+        let rms = (chunk.iter().map(|s| s * s).sum::<f32>() / chunk.len() as f32).sqrt();
+        if rms > threshold {
+            break;
+        }
+        silent_samples += chunk.len();
+    }
+    (silent_samples * 1000 / sample_rate) as u32
 }
 
 fn apply_event(ptt: &Mutex<PttMachine>, ev: LlKeyEvent) -> PttState {
@@ -1296,30 +1463,52 @@ fn perform_transcribe_and_inject(
         tracing::warn!("inget tal detekterat (VAD trimmade allt)");
         return;
     }
-    let raw_text = match rt.block_on(transcribe_dispatch(app, settings, stt, segment)) {
+    if let Some(text) = transcribe_and_inject_segment(app, stt, rt, settings, segment, true, None) {
+        // RAM-historik + tray-submeny så texten kan räddas om den
+        // hamnade i fel fönster.
+        push_dictation_history(app, &text);
+    }
+}
+
+/// Transkribera ett ljudsegment och injicera resultatet. Gemensam kärna för
+/// vanlig diktering (hela bufferten vid release) och realtidsläget (ett sjok
+/// per talpaus). `allow_llm` styr om polish/självkorrigering får köras —
+/// realtidssjok hoppar över LLM-passet (latensen skulle döda realtidskänslan).
+/// Returnerar den injicerade texten, eller None om inget injicerades.
+fn transcribe_and_inject_segment(
+    app: &AppHandle,
+    stt: &PythonStt,
+    rt: &tokio::runtime::Runtime,
+    settings: &Settings,
+    segment: &[f32],
+    allow_llm: bool,
+    context: Option<&str>,
+) -> Option<String> {
+    let raw_text = match rt.block_on(transcribe_dispatch(app, settings, stt, segment, context)) {
         Ok(text) => text,
         Err(e) => {
             tracing::error!("STT-fel: {e}");
             // (STT-fel syns inte som toast — för ofta trivialt som "för kort tal".
             //  Action-popup-fel toast:as i action-worker-loopen.)
-            return;
+            return None;
         }
     };
     if raw_text.is_empty() {
         tracing::warn!("STT returnerade tom text");
-        return;
+        return None;
     }
 
-    // LLM-polering om aktiverad i settings. Använder samma provider-
-    // selection som action-popup.
-    let polished_text = if settings.llm_polish_dictation {
+    // LLM-efterbearbetning (polering och/eller självkorrigering) om aktiverad.
+    let use_llm =
+        allow_llm && (settings.llm_polish_dictation || settings.dictation_self_correction);
+    let polished_text = if use_llm {
         match rt.block_on(polish_transcript(&raw_text, settings)) {
             Ok(polished) => {
-                tracing::info!("LLM-polering: \"{}\" → \"{}\"", raw_text, polished);
+                tracing::info!("LLM-efterbearbetning: \"{}\" → \"{}\"", raw_text, polished);
                 polished
             }
             Err(e) => {
-                tracing::warn!("LLM-polering misslyckades ({e}), injectar råtext");
+                tracing::warn!("LLM-efterbearbetning misslyckades ({e}), injectar råtext");
                 raw_text
             }
         }
@@ -1328,6 +1517,9 @@ fn perform_transcribe_and_inject(
     };
 
     let final_text = apply_auto_space(&polished_text, settings.dictation_auto_space_seconds);
+    if final_text.is_empty() {
+        return None;
+    }
 
     match inject(&final_text) {
         Ok(method) => {
@@ -1343,11 +1535,12 @@ fn perform_transcribe_and_inject(
                     *guard = Some((std::time::Instant::now(), last_char));
                 }
             }
-            // RAM-historik + tray-submeny så texten kan räddas om den
-            // hamnade i fel fönster.
-            push_dictation_history(app, &final_text);
+            Some(final_text)
         }
-        Err(e) => tracing::error!("inject FAIL: {e}"),
+        Err(e) => {
+            tracing::error!("inject FAIL: {e}");
+            None
+        }
     }
 }
 
@@ -1391,9 +1584,36 @@ fn apply_auto_space(text: &str, auto_space_seconds: u32) -> String {
     out
 }
 
-/// Använd vald LLM-provider för att snabbpolera en STT-transkription
-/// (grammatik, stavning, interpunktion). Returnerar den polerade texten
-/// eller error om ingen provider är konfigurerad/når fram.
+/// Bygg system-prompt för LLM-efterbearbetning av diktering. Polering
+/// (grammatik) och självkorrigering ("nej jag menar...") kombineras i ETT
+/// LLM-anrop när båda är aktiverade — en runda latens istället för två.
+fn build_dictation_llm_prompt(settings: &Settings) -> String {
+    let mut parts: Vec<&str> = vec![
+        "Du får en rå transkription från svensk tal-till-text. \
+Returnera BARA den bearbetade texten, inga förklaringar eller citattecken.",
+    ];
+    if settings.llm_polish_dictation {
+        parts.push(
+            "Rätta grammatik, kommatering, saknade punkter och ord som låter \
+lika men stavas olika. Ändra INTE innebörden. Lägg INTE till eller ta bort \
+information.",
+        );
+    }
+    if settings.dictation_self_correction {
+        parts.push(
+            "Om talaren korrigerar sig själv (t.ex. \"nej vänta, jag menar...\", \
+\"eller förresten...\", \"alltså inte X utan Y\"): behåll bara den slutgiltiga \
+avsikten — ta bort den förkastade formuleringen och själva korrigeringsfrasen. \
+Om ingen självkorrigering finns: lämna texten orörd.",
+        );
+    }
+    parts.join(" ")
+}
+
+/// Använd vald LLM-provider för att efterbearbeta en STT-transkription
+/// (grammatikpolering och/eller självkorrigering, beroende på settings).
+/// Returnerar den bearbetade texten eller error om ingen provider är
+/// konfigurerad/når fram.
 async fn polish_transcript(raw: &str, settings: &Settings) -> anyhow::Result<String> {
     use futures_util::StreamExt;
     let anthropic_key = svoice_secrets::get_anthropic_key().ok().flatten();
@@ -1407,14 +1627,7 @@ async fn polish_transcript(raw: &str, settings: &Settings) -> anyhow::Result<Str
     .await
     .ok_or_else(|| anyhow::anyhow!("ingen LLM-provider konfigurerad för polering"))?;
     let req = LlmRequest {
-        system: Some(
-            "Du är en svensk grammatik- och interpunktions-korrigerare. \
-Du får en rå transcription från tal-till-text. Returnera den korrigerade versionen — \
-fixa grammatik, kommatering, saknade punkter, ord som låter lika men stavas olika. \
-Ändra INTE innebörden. Lägg INTE till eller ta bort info. Bara rätta. \
-Returnera BARA den korrigerade texten, inga förklaringar."
-                .into(),
-        ),
+        system: Some(build_dictation_llm_prompt(settings)),
         turns: vec![TurnContent {
             role: Role::User,
             text: raw.to_string(),
@@ -1736,7 +1949,9 @@ fn handle_action_released(
     if segment.is_empty() {
         anyhow::bail!("inget röstkommando detekterat");
     }
-    let command = rt.block_on(transcribe_dispatch(app_handle, settings, stt, segment))?;
+    let command = rt.block_on(transcribe_dispatch(
+        app_handle, settings, stt, segment, None,
+    ))?;
     let command = command.trim().to_string();
     if command.is_empty() {
         anyhow::bail!("STT returnerade tom text");
@@ -2551,6 +2766,33 @@ mod stt_replacement_tests {
 }
 
 #[cfg(test)]
+mod realtime_tests {
+    use super::*;
+
+    #[test]
+    fn trailing_silence_measures_quiet_tail() {
+        // 1 s tal (amplitud 0,5) följt av 0,5 s tystnad @ 16 kHz.
+        let mut samples = vec![0.5_f32; 16000];
+        samples.extend(vec![0.0_f32; 8000]);
+        let ms = trailing_silence_ms(&samples, 16000, 0.005);
+        assert!((450..=550).contains(&ms), "fick {ms} ms");
+    }
+
+    #[test]
+    fn trailing_silence_zero_when_still_speaking() {
+        let samples = vec![0.5_f32; 16000];
+        assert_eq!(trailing_silence_ms(&samples, 16000, 0.005), 0);
+    }
+
+    #[test]
+    fn trailing_silence_full_when_all_quiet() {
+        let samples = vec![0.0_f32; 16000];
+        let ms = trailing_silence_ms(&samples, 16000, 0.005);
+        assert!(ms >= 990, "fick {ms} ms");
+    }
+}
+
+#[cfg(test)]
 mod screen_vision_tests {
     use super::*;
 
@@ -2641,9 +2883,10 @@ async fn transcribe_dispatch(
     settings: &Settings,
     local: &PythonStt,
     audio: &[f32],
+    context: Option<&str>,
 ) -> anyhow::Result<String> {
     let text = match settings.stt_provider {
-        SttProvider::Local => local.transcribe(audio).await?,
+        SttProvider::Local => local.transcribe_with_context(audio, context).await?,
         SttProvider::Groq => {
             let key = svoice_secrets::get_groq_key()
                 .ok()
@@ -2655,12 +2898,13 @@ async fn transcribe_dispatch(
                         "Groq STT vald men API-nyckel saknas — faller tillbaka till lokal"
                     );
                     notify_stt_fallback(app, "Groq STT vald men API-nyckel saknas");
-                    local.transcribe(audio).await?
+                    local.transcribe_with_context(audio, context).await?
                 }
                 Some(key) => {
                     let client = GroqStt::new(key)
                         .with_model(settings.groq_stt_model.clone())
                         .with_language(settings.stt_language.clone());
+                    // Groq-API:t saknar prompt-stöd — kontexten används bara lokalt.
                     match client.transcribe(audio).await {
                         Ok(text) => {
                             // Groq svarar igen — nollställ så ett framtida
@@ -2671,7 +2915,7 @@ async fn transcribe_dispatch(
                         Err(e) => {
                             tracing::error!("Groq STT fel: {e} — faller tillbaka till lokal");
                             notify_stt_fallback(app, "Groq STT svarade inte");
-                            local.transcribe(audio).await?
+                            local.transcribe_with_context(audio, context).await?
                         }
                     }
                 }

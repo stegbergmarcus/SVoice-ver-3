@@ -58,6 +58,12 @@ export interface Settings {
   stt_replacements: SttReplacement[];
   /** Inbyggda röstkommandon: "ny rad" → radbrytning, "nytt stycke" → tomrad */
   stt_voice_commands: boolean;
+  /** Förladda STT-modellen vid appstart (slipper kallstart vid första diktering) */
+  stt_preload: boolean;
+  /** Beta: LLM tar bort självkorrigeringar ("nej vänta, jag menar...") */
+  dictation_self_correction: boolean;
+  /** Beta: realtidsutskrift — sjokvis injektion vid talpauser under PTT-håll */
+  dictation_realtime: boolean;
   dictation_hotkey: HotKeyChoice;
   action_hotkey: HotKeyChoice;
   screen_hotkey: HotKeyChoice;

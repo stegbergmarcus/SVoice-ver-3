@@ -1497,6 +1497,13 @@ export default function SettingsView() {
                     Auto väljer GPU om CUDA-körningstid finns, annars CPU-fallback.
                   </div>
                 </div>
+
+                <ToggleRow
+                  label="Förladda modellen vid appstart"
+                  help="Laddar STT-modellen till VRAM direkt när appen startar så första dikteringen slipper kallstarten (~5–8 s). Kostnaden är att VRAM tas i anspråk från start."
+                  value={draft.stt_preload}
+                  onChange={(v) => setDraft({ ...draft, stt_preload: v })}
+                />
               </>
             )}
 
@@ -2519,6 +2526,34 @@ export default function SettingsView() {
                   : "Aktivera polering ovan för att välja provider."}
               </div>
             </div>
+
+            <ToggleRow
+              label="Självkorrigering (beta)"
+              help={'Säger du "nej vänta, jag menar..." behålls bara den slutgiltiga avsikten — den förkastade formuleringen tas bort. Använder samma LLM-provider som poleringen och kostar en LLM-runda per diktering.'}
+              value={draft.dictation_self_correction}
+              onChange={(v) =>
+                setDraft({ ...draft, dictation_self_correction: v })
+              }
+            />
+          </div>
+        </article>
+
+        {/* Realtidsutskrift (beta) */}
+        <article className="settings-section">
+          <div className="settings-section-label">
+            <h2>Realtidsutskrift</h2>
+            <p>
+              Beta: texten skrivs ut sjokvis vid naturliga talpauser medan du
+              håller tangenten — istället för allt på en gång vid släpp.
+            </p>
+          </div>
+          <div className="settings-section-body">
+            <ToggleRow
+              label="Realtidsutskrift (beta)"
+              help="Sjok som skrivits ut rättas inte retroaktivt, och LLM-polering/självkorrigering hoppas över i detta läge (latens). Avstängd = nuvarande beteende. Fungerar bäst med lokal STT."
+              value={draft.dictation_realtime}
+              onChange={(v) => setDraft({ ...draft, dictation_realtime: v })}
+            />
           </div>
         </article>
 

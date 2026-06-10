@@ -90,6 +90,21 @@ impl PythonStt {
         if *current_cfg == merged {
             return Ok(false); // ingen relevant ändring
         }
+        // Bara fälten i Load-requesten kräver omstart av sidecaren. Övriga
+        // (beam_size, vad_filter, initial_prompt, no_speech_threshold,
+        // condition_on_previous_text) skickas per transcribe-request — att
+        // respawna för dem kostar bara en onödig kallstart (~5-8 s vid
+        // nästa diktering). Ordbokstillägg ändrar t.ex. bara initial_prompt
+        // och ska vara gratis.
+        let load_relevant_changed = current_cfg.model != merged.model
+            || current_cfg.device != merged.device
+            || current_cfg.compute_type != merged.compute_type
+            || current_cfg.language != merged.language;
+        if !load_relevant_changed {
+            *current_cfg = merged;
+            tracing::debug!("STT-config uppdaterad utan sidecar-omstart (per-request-fält)");
+            return Ok(false);
+        }
         tracing::info!(
             "STT reload: model {} → {}, device {} → {}",
             current_cfg.model,
@@ -105,6 +120,12 @@ impl PythonStt {
         }
         *current_cfg = merged;
         Ok(true)
+    }
+
+    /// Ladda modellen i förväg (appstart) så första dikteringen slipper
+    /// kallstarten. No-op om sidecaren redan är uppe.
+    pub async fn preload(&self) -> Result<(), SttError> {
+        self.ensure_loaded().await
     }
 
     async fn ensure_loaded(&self) -> Result<(), SttError> {
@@ -146,8 +167,20 @@ impl PythonStt {
     }
 
     pub async fn transcribe(&self, audio: &[f32]) -> Result<String, SttError> {
+        self.transcribe_with_context(audio, None).await
+    }
+
+    /// Som [`transcribe`], men med valfri kontext-text som appendas till
+    /// initial-prompten. Används av realtidsläget: föregående injicerade
+    /// sjok ger Whisper meningssammanhang över sjok-gränserna (bättre
+    /// interpunktion och versalisering i sjok 2+).
+    pub async fn transcribe_with_context(
+        &self,
+        audio: &[f32],
+        context: Option<&str>,
+    ) -> Result<String, SttError> {
         self.ensure_loaded().await?;
-        let (beam_size, vad_filter, initial_prompt, no_speech_threshold, condition_on_prev) = {
+        let (beam_size, vad_filter, mut initial_prompt, no_speech_threshold, condition_on_prev) = {
             let cfg = self.config.lock().await;
             (
                 cfg.beam_size,
@@ -157,6 +190,17 @@ impl PythonStt {
                 cfg.condition_on_previous_text,
             )
         };
+        if let Some(ctx) = context.map(str::trim).filter(|c| !c.is_empty()) {
+            // Bara svansen behövs — Whisper-prompten är begränsad (~224
+            // tokens) och det är de sista meningarna som ger sammanhang.
+            let tail: String = if ctx.chars().count() > 200 {
+                let skip = ctx.chars().count() - 200;
+                ctx.chars().skip(skip).collect()
+            } else {
+                ctx.to_string()
+            };
+            initial_prompt = format!("{initial_prompt} {tail}");
+        }
         let mut guard = self.sidecar.lock().await;
         let sc = guard.as_ref().ok_or(SttError::NotLoaded)?;
         let outcome = async {

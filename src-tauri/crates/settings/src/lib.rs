@@ -68,6 +68,25 @@ pub struct Settings {
     #[serde(default = "default_true")]
     pub stt_voice_commands: bool,
 
+    /// Förladda STT-modellen vid appstart så första dikteringen slipper
+    /// kallstarten (~5-8 s: Python-spawn + modell till VRAM). Kostnaden är
+    /// att VRAM tas i anspråk direkt vid start.
+    #[serde(default = "default_true")]
+    pub stt_preload: bool,
+
+    /// Beta: LLM-pass som hanterar självkorrigeringar i talet ("nej vänta,
+    /// jag menar...") — behåller bara den slutgiltiga avsikten. Kostar en
+    /// LLM-runda per diktering. Av som standard.
+    #[serde(default)]
+    pub dictation_self_correction: bool,
+
+    /// Beta: realtidsutskrift — text injiceras sjokvis vid talpauser medan
+    /// tangenten hålls, istället för allt-på-en-gång vid släpp. Sjok som
+    /// skrivits ut rättas inte retroaktivt. LLM-polering/självkorrigering
+    /// hoppar över i detta läge (latens). Av som standard.
+    #[serde(default)]
+    pub dictation_realtime: bool,
+
     /// Om false: Insert-PTT triggar inte action-popup. Sparar resurser om
     /// user bara vill ha ren diktering utan LLM alls.
     pub action_llm_enabled: bool,
@@ -236,6 +255,9 @@ impl Default for Settings {
             stt_condition_on_previous_text: false,
             stt_replacements: Vec::new(),
             stt_voice_commands: true,
+            stt_preload: true,
+            dictation_self_correction: false,
+            dictation_realtime: false,
             action_llm_enabled: true,
             llm_polish_dictation: false,
             action_llm_provider: LlmProvider::Auto,
@@ -389,6 +411,9 @@ mod tests {
                 to: "Sectra".into(),
             }],
             stt_voice_commands: false,
+            stt_preload: false,
+            dictation_self_correction: true,
+            dictation_realtime: true,
             action_llm_enabled: true,
             llm_polish_dictation: true,
             action_llm_provider: LlmProvider::Gemini,
