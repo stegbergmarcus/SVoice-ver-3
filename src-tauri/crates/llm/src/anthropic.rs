@@ -15,7 +15,13 @@ use crate::provider::{
 
 const API_URL: &str = "https://api.anthropic.com/v1/messages";
 const API_VERSION: &str = "2023-06-01";
-const DEFAULT_MODEL: &str = "claude-sonnet-4-5";
+const DEFAULT_MODEL: &str = "claude-sonnet-4-6";
+
+/// Opus 4.7/4.8 och Fable 5 accepterar inte sampling-parametrar
+/// (temperature/top_p/top_k) — API:t svarar 400 om de skickas.
+fn model_rejects_sampling(model: &str) -> bool {
+    model.contains("opus-4-7") || model.contains("opus-4-8") || model.contains("fable")
+}
 
 pub struct AnthropicClient {
     api_key: String,
@@ -48,18 +54,18 @@ struct ApiMessage {
 struct ApiRequest {
     model: String,
     max_tokens: u32,
-    temperature: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f32>,
     stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     system: Option<String>,
     messages: Vec<ApiMessage>,
 }
 
-fn build_vision_request_body(req: &VisionRequest) -> serde_json::Value {
+fn build_vision_request_body(req: &VisionRequest, model: &str) -> serde_json::Value {
     let mut body = serde_json::json!({
-        "model": DEFAULT_MODEL,
+        "model": model,
         "max_tokens": req.max_tokens.max(64),
-        "temperature": req.temperature,
         "stream": true,
         "messages": [{
             "role": "user",
@@ -79,6 +85,9 @@ fn build_vision_request_body(req: &VisionRequest) -> serde_json::Value {
             ]
         }]
     });
+    if !model_rejects_sampling(model) {
+        body["temperature"] = serde_json::json!(req.temperature);
+    }
     if let Some(system) = &req.system {
         body["system"] = serde_json::json!(system);
     }
@@ -141,7 +150,7 @@ impl LlmProvider for AnthropicClient {
         let body = ApiRequest {
             model: self.model.clone(),
             max_tokens: req.max_tokens.max(64),
-            temperature: req.temperature,
+            temperature: (!model_rejects_sampling(&self.model)).then_some(req.temperature),
             stream: true,
             system: req.system,
             messages,
@@ -276,8 +285,7 @@ impl VisionLlmProvider for AnthropicClient {
             return Err(LlmError::MissingApiKey);
         }
 
-        let mut body = build_vision_request_body(&req);
-        body["model"] = serde_json::json!(self.model);
+        let body = build_vision_request_body(&req, &self.model);
 
         let resp = self
             .client
@@ -308,9 +316,8 @@ mod tests {
     use super::*;
     use crate::provider::{VisionImage, VisionRequest};
 
-    #[test]
-    fn vision_body_places_image_before_text() {
-        let body = build_vision_request_body(&VisionRequest {
+    fn vision_req() -> VisionRequest {
+        VisionRequest {
             system: Some("Svara på svenska.".into()),
             prompt: "Läs registreringsnumret.".into(),
             image: VisionImage {
@@ -319,7 +326,12 @@ mod tests {
             },
             temperature: 0.2,
             max_tokens: 128,
-        });
+        }
+    }
+
+    #[test]
+    fn vision_body_places_image_before_text() {
+        let body = build_vision_request_body(&vision_req(), DEFAULT_MODEL);
 
         assert_eq!(body["system"], "Svara på svenska.");
         let content = body["messages"][0]["content"].as_array().unwrap();
@@ -329,5 +341,27 @@ mod tests {
         assert_eq!(content[0]["source"]["data"], "abc123");
         assert_eq!(content[1]["type"], "text");
         assert_eq!(content[1]["text"], "Läs registreringsnumret.");
+        // Sonnet stödjer sampling — temperature ska med.
+        assert!((body["temperature"].as_f64().unwrap() - 0.2).abs() < 1e-6);
+    }
+
+    #[test]
+    fn sampling_omitted_for_opus_47_plus_and_fable() {
+        for model in ["claude-opus-4-7", "claude-opus-4-8", "claude-fable-5"] {
+            assert!(model_rejects_sampling(model), "{model}");
+            let body = build_vision_request_body(&vision_req(), model);
+            assert_eq!(body["model"], model);
+            assert!(
+                body.get("temperature").is_none(),
+                "temperature ska utelämnas för {model}"
+            );
+        }
+        for model in [
+            "claude-sonnet-4-6",
+            "claude-haiku-4-5-20251001",
+            "claude-opus-4-6",
+        ] {
+            assert!(!model_rejects_sampling(model), "{model}");
+        }
     }
 }

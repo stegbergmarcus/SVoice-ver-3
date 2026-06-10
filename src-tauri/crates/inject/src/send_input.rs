@@ -81,7 +81,11 @@ pub fn send_unicode(text: &str) -> Result<(), SendInputError> {
     // Kort paus så Windows hinner registrera key-ups innan Unicode-streamen börjar.
     sleep(Duration::from_millis(20));
 
-    let code_units: Vec<u16> = text.encode_utf16().collect();
+    // Radbrytningar: KEYEVENTF_UNICODE med LF (0x0A) tolkas inkonsekvent av
+    // appar, medan CR (0x0D) behandlas som Enter i Win32-edit-kontroller och
+    // de flesta webviews. Normalisera alla radbrytningar till CR.
+    let normalized = text.replace("\r\n", "\n").replace('\n', "\r");
+    let code_units: Vec<u16> = normalized.encode_utf16().collect();
 
     for (batch_index, chunk) in code_units.chunks(CHARS_PER_BATCH).enumerate() {
         let mut inputs: Vec<INPUT> = Vec::with_capacity(chunk.len() * 2);

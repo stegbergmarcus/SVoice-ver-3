@@ -88,12 +88,41 @@ impl GoogleClient {
             .await
     }
 
+    /// Kör requestet med retry/backoff för transienta fel (nätverksfel,
+    /// 429, 5xx). Bara idempotenta GET retrias — en POST som timear ut kan
+    /// redan ha gått igenom på Google-sidan, och en retry skulle då skapa
+    /// dubbla kalenderhändelser/mail-utkast.
     async fn request_json<B: Serialize + ?Sized>(
         &self,
         method: reqwest::Method,
         url: &str,
         body: Option<&B>,
     ) -> Result<serde_json::Value, ClientError> {
+        const MAX_ATTEMPTS: u32 = 3;
+        let retryable = method == reqwest::Method::GET;
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
+            match self.request_json_once(&method, url, body).await {
+                Ok(v) => return Ok(v),
+                Err(e) if retryable && attempt < MAX_ATTEMPTS && is_transient(&e) => {
+                    tracing::info!(
+                        "google-API transient fel (försök {attempt}/{MAX_ATTEMPTS}): {e} — retrier"
+                    );
+                    tokio::time::sleep(Duration::from_millis(500 * u64::from(attempt))).await;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    }
+
+    async fn request_json_once<B: Serialize + ?Sized>(
+        &self,
+        method: &reqwest::Method,
+        url: &str,
+        body: Option<&B>,
+    ) -> Result<serde_json::Value, ClientError> {
+        let method = method.clone();
         // Första försök. Om refresh redan misslyckas med invalid_grant betyder
         // det att refresh-token revokats — radera lokalt så UI:t snabbt
         // upptäcker det vid nästa verify_connection.
@@ -161,6 +190,16 @@ impl GoogleClient {
             req = req.json(b);
         }
         Ok(req.send().await?)
+    }
+}
+
+/// Transient = värt att retry:a: nätverksfel (timeout, connection reset)
+/// samt rate-limit/serverfel från Google. Auth-fel och 4xx är permanenta.
+fn is_transient(e: &ClientError) -> bool {
+    match e {
+        ClientError::Http(_) => true,
+        ClientError::ApiError { status, .. } => matches!(status, 429 | 500..=504),
+        ClientError::Auth(_) => false,
     }
 }
 

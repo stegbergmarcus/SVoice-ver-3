@@ -584,16 +584,19 @@ mod tests {
 
     #[test]
     fn vision_body_uses_inline_data_before_text() {
-        let body = build_vision_request_body(&VisionRequest {
-            system: Some("Svara kort.".into()),
-            prompt: "Vad föreställer bilden?".into(),
-            image: VisionImage {
-                media_type: "image/png".into(),
-                data_base64: "abc123".into(),
+        let body = build_vision_request_body(
+            &VisionRequest {
+                system: Some("Svara kort.".into()),
+                prompt: "Vad föreställer bilden?".into(),
+                image: VisionImage {
+                    media_type: "image/png".into(),
+                    data_base64: "abc123".into(),
+                },
+                temperature: 0.2,
+                max_tokens: 128,
             },
-            temperature: 0.2,
-            max_tokens: 128,
-        }, false);
+            false,
+        );
 
         let parts = body["contents"][0]["parts"].as_array().unwrap();
         assert_eq!(parts[0]["inline_data"]["mime_type"], "image/png");
@@ -605,16 +608,19 @@ mod tests {
 
     #[test]
     fn vision_body_includes_google_search_when_grounding_on() {
-        let body = build_vision_request_body(&VisionRequest {
-            system: None,
-            prompt: "Hjälp mig med questen.".into(),
-            image: VisionImage {
-                media_type: "image/png".into(),
-                data_base64: "abc123".into(),
+        let body = build_vision_request_body(
+            &VisionRequest {
+                system: None,
+                prompt: "Hjälp mig med questen.".into(),
+                image: VisionImage {
+                    media_type: "image/png".into(),
+                    data_base64: "abc123".into(),
+                },
+                temperature: 0.2,
+                max_tokens: 128,
             },
-            temperature: 0.2,
-            max_tokens: 128,
-        }, true);
+            true,
+        );
 
         assert_eq!(body["tools"][0]["googleSearch"], serde_json::json!({}));
     }

@@ -78,6 +78,14 @@ export default function ActionPopup() {
   const [toolCalls, setToolCalls] = useState<ToolCallPayload[]>([]);
   const rootRef = useRef<HTMLDivElement>(null);
 
+  // "Latest ref"-mönster för keybinds: lyssnarna registreras en gång per
+  // synlighet (se effekten nedan) men läser alltid färskt state härifrån.
+  // Tidigare låg streaming/applying/response i effektens dependency-array,
+  // vilket bytte ut lyssnarna mitt under pågående tangenttryck — keyup för
+  // follow-up-PTT kunde då missas och inspelningen fastna i "håller".
+  const keyStateRef = useRef({ streaming, applying, actionHotkey });
+  keyStateRef.current = { streaming, applying, actionHotkey };
+
   // Close popup-window and reset state via backend (pålitligare än frontend).
   async function closeWindow() {
     setVisible(false);
@@ -92,6 +100,11 @@ export default function ActionPopup() {
   // Skicka LLM-resultat till backend. Backend orkestrerar hela flödet:
   // hide popup → focus-restore till target → paste. Frontend sätter bara
   // state och invokar — alla Win32-calls görs backend-sidan.
+  // Ref:as så att keybind-lyssnaren (registrerad en gång) alltid anropar
+  // den senaste closure:n med färsk `response`/`applying`.
+  const applyResultRef = useRef(applyResult);
+  applyResultRef.current = applyResult;
+
   async function applyResult() {
     if (applying || !response.trim()) return;
     setApplying(true);
@@ -186,19 +199,23 @@ export default function ActionPopup() {
     };
   }, []);
 
-  // Global keybinds när popup är synlig.
+  // Global keybinds när popup är synlig. Registreras EN gång per
+  // synlighetscykel; volatilt state läses via keyStateRef så att keydown
+  // och keyup garanterat hanteras av samma lyssnarpar.
   useEffect(() => {
-    if (!visible || applying) return;
+    if (!visible) return;
     const handler = async (ev: KeyboardEvent) => {
+      const { streaming, applying, actionHotkey } = keyStateRef.current;
+      if (applying) return;
       if (ev.key === "Escape") {
         ev.preventDefault();
         try {
           await invoke("action_cancel");
         } catch {}
         await closeWindow();
-      } else if (ev.key === "Enter" && !ev.shiftKey && !streaming && !applying) {
+      } else if (ev.key === "Enter" && !ev.shiftKey && !streaming) {
         ev.preventDefault();
-        await applyResult();
+        await applyResultRef.current();
       } else if (isFollowupKey(ev.key, actionHotkey) && !streaming && !ev.repeat) {
         // Mellanslag ELLER user's Action-popup-tangent = starta follow-up PTT.
         // LL-hook fångar inte alltid hotkeyn när popup-webviewen har fokus, så
@@ -212,6 +229,7 @@ export default function ActionPopup() {
       }
     };
     const keyupHandler = async (ev: KeyboardEvent) => {
+      const { streaming, actionHotkey } = keyStateRef.current;
       if (isFollowupKey(ev.key, actionHotkey) && !streaming) {
         ev.preventDefault();
         try {
@@ -227,7 +245,7 @@ export default function ActionPopup() {
       window.removeEventListener("keydown", handler);
       window.removeEventListener("keyup", keyupHandler);
     };
-  }, [visible, streaming, applying, response, actionHotkey]);
+  }, [visible]);
 
   return (
     <div ref={rootRef} className={`action-popup-root${visible ? " visible" : ""}`}>

@@ -396,6 +396,39 @@
   font-style: italic;
 }
 
+.field-help--warn {
+  color: var(--warn, #d4a017);
+  font-style: normal;
+}
+
+.replacement-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.replacement-row .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.replacement-arrow {
+  color: var(--ink-tertiary);
+  flex: none;
+}
+
+.replacement-io {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+textarea.input {
+  resize: vertical;
+  font-family: "JetBrains Mono", Menlo, monospace;
+  font-size: 12px;
+}
+
 .input,
 .select {
   background: var(--bg-raised);

@@ -14,6 +14,12 @@ export type HotKeyChoice =
   | "home"
   | "end";
 
+/** En ordbokspost: när STT skriver `from`, ersätt med `to`. */
+export interface SttReplacement {
+  from: string;
+  to: string;
+}
+
 export interface Settings {
   mic_device: string | null;
   stt_enabled: boolean;
@@ -48,6 +54,8 @@ export interface Settings {
   stt_no_speech_threshold: number;
   /** Avancerat: feeda tidigare transkript tillbaka som kontext */
   stt_condition_on_previous_text: boolean;
+  /** Egen ordbok: korrigeringar (från → till) som appliceras på all STT-text */
+  stt_replacements: SttReplacement[];
   dictation_hotkey: HotKeyChoice;
   action_hotkey: HotKeyChoice;
   screen_hotkey: HotKeyChoice;

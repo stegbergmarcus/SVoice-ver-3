@@ -6,7 +6,7 @@ pub mod send_input;
 #[cfg(windows)]
 pub use clipboard::{
     capture_selection, paste_and_restore, paste_via_clipboard, remember_foreground_target,
-    restore_target_focus, ClipboardError,
+    restore_target_focus, set_clipboard_text, ClipboardError,
 };
 #[cfg(windows)]
 pub use send_input::{send_unicode, SendInputError};

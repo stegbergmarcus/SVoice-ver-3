@@ -82,6 +82,53 @@
   color: #5c5850;
 }
 
+/* Ordboksläget: inline-formulär "felhört ord → rätt ord". */
+.palette-ordbok {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 1;
+}
+
+.palette-ordbok-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.palette-ordbok-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.palette-ordbok-arrow {
+  color: #e6a85c;
+  flex: none;
+  font-size: 16px;
+}
+
+.palette-hint {
+  color: #5c5850;
+  font-size: 11px;
+  z-index: 1;
+}
+
+.palette-success {
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(122, 196, 122, 0.12);
+  color: #7ac47a;
+  font-size: 13px;
+  z-index: 1;
+}
+
+.palette-item-mode-ordbok {
+  color: #e6a85c;
+  border: 1px solid rgba(230, 168, 92, 0.35);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
 .palette-list {
   overflow-y: auto;
   overscroll-behavior: contain;

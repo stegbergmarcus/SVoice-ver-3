@@ -12,6 +12,8 @@ pub enum SidecarError {
     Spawn(String),
     #[error("sidecar stängde oväntat")]
     Closed,
+    #[error("sidecar svarade inte inom {0} s")]
+    Timeout(u64),
     #[error("protokoll-fel: {0}")]
     Protocol(String),
     #[error("IO-fel: {0}")]
@@ -77,8 +79,12 @@ impl Sidecar {
             stdout: Mutex::new(stdout),
         };
 
-        // Vänta på ready-svar
-        match this.read_response().await? {
+        // Vänta på ready-svar. Cold start importerar faster-whisper/CUDA-
+        // bibliotek vilket kan ta tiotals sekunder — men inte minuter.
+        match this
+            .read_response_timeout(std::time::Duration::from_secs(120))
+            .await?
+        {
             SttResponse::Ready => Ok(this),
             other => Err(SidecarError::Protocol(format!(
                 "förväntade Ready, fick {other:?}"
@@ -102,8 +108,19 @@ impl Sidecar {
         Ok(())
     }
 
-    // TODO(D1): wrap with tokio::time::timeout so a hung sidecar
-    // (e.g. first-run HF model download) doesn't block forever.
+    /// read_response med tak — en hängd sidecar (död/fryst Python-process)
+    /// får inte blockera anroparen för alltid. Välj generös gräns per
+    /// operation: modell-load kan inkludera implicit HF-nedladdning.
+    pub async fn read_response_timeout(
+        &self,
+        limit: std::time::Duration,
+    ) -> Result<SttResponse, SidecarError> {
+        match tokio::time::timeout(limit, self.read_response()).await {
+            Ok(res) => res,
+            Err(_) => Err(SidecarError::Timeout(limit.as_secs())),
+        }
+    }
+
     pub async fn read_response(&self) -> Result<SttResponse, SidecarError> {
         let mut stdout = self.stdout.lock().await;
         let mut line = String::new();

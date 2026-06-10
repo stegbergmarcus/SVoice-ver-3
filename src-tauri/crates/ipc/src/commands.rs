@@ -146,15 +146,32 @@ pub async fn set_settings(
         tracing::error!("kunde inte rebinda screen-hotkey: {e}");
     }
 
-    // Bygg SttConfig från ny settings och be PythonStt reload om det ändrats.
-    // reload_config returnerar false om config är identisk med befintlig =>
-    // inget onödigt shutdown/respawn.
+    // Hot-reload STT om STT-fält ändrats (no-op om config är identisk).
+    reload_stt_from_settings(&settings, &stt).await;
+
+    // Synk autostart mot Windows startup-registret. Idempotent: bara skriv
+    // om current state skiljer sig från önskad. Fel loggas men rapporteras
+    // inte — settings är redan sparade på disk.
+    if let Err(e) = sync_autostart(&app, settings.autostart) {
+        tracing::warn!("autostart-sync misslyckades: {e}");
+    }
+
+    Ok(())
+}
+
+/// Bygg SttConfig från settings och be PythonStt hot-reloada. reload_config
+/// returnerar false om configen är identisk => inget onödigt shutdown/respawn.
+/// Path-resolution: reload_config() bevarar python_path / python_args /
+/// script_path från den befintliga configen så dev-fallback-defaults här inte
+/// skriver över bundled-runtime-pathen som lib.rs-setupen satt vid app-start.
+/// Best-effort: fel loggas men rapporteras inte — settings är redan sparade.
+async fn reload_stt_from_settings(settings: &Settings, stt: &PythonStt) {
     let mut stt_config = SttConfig::default();
     stt_config.model = settings.stt_model.clone();
     stt_config.language = settings.stt_language.clone();
     stt_config.beam_size = settings.stt_beam_size;
     stt_config.vad_filter = settings.stt_vad_filter;
-    stt_config.initial_prompt = settings.stt_initial_prompt.clone();
+    stt_config.initial_prompt = settings.effective_initial_prompt();
     stt_config.no_speech_threshold = settings.stt_no_speech_threshold;
     stt_config.condition_on_previous_text = settings.stt_condition_on_previous_text;
     match settings.stt_compute_mode {
@@ -168,23 +185,45 @@ pub async fn set_settings(
         }
         ComputeMode::Auto => {}
     }
-    // Path-resolution: reload_config() bevarar python_path / python_args /
-    // script_path från den befintliga configen så de defaults som sätts här
-    // (dev-fallback) inte skriver över bundled-runtime-pathen som lib.rs
-    // setupen har satt vid app-start. Settings-hot-reload rör bara
-    // model / device / compute_type / language / beam_size.
     if let Err(e) = stt.reload_config(stt_config).await {
         tracing::warn!("stt reload misslyckades: {e}");
-        // Rapportera inte som fel — settings är sparade, reload är best-effort.
     }
+}
 
-    // Synk autostart mot Windows startup-registret. Idempotent: bara skriv
-    // om current state skiljer sig från önskad. Fel loggas men rapporteras
-    // inte — settings är redan sparade på disk.
-    if let Err(e) = sync_autostart(&app, settings.autostart) {
-        tracing::warn!("autostart-sync misslyckades: {e}");
+/// Lägg till eller uppdatera en ordbokspost. Används av palettens
+/// "Lägg till i ordbok"-flöde. Sparar settings, hot-reloadar STT så
+/// prompt-biasen gäller direkt, och emittar `settings_external_change`
+/// så ett öppet Settings-fönster kan synka sin draft.
+#[tauri::command]
+pub async fn add_stt_replacement(
+    app: AppHandle,
+    from: String,
+    to: String,
+    stt: State<'_, Arc<PythonStt>>,
+) -> Result<(), String> {
+    let from = from.trim().to_string();
+    let to = to.trim().to_string();
+    if from.is_empty() || to.is_empty() {
+        return Err("Både ordet och ersättningen måste anges.".into());
     }
-
+    let mut settings = Settings::load();
+    let from_lc = from.to_lowercase();
+    if let Some(existing) = settings
+        .stt_replacements
+        .iter_mut()
+        .find(|r| r.from.trim().to_lowercase() == from_lc)
+    {
+        existing.to = to;
+    } else {
+        settings
+            .stt_replacements
+            .push(svoice_settings::SttReplacement { from, to });
+    }
+    settings
+        .save()
+        .map_err(|e| format!("kunde inte spara settings: {e}"))?;
+    reload_stt_from_settings(&settings, &stt).await;
+    let _ = app.emit("settings_external_change", ());
     Ok(())
 }
 

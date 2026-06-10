@@ -45,6 +45,7 @@ import {
   type SmartFunction,
   type SttModelDownloadProgress,
   type SttProviderChoice,
+  type SttReplacement,
   type UpdateStatus,
 } from "../lib/settings-api";
 import "./Settings.css";
@@ -414,6 +415,10 @@ export default function SettingsView() {
   const [updateChecking, setUpdateChecking] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [stack, setStack] = useState<ActiveStack | null>(null);
+  const [ordbokExportCopied, setOrdbokExportCopied] = useState(false);
+  const [ordbokShowImport, setOrdbokShowImport] = useState(false);
+  const [ordbokImportText, setOrdbokImportText] = useState("");
+  const [ordbokImportError, setOrdbokImportError] = useState<string | null>(null);
   const [ollamaStartBusy, setOllamaStartBusy] = useState(false);
   const [ollamaStartError, setOllamaStartError] = useState<string | null>(null);
   const [ollamaStopBusy, setOllamaStopBusy] = useState(false);
@@ -444,6 +449,22 @@ export default function SettingsView() {
         setLoaded(s);
       })
       .catch((e) => setError(String(e)));
+    // Paletten kan lägga till ordboksposter utanför Settings ("Lägg till i
+    // ordbok"). Synka in dem i draften så ett senare Spara härifrån inte
+    // skriver över dem med en inaktuell lista.
+    const unExternal = listen("settings_external_change", async () => {
+      try {
+        const fresh = await getSettings();
+        setDraft((d) =>
+          d ? { ...d, stt_replacements: fresh.stt_replacements } : d,
+        );
+        setLoaded((l) =>
+          l ? { ...l, stt_replacements: fresh.stt_replacements } : l,
+        );
+      } catch (e) {
+        console.error("[settings] external-change sync failed", e);
+      }
+    });
     listMicDevices()
       .then(setMicDevices)
       .catch((e) => console.error("[settings] list_mic_devices failed:", e));
@@ -488,6 +509,9 @@ export default function SettingsView() {
       for (const r of results) out[r.id] = r.cached;
       setSttCached(out);
     });
+    return () => {
+      unExternal.then((fn) => fn());
+    };
   }, []);
 
   // Live-probe av aktiv stack (vad som *faktiskt* körs just nu, inkl.
@@ -706,6 +730,80 @@ export default function SettingsView() {
       setOllamaInstallBusy(false);
       setOllamaInstallError(String(e));
     }
+  }
+
+  function updateReplacement(index: number, value: SttReplacement) {
+    if (!draft) return;
+    const next = draft.stt_replacements.slice();
+    next[index] = value;
+    setDraft({ ...draft, stt_replacements: next });
+  }
+
+  function removeReplacement(index: number) {
+    if (!draft) return;
+    setDraft({
+      ...draft,
+      stt_replacements: draft.stt_replacements.filter((_, i) => i !== index),
+    });
+  }
+
+  function addReplacement() {
+    if (!draft) return;
+    setDraft({
+      ...draft,
+      stt_replacements: [...draft.stt_replacements, { from: "", to: "" }],
+    });
+  }
+
+  async function exportOrdbok() {
+    if (!draft) return;
+    try {
+      await navigator.clipboard.writeText(
+        JSON.stringify(draft.stt_replacements, null, 2),
+      );
+      setOrdbokExportCopied(true);
+      setTimeout(() => setOrdbokExportCopied(false), 2000);
+    } catch (e) {
+      setError(`kunde inte kopiera: ${e}`);
+    }
+  }
+
+  function importOrdbok() {
+    if (!draft) return;
+    setOrdbokImportError(null);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(ordbokImportText);
+    } catch {
+      setOrdbokImportError("Ogiltig JSON.");
+      return;
+    }
+    if (!Array.isArray(parsed)) {
+      setOrdbokImportError("Förväntade en JSON-lista: [{\"from\": …, \"to\": …}]");
+      return;
+    }
+    const incoming: SttReplacement[] = [];
+    for (const item of parsed) {
+      const rec = item as Record<string, unknown>;
+      if (rec && typeof rec.from === "string" && typeof rec.to === "string") {
+        incoming.push({ from: rec.from, to: rec.to });
+      } else {
+        setOrdbokImportError('Varje post måste ha textfälten "from" och "to".');
+        return;
+      }
+    }
+    // Merge: befintlig post med samma "from" uppdateras, övriga läggs till.
+    const merged = draft.stt_replacements.slice();
+    for (const inc of incoming) {
+      const idx = merged.findIndex(
+        (r) => r.from.trim().toLowerCase() === inc.from.trim().toLowerCase(),
+      );
+      if (idx >= 0) merged[idx] = inc;
+      else merged.push(inc);
+    }
+    setDraft({ ...draft, stt_replacements: merged });
+    setOrdbokShowImport(false);
+    setOrdbokImportText("");
   }
 
   async function handleDownloadStt(model: string) {
@@ -1426,6 +1524,115 @@ export default function SettingsView() {
           </div>
         </article>
 
+        {/* Ordbok */}
+        <article className="settings-section">
+          <div className="settings-section-label">
+            <h2>Ordbok</h2>
+            <p>
+              Egna korrigeringar för ord som dikteringen hör fel — namn,
+              fackord och egna uttryck. Appliceras automatiskt på all
+              transkriberad text innan den klistras in.
+            </p>
+          </div>
+          <div className="settings-section-body">
+            {draft.stt_replacements.length === 0 && (
+              <div className="field-help">
+                Inga korrigeringar ännu. Exempel: när den hör{" "}
+                <em>"sektra"</em> → skriv <em>"Sectra"</em>.
+              </div>
+            )}
+            {draft.stt_replacements.map((r, i) => (
+              <div className="replacement-row" key={i}>
+                <input
+                  className="input"
+                  placeholder="när den skriver…"
+                  value={r.from}
+                  onChange={(e) =>
+                    updateReplacement(i, { ...r, from: e.target.value })
+                  }
+                />
+                <span className="replacement-arrow" aria-hidden>
+                  →
+                </span>
+                <input
+                  className="input"
+                  placeholder="ersätt med…"
+                  value={r.to}
+                  onChange={(e) =>
+                    updateReplacement(i, { ...r, to: e.target.value })
+                  }
+                />
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-compact"
+                  onClick={() => removeReplacement(i)}
+                  aria-label={`Ta bort korrigeringen ${r.from || "(tom)"}`}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+            <div className="replacement-io">
+              <button
+                type="button"
+                className="btn-reset"
+                onClick={addReplacement}
+              >
+                + Lägg till korrigering
+              </button>
+              <button
+                type="button"
+                className="btn-reset"
+                onClick={() => void exportOrdbok()}
+                disabled={draft.stt_replacements.length === 0}
+              >
+                {ordbokExportCopied ? "✓ Kopierad" : "Exportera (JSON)"}
+              </button>
+              <button
+                type="button"
+                className="btn-reset"
+                onClick={() => setOrdbokShowImport(!ordbokShowImport)}
+              >
+                Importera…
+              </button>
+            </div>
+            {ordbokShowImport && (
+              <div className="field">
+                <textarea
+                  className="input"
+                  rows={4}
+                  placeholder='Klistra in JSON, t.ex. [{"from": "sektra", "to": "Sectra"}]'
+                  value={ordbokImportText}
+                  onChange={(e) => setOrdbokImportText(e.target.value)}
+                  spellCheck={false}
+                />
+                {ordbokImportError && (
+                  <p className="field-help field-help--warn">
+                    ⚠ {ordbokImportError}
+                  </p>
+                )}
+                <div>
+                  <button
+                    type="button"
+                    className="btn-reset"
+                    onClick={importOrdbok}
+                  >
+                    Lägg till poster från JSON
+                  </button>
+                </div>
+              </div>
+            )}
+            <div className="field-help">
+              Matchar hela ord och fraser, oavsett stor/liten bokstav.
+              Inledande versal behålls vid meningsstart. Längre fraser har
+              företräde framför kortare. Specialvärden i "ersätt med":{" "}
+              <code>\n</code> = radbrytning (gör "ny rad" till ett
+              röstkommando), tomt fält = ta bort ordet (utfyllnadsord).
+              Glöm inte att spara.
+            </div>
+          </div>
+        </article>
+
         </>)}
 
         {activeTab === "llm" && (<>
@@ -1701,15 +1908,31 @@ export default function SettingsView() {
                   Claude Haiku 4.5 — snabbast, billigast
                 </option>
                 <option value="claude-sonnet-4-5">
-                  Claude Sonnet 4.5 — balans
+                  Claude Sonnet 4.5 — äldre balansmodell
                 </option>
                 <option value="claude-sonnet-4-6">
-                  Claude Sonnet 4.6 — senaste Sonnet
+                  Claude Sonnet 4.6 — rekommenderad balans
                 </option>
                 <option value="claude-opus-4-7">
-                  Claude Opus 4.7 — högsta kvalitet
+                  Claude Opus 4.7 — hög kvalitet ($$)
+                </option>
+                <option value="claude-opus-4-8">
+                  Claude Opus 4.8 — högsta Opus-kvalitet ($$)
+                </option>
+                <option value="claude-fable-5">
+                  Claude Fable 5 — kraftfullast ($$$)
                 </option>
               </select>
+              {/claude-(opus-4-[78]|fable)/.test(draft.anthropic_model) && (
+                <p className="field-help field-help--warn">
+                  ⚠ Dyr modell:{" "}
+                  {draft.anthropic_model.includes("fable")
+                    ? "Fable 5 kostar $10/$50 per miljon tokens (in/ut)"
+                    : "Opus kostar $5/$25 per miljon tokens (in/ut)"}{" "}
+                  — ca {draft.anthropic_model.includes("fable") ? "3–4×" : "1,7×"} dyrare än
+                  Sonnet 4.6. Vid frekvent användning kan kostnaden dra iväg.
+                </p>
+              )}
             </div>
 
             <div className="field">

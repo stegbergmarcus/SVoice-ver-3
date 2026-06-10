@@ -60,10 +60,16 @@ pub fn restore_target_focus() -> bool {
     unsafe { SetForegroundWindow(hwnd).as_bool() }
 }
 
-/// Lägger texten på clipboard och skickar Ctrl+V till aktivt fönster.
-/// Sparar inte tidigare clipboard — en förbättring för senare iter.
+/// Lägger texten på clipboard, skickar Ctrl+V till aktivt fönster och
+/// återställer sedan användarens tidigare clipboard-text. Utan
+/// återställningen låg senaste dikteringen kvar permanent i clipboard —
+/// integritetsläcka om man dikterar känsligt och senare klistrar in
+/// någon annanstans. (Bilder/filer i clipboard bevaras inte — text only,
+/// samma begränsning som capture_selection/paste_and_restore.)
 pub fn paste_via_clipboard(text: &str) -> Result<(), ClipboardError> {
     let mut cb = arboard::Clipboard::new().map_err(|e| ClipboardError::Access(e.to_string()))?;
+    let original = cb.get_text().ok();
+
     cb.set_text(text)
         .map_err(|e| ClipboardError::Access(e.to_string()))?;
 
@@ -71,6 +77,13 @@ pub fn paste_via_clipboard(text: &str) -> Result<(), ClipboardError> {
     sleep(Duration::from_millis(30));
 
     send_ctrl_v()?;
+
+    // Vänta tills target-appen processat paste innan återställning, annars
+    // skriver vi över clipboard medan Ctrl+V fortfarande läser den.
+    sleep(Duration::from_millis(120));
+    if let Some(prev) = original {
+        let _ = cb.set_text(prev);
+    }
     Ok(())
 }
 
@@ -107,10 +120,13 @@ pub fn capture_selection() -> Result<Option<String>, ClipboardError> {
     // user fortfarande Ctrl + Shift + ev. andra modifiers nedtryckta. Om vi
     // skickar Ctrl+C direkt ser target-appen det som Ctrl+Shift+C (fel genväg
     // i de flesta appar) eller ignorerar det helt (som Notepad) och inget
-    // kopieras. Vänta tills alla physical modifiers är släppta — 600 ms
-    // räcker även för långsammare finger-release efter Ctrl+Shift+Space.
+    // kopieras. Vänta tills alla physical modifiers är släppta. Loopen
+    // returnerar direkt när tangenterna släpps, så taket kostar bara något
+    // när user faktiskt fortsätter hålla — 1500 ms eftersom loggar visat att
+    // 600 ms missar vanlig "lugn" release efter Ctrl+Shift+Space, vilket
+    // gjorde att markerad text aldrig fångades.
     // Vid timeout fortsätter vi ändå för att undvika att hänga helt.
-    wait_for_modifiers_released(Duration::from_millis(600));
+    wait_for_modifiers_released(Duration::from_millis(1500));
 
     let mut cb = arboard::Clipboard::new().map_err(|e| ClipboardError::Access(e.to_string()))?;
     // Spara nuvarande clipboard-innehåll (text only — bilder bevaras inte).
@@ -147,6 +163,15 @@ pub fn capture_selection() -> Result<Option<String>, ClipboardError> {
         Some(text) if text != sentinel && !text.is_empty() => Ok(Some(text)),
         _ => Ok(None),
     }
+}
+
+/// Lägg text på clipboard utan att skicka Ctrl+V. Används av tray-menyns
+/// dikteringshistorik ("kopiera igen") — fokus ligger på menyn, inte på
+/// något textfält, så paste vore meningslös.
+pub fn set_clipboard_text(text: &str) -> Result<(), ClipboardError> {
+    let mut cb = arboard::Clipboard::new().map_err(|e| ClipboardError::Access(e.to_string()))?;
+    cb.set_text(text)
+        .map_err(|e| ClipboardError::Access(e.to_string()))
 }
 
 /// Klistrar in `new_text` i aktivt fönster via Ctrl+V och återställer sedan

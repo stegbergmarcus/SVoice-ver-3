@@ -55,6 +55,12 @@ pub struct Settings {
     #[serde(default)]
     pub stt_condition_on_previous_text: bool,
 
+    /// Egen ordbok: korrigeringar som appliceras på transkriberad text innan
+    /// injektion. Matchning är skiftlägesokänslig på hela ord/fraser;
+    /// ersättningen behåller inledande versal om originalet hade det.
+    #[serde(default)]
+    pub stt_replacements: Vec<SttReplacement>,
+
     /// Om false: Insert-PTT triggar inte action-popup. Sparar resurser om
     /// user bara vill ha ren diktering utan LLM alls.
     pub action_llm_enabled: bool,
@@ -77,7 +83,7 @@ pub struct Settings {
     #[serde(default)]
     pub dictation_llm_provider: LlmProvider,
 
-    /// Anthropic-modell. Default claude-sonnet-4-5.
+    /// Anthropic-modell. Default claude-sonnet-4-6.
     pub anthropic_model: String,
 
     /// Ollama-modell. Default qwen2.5:14b (stark svensk-förmåga, passar RTX 5080).
@@ -137,6 +143,14 @@ pub struct Settings {
     /// `tauri-plugin-autostart` → HKCU\...\Run. Idempotent: vid app-start
     /// synkas registret mot detta värde.
     pub autostart: bool,
+}
+
+/// En post i användarens egna STT-ordbok: "när modellen skriver `from`,
+/// ersätt med `to`".
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct SttReplacement {
+    pub from: String,
+    pub to: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
@@ -213,11 +227,12 @@ impl Default for Settings {
             stt_initial_prompt: default_initial_prompt(),
             stt_no_speech_threshold: default_no_speech_threshold(),
             stt_condition_on_previous_text: false,
+            stt_replacements: Vec::new(),
             action_llm_enabled: true,
             llm_polish_dictation: false,
             action_llm_provider: LlmProvider::Auto,
             dictation_llm_provider: LlmProvider::Auto,
-            anthropic_model: "claude-sonnet-4-5".into(),
+            anthropic_model: "claude-sonnet-4-6".into(),
             ollama_model: "qwen2.5:14b".into(),
             ollama_url: "http://127.0.0.1:11434".into(),
             groq_llm_model: "llama-3.3-70b-versatile".into(),
@@ -269,11 +284,58 @@ impl Settings {
         std::fs::write(path, json)?;
         Ok(())
     }
+
+    /// Effektiv initial-prompt för Whisper: användarens prompt + ordbokens
+    /// målord. Whisper biasas mot ord som förekommer i prompten, så namn och
+    /// fackord ur ordboken får större chans att höras rätt redan vid
+    /// transkribering — efterhandskorrigeringen finns kvar som skyddsnät.
+    pub fn effective_initial_prompt(&self) -> String {
+        let mut words: Vec<&str> = Vec::new();
+        for r in &self.stt_replacements {
+            let w = r.to.trim();
+            if !w.is_empty() && !words.iter().any(|u| u.eq_ignore_ascii_case(w)) {
+                words.push(w);
+            }
+        }
+        let base = self.stt_initial_prompt.trim();
+        if words.is_empty() {
+            return base.to_string();
+        }
+        if base.is_empty() {
+            format!("Vanliga ord: {}.", words.join(", "))
+        } else {
+            format!("{} Vanliga ord: {}.", base, words.join(", "))
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn effective_initial_prompt_appends_dictionary_words() {
+        let mut s = Settings::default();
+        assert_eq!(s.effective_initial_prompt(), s.stt_initial_prompt);
+
+        s.stt_replacements = vec![
+            SttReplacement {
+                from: "sektra".into(),
+                to: "Sectra".into(),
+            },
+            SttReplacement {
+                from: "sectra".into(),
+                to: "Sectra".into(), // dublett (case-insensitive) — ska dedupas
+            },
+            SttReplacement {
+                from: "tomt mål".into(),
+                to: "  ".into(), // tomt mål ska ignoreras
+            },
+        ];
+        let prompt = s.effective_initial_prompt();
+        assert!(prompt.starts_with(&s.stt_initial_prompt));
+        assert!(prompt.ends_with("Vanliga ord: Sectra."));
+    }
 
     #[test]
     fn default_values_match_spec() {
@@ -314,6 +376,10 @@ mod tests {
             stt_initial_prompt: "Medicinsk journalanteckning.".into(),
             stt_no_speech_threshold: 0.7,
             stt_condition_on_previous_text: true,
+            stt_replacements: vec![SttReplacement {
+                from: "sektra".into(),
+                to: "Sectra".into(),
+            }],
             action_llm_enabled: true,
             llm_polish_dictation: true,
             action_llm_provider: LlmProvider::Gemini,
@@ -338,6 +404,7 @@ mod tests {
         let json = serde_json::to_string(&original).unwrap();
         let restored: Settings = serde_json::from_str(&json).unwrap();
         assert_eq!(original.mic_device, restored.mic_device);
+        assert_eq!(original.stt_replacements, restored.stt_replacements);
         assert_eq!(original.stt_model, restored.stt_model);
         assert_eq!(original.stt_compute_mode, restored.stt_compute_mode);
         assert_eq!(original.anthropic_model, restored.anthropic_model);

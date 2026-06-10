@@ -19,6 +19,18 @@ const ACTION_TAP_MAX_MS: u64 = 260;
 /// `run_smart_function`-IPC när user väljer en function.
 static PALETTE_SELECTION: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
+/// Senaste dikteringarna, nyast först. RAM-only — skrivs aldrig till disk,
+/// töms vid app-exit. Visas i tray-menyn så en diktering som hamnade i fel
+/// fönster (eller skrevs över) kan kopieras igen.
+const DICTATION_HISTORY_LEN: usize = 10;
+static DICTATION_HISTORY: std::sync::Mutex<std::collections::VecDeque<String>> =
+    std::sync::Mutex::new(std::collections::VecDeque::new());
+
+/// True medan Groq-STT-fallback är aktiv. Gör att fallback-toasten visas en
+/// gång per avbrott istället för vid varje diktering tills Groq svarar igen.
+static GROQ_FALLBACK_ACTIVE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 /// Tidpunkt + sista tecken från senaste dikterings-inject. Används för att
 /// auto-prepend:a mellanslag när user dikterar igen efter en kort paus utan
 /// att skriva något mellan gångerna. Se `dictation_auto_space_seconds` i
@@ -38,7 +50,9 @@ use svoice_llm::{
     AnthropicClient, GeminiClient, GroqClient, LlmProvider, LlmRequest, OllamaClient, Role,
     TurnContent, VisionImage, VisionLlmProvider, VisionRequest,
 };
-use svoice_settings::{ComputeMode, LlmProvider as ProviderChoice, Settings, SttProvider};
+use svoice_settings::{
+    ComputeMode, LlmProvider as ProviderChoice, Settings, SttProvider, SttReplacement,
+};
 use svoice_stt::{GroqStt, PythonStt, SttConfig};
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem};
@@ -244,7 +258,32 @@ pub fn run() {
                 .on_menu_event(|app, ev| match ev.id.as_ref() {
                     "open" => show_main_window(app),
                     "quit" => app.exit(0),
-                    _ => {}
+                    id => {
+                        // "hist-N" = klick på en post i dikteringshistoriken →
+                        // kopiera till clipboard (paste vore fel: fokus ligger
+                        // på menyn, inte i något textfält).
+                        if let Some(idx) = id
+                            .strip_prefix("hist-")
+                            .and_then(|s| s.parse::<usize>().ok())
+                        {
+                            let text = DICTATION_HISTORY
+                                .lock()
+                                .ok()
+                                .and_then(|h| h.get(idx).cloned());
+                            if let Some(text) = text {
+                                match svoice_inject::set_clipboard_text(&text) {
+                                    Ok(()) => emit_error_toast(
+                                        app,
+                                        "Diktering kopierad",
+                                        "Texten ligger på clipboard — klistra in med Ctrl+V.",
+                                    ),
+                                    Err(e) => {
+                                        tracing::warn!("kunde inte kopiera historik: {e}")
+                                    }
+                                }
+                            }
+                        }
+                    }
                 })
                 .on_tray_icon_event(|tray, ev| {
                     use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
@@ -309,7 +348,7 @@ pub fn run() {
             stt_config.language = user_settings.stt_language.clone();
             stt_config.beam_size = user_settings.stt_beam_size;
             stt_config.vad_filter = user_settings.stt_vad_filter;
-            stt_config.initial_prompt = user_settings.stt_initial_prompt.clone();
+            stt_config.initial_prompt = user_settings.effective_initial_prompt();
             stt_config.no_speech_threshold = user_settings.stt_no_speech_threshold;
             stt_config.condition_on_previous_text = user_settings.stt_condition_on_previous_text;
             match user_settings.stt_compute_mode {
@@ -372,9 +411,11 @@ pub fn run() {
             // Audio-owner thread — skapar capture, parker forever.
             let audio_ring = ring.clone();
             let mic_app = app_handle.clone();
-            std::thread::Builder::new()
-                .name("svoice-audio-owner".into())
-                .spawn(move || {
+            spawn_worker_thread(
+                &app_handle,
+                "svoice-audio-owner",
+                "Mikrofonfångst (diktering)",
+                move || {
                     let rms_cb: svoice_audio::capture::RmsCallback = Arc::new(move |rms: f32| {
                         emit_event(&mic_app, EV_MIC_LEVEL, VolumeEvent { rms });
                     });
@@ -390,8 +431,8 @@ pub fn run() {
                     loop {
                         std::thread::park();
                     }
-                })
-                .expect("kunde inte starta audio-owner-tråd");
+                },
+            );
 
             // Auto-check för ny version 10 sek efter setup. Använder cached
             // resultat om senaste check är <24 h gammal så vi inte hamrar
@@ -603,12 +644,14 @@ pub fn run() {
             let ptt_ring = ring.clone();
             let ptt_stt = stt.clone();
             let ptt_rt = rt.clone();
-            std::thread::Builder::new()
-                .name("svoice-ptt-worker".into())
-                .spawn(move || {
+            spawn_worker_thread(
+                &app_handle,
+                "svoice-ptt-worker",
+                "Diktering",
+                move || {
                     ptt_worker_loop(ptt_rx, ptt_app, ptt_worker, ptt_ring, ptt_stt, ptt_rt);
-                })
-                .expect("kunde inte starta PTT worker-thread");
+                },
+            );
 
             // Läs hotkey-val. Validera: om båda är samma, använd default.
             let (dict_key, action_key, screen_key) = {
@@ -644,12 +687,14 @@ pub fn run() {
             let action_ring = ring.clone();
             let action_stt = stt.clone();
             let action_rt = rt.clone();
-            std::thread::Builder::new()
-                .name("svoice-action-worker".into())
-                .spawn(move || {
+            spawn_worker_thread(
+                &app_handle,
+                "svoice-action-worker",
+                "AI-popupen",
+                move || {
                     action_worker_loop(action_rx, action_app, action_ring, action_stt, action_rt);
-                })
-                .expect("kunde inte starta action worker-thread");
+                },
+            );
 
             // Action-PTT: spara target-HWND vid keydown INNAN popupen öppnas
             // så paste_and_restore kan SetForegroundWindow tillbaka efter hide.
@@ -696,9 +741,11 @@ pub fn run() {
             // LlKeyEvent som LL-hook hade gjort, så action_worker_loop ser en identisk
             // flow och follow-up-path triggas utan LL-hook-beroende.
             let followup_tx = action_tx.clone();
-            std::thread::Builder::new()
-                .name("svoice-followup-poll".into())
-                .spawn(move || loop {
+            spawn_worker_thread(
+                &app_handle,
+                "svoice-followup-poll",
+                "Uppföljningsfrågor i AI-popupen",
+                move || loop {
                     if svoice_ipc::FOLLOWUP_START_REQUESTED
                         .swap(false, Ordering::SeqCst)
                     {
@@ -720,8 +767,8 @@ pub fn run() {
                         }
                     }
                     std::thread::sleep(std::time::Duration::from_millis(20));
-                })
-                .expect("kunde inte starta followup-poll-thread");
+                },
+            );
 
             let _ = app.get_webview_window("main");
 
@@ -733,6 +780,16 @@ pub fn run() {
             // HiDPI-skärmar och overlap med taskbar.
             if let Some(overlay) = app.get_webview_window("overlay") {
                 position_overlay_default(&overlay);
+                // Klick-genomsläpp: overlayn är ett rent visuellt fönster
+                // (waveform + logo) utan interaktiva element, men WebView2
+                // hit-testar hela fönsterrektangeln även där pixlarna är
+                // transparenta. Utan WS_EX_TRANSPARENT "äger" det osynliga
+                // fönstret musen ovanför taskbar — spel tappar pointer-lock
+                // (Windows-cursorn dyker upp) och klick svaljs av overlayn
+                // istället för att nå fönstret under.
+                if let Err(e) = overlay.set_ignore_cursor_events(true) {
+                    tracing::warn!("set_ignore_cursor_events misslyckades: {e}");
+                }
             }
 
             // Intercept close-event på main-fönstret. Default i Tauri 2 är
@@ -829,7 +886,9 @@ pub fn run() {
             svoice_ipc::open_smart_functions_dir,
             svoice_ipc::pull_ollama_model,
             palette_close,
+            palette_selection_text,
             run_smart_function,
+            svoice_ipc::add_stt_replacement,
             screen_clip_cancel,
             screen_clip_clear,
             screen_clip_commit,
@@ -848,6 +907,25 @@ fn emit_error_toast(app: &AppHandle, title: &str, body: &str) {
     use tauri_plugin_notification::NotificationExt;
     if let Err(e) = app.notification().builder().title(title).body(body).show() {
         tracing::debug!("kunde inte visa error-toast: {e}");
+    }
+}
+
+/// Starta en namngiven bakgrundstråd. Trådstart misslyckas i praktiken bara
+/// vid extrem resursbrist — då loggar vi + visar toast istället för att
+/// panika ner hela appen, så övriga delar kan fortsätta fungera.
+fn spawn_worker_thread(
+    app: &AppHandle,
+    name: &str,
+    what_breaks: &str,
+    f: impl FnOnce() + Send + 'static,
+) {
+    if let Err(e) = std::thread::Builder::new().name(name.into()).spawn(f) {
+        tracing::error!("kunde inte starta {name}: {e}");
+        emit_error_toast(
+            app,
+            "SVoice: internt fel",
+            &format!("{what_breaks} är otillgängligt — starta om appen. ({e})"),
+        );
     }
 }
 
@@ -1147,7 +1225,7 @@ fn ptt_worker_loop(
             if !current.stt_enabled {
                 tracing::info!("STT avstängd — hoppar över transkribering");
             } else {
-                perform_transcribe_and_inject(&ring, &stt, &rt, &current);
+                perform_transcribe_and_inject(&app_handle, &ring, &stt, &rt, &current);
             }
 
             let final_state = {
@@ -1177,8 +1255,13 @@ fn apply_event(ptt: &Mutex<PttMachine>, ev: LlKeyEvent) -> PttState {
 }
 
 fn ptt_lock(ptt: &Mutex<PttMachine>) -> std::sync::MutexGuard<'_, PttMachine> {
-    ptt.lock()
-        .expect("PttMachine-mutex poisoned — inget critical section panic:ar")
+    // PttMachine är ren state utan halvskrivna invarianter — om en annan
+    // tråd panikat med låset hållet är värdet fortfarande användbart.
+    // Återhämta istället för att kaskad-panika ner PTT-hanteringen.
+    ptt.lock().unwrap_or_else(|poisoned| {
+        tracing::warn!("PttMachine-mutex poisoned — återhämtar inre värdet");
+        poisoned.into_inner()
+    })
 }
 
 fn start_volume_meter(app_handle: &AppHandle) -> Option<VolumeMeter> {
@@ -1195,6 +1278,7 @@ fn start_volume_meter(app_handle: &AppHandle) -> Option<VolumeMeter> {
 }
 
 fn perform_transcribe_and_inject(
+    app: &AppHandle,
     ring: &AudioRing,
     stt: &PythonStt,
     rt: &tokio::runtime::Runtime,
@@ -1212,7 +1296,7 @@ fn perform_transcribe_and_inject(
         tracing::warn!("inget tal detekterat (VAD trimmade allt)");
         return;
     }
-    let raw_text = match rt.block_on(transcribe_dispatch(settings, stt, segment)) {
+    let raw_text = match rt.block_on(transcribe_dispatch(app, settings, stt, segment)) {
         Ok(text) => text,
         Err(e) => {
             tracing::error!("STT-fel: {e}");
@@ -1259,6 +1343,9 @@ fn perform_transcribe_and_inject(
                     *guard = Some((std::time::Instant::now(), last_char));
                 }
             }
+            // RAM-historik + tray-submeny så texten kan räddas om den
+            // hamnade i fel fönster.
+            push_dictation_history(app, &final_text);
         }
         Err(e) => tracing::error!("inject FAIL: {e}"),
     }
@@ -1341,6 +1428,79 @@ Returnera BARA den korrigerade texten, inga förklaringar."
         out.push_str(&chunk?);
     }
     Ok(out.trim().to_string())
+}
+
+/// Lägg en lyckad diktering i historiken och bygg om tray-menyn så den
+/// syns under "Senaste dikteringar".
+fn push_dictation_history(app: &AppHandle, text: &str) {
+    {
+        let Ok(mut hist) = DICTATION_HISTORY.lock() else {
+            return;
+        };
+        hist.push_front(text.to_string());
+        hist.truncate(DICTATION_HISTORY_LEN);
+    }
+    rebuild_tray_menu(app);
+}
+
+/// Trunkera en historikpost till en lagom meny-etikett.
+fn truncate_label(text: &str, max_chars: usize) -> String {
+    let flat: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if flat.chars().count() <= max_chars {
+        flat
+    } else {
+        let cut: String = flat.chars().take(max_chars).collect();
+        format!("{cut}…")
+    }
+}
+
+/// Bygg om tray-menyn med aktuell dikteringshistorik som submeny.
+fn rebuild_tray_menu(app: &AppHandle) {
+    use tauri::menu::{IsMenuItem, Submenu};
+
+    let Some(tray) = app.tray_by_id("main-tray") else {
+        return;
+    };
+    let hist: Vec<String> = DICTATION_HISTORY
+        .lock()
+        .map(|h| h.iter().cloned().collect())
+        .unwrap_or_default();
+    let result = (|| -> tauri::Result<()> {
+        let open_item = MenuItem::with_id(app, "open", "Visa inställningar", true, None::<&str>)?;
+        let quit_item = MenuItem::with_id(app, "quit", "Avsluta", true, None::<&str>)?;
+        let menu = if hist.is_empty() {
+            Menu::with_items(app, &[&open_item, &quit_item])?
+        } else {
+            let mut items: Vec<MenuItem<tauri::Wry>> = Vec::with_capacity(hist.len());
+            for (i, text) in hist.iter().enumerate() {
+                items.push(MenuItem::with_id(
+                    app,
+                    format!("hist-{i}"),
+                    truncate_label(text, 48),
+                    true,
+                    None::<&str>,
+                )?);
+            }
+            let item_refs: Vec<&dyn IsMenuItem<tauri::Wry>> = items
+                .iter()
+                .map(|i| i as &dyn IsMenuItem<tauri::Wry>)
+                .collect();
+            let submenu = Submenu::with_items(app, "Senaste dikteringar", true, &item_refs)?;
+            Menu::with_items(
+                app,
+                &[
+                    &open_item as &dyn IsMenuItem<tauri::Wry>,
+                    &submenu as &dyn IsMenuItem<tauri::Wry>,
+                    &quit_item as &dyn IsMenuItem<tauri::Wry>,
+                ],
+            )?
+        };
+        tray.set_menu(Some(menu))?;
+        Ok(())
+    })();
+    if let Err(e) = result {
+        tracing::debug!("tray-meny-rebuild misslyckades: {e}");
+    }
 }
 
 fn update_tray_for_state(app: &AppHandle, state: PttState) {
@@ -1576,7 +1736,7 @@ fn handle_action_released(
     if segment.is_empty() {
         anyhow::bail!("inget röstkommando detekterat");
     }
-    let command = rt.block_on(transcribe_dispatch(settings, stt, segment))?;
+    let command = rt.block_on(transcribe_dispatch(app_handle, settings, stt, segment))?;
     let command = command.trim().to_string();
     if command.is_empty() {
         anyhow::bail!("STT returnerade tom text");
@@ -2222,6 +2382,95 @@ fn handle_screen_vision_command(
 /// Transkribera via vald STT-provider. För Groq krävs API-nyckel i keyring —
 /// saknas den (eller om API-call failar) faller vi tillbaka till lokal STT.
 #[cfg(test)]
+mod stt_replacement_tests {
+    use super::*;
+
+    fn rule(from: &str, to: &str) -> SttReplacement {
+        SttReplacement {
+            from: from.into(),
+            to: to.into(),
+        }
+    }
+
+    #[test]
+    fn replaces_whole_words_case_insensitively() {
+        let rules = vec![rule("sektra", "Sectra")];
+        assert_eq!(
+            apply_stt_replacements("jag jobbar i sektra idag", &rules),
+            "jag jobbar i Sectra idag"
+        );
+        assert_eq!(
+            apply_stt_replacements("SEKTRA är bra", &rules),
+            "Sectra är bra"
+        );
+    }
+
+    #[test]
+    fn does_not_replace_inside_other_words() {
+        let rules = vec![rule("kol", "coal")];
+        assert_eq!(
+            apply_stt_replacements("kolla protokollet om kol", &rules),
+            "kolla protokollet om coal"
+        );
+    }
+
+    #[test]
+    fn preserves_sentence_initial_capital() {
+        let rules = vec![rule("viskning", "whisper")];
+        assert_eq!(
+            apply_stt_replacements("Viskning är bäst. jag gillar viskning.", &rules),
+            "Whisper är bäst. jag gillar whisper."
+        );
+    }
+
+    #[test]
+    fn handles_multi_word_phrases_and_longest_first() {
+        let rules = vec![
+            rule("sektra", "Sectra"),
+            rule("sektra forms", "Sectra Forms"),
+        ];
+        assert_eq!(
+            apply_stt_replacements("öppna sektra forms i sektra", &rules),
+            "öppna Sectra Forms i Sectra"
+        );
+    }
+
+    #[test]
+    fn handles_swedish_characters_and_punctuation() {
+        let rules = vec![rule("kärlmall", "kärlmallen")];
+        assert_eq!(
+            apply_stt_replacements("Uppdatera kärlmall, tack!", &rules),
+            "Uppdatera kärlmallen, tack!"
+        );
+    }
+
+    #[test]
+    fn empty_rules_and_empty_from_are_noops() {
+        assert_eq!(apply_stt_replacements("text", &[]), "text");
+        let rules = vec![rule("   ", "x")];
+        assert_eq!(apply_stt_replacements("text", &rules), "text");
+    }
+
+    #[test]
+    fn backslash_n_expands_to_newline() {
+        let rules = vec![rule("ny rad", "\\n")];
+        assert_eq!(
+            apply_stt_replacements("första raden ny rad andra raden", &rules),
+            "första raden \n andra raden"
+        );
+    }
+
+    #[test]
+    fn empty_to_removes_filler_word() {
+        let rules = vec![rule("eh", "")];
+        assert_eq!(
+            apply_stt_replacements("det var eh ganska bra", &rules),
+            "det var  ganska bra"
+        );
+    }
+}
+
+#[cfg(test)]
 mod screen_vision_tests {
     use super::*;
 
@@ -2308,33 +2557,143 @@ mod screen_vision_tests {
 }
 
 async fn transcribe_dispatch(
+    app: &AppHandle,
     settings: &Settings,
     local: &PythonStt,
     audio: &[f32],
 ) -> anyhow::Result<String> {
-    match settings.stt_provider {
-        SttProvider::Local => Ok(local.transcribe(audio).await?),
+    let text = match settings.stt_provider {
+        SttProvider::Local => local.transcribe(audio).await?,
         SttProvider::Groq => {
-            let Some(key) = svoice_secrets::get_groq_key()
+            let key = svoice_secrets::get_groq_key()
                 .ok()
                 .flatten()
-                .filter(|k| !k.is_empty())
-            else {
-                tracing::warn!("Groq STT vald men API-nyckel saknas — faller tillbaka till lokal");
-                return Ok(local.transcribe(audio).await?);
-            };
-            let client = GroqStt::new(key)
-                .with_model(settings.groq_stt_model.clone())
-                .with_language(settings.stt_language.clone());
-            match client.transcribe(audio).await {
-                Ok(text) => Ok(text),
-                Err(e) => {
-                    tracing::error!("Groq STT fel: {e} — faller tillbaka till lokal");
-                    Ok(local.transcribe(audio).await?)
+                .filter(|k| !k.is_empty());
+            match key {
+                None => {
+                    tracing::warn!(
+                        "Groq STT vald men API-nyckel saknas — faller tillbaka till lokal"
+                    );
+                    notify_stt_fallback(app, "Groq STT vald men API-nyckel saknas");
+                    local.transcribe(audio).await?
+                }
+                Some(key) => {
+                    let client = GroqStt::new(key)
+                        .with_model(settings.groq_stt_model.clone())
+                        .with_language(settings.stt_language.clone());
+                    match client.transcribe(audio).await {
+                        Ok(text) => {
+                            // Groq svarar igen — nollställ så ett framtida
+                            // avbrott toastar på nytt.
+                            GROQ_FALLBACK_ACTIVE.store(false, std::sync::atomic::Ordering::SeqCst);
+                            text
+                        }
+                        Err(e) => {
+                            tracing::error!("Groq STT fel: {e} — faller tillbaka till lokal");
+                            notify_stt_fallback(app, "Groq STT svarade inte");
+                            local.transcribe(audio).await?
+                        }
+                    }
                 }
             }
         }
+    };
+    // Användarens ordbok appliceras på ALL transkriberad text (diktering,
+    // action-kommandon, follow-ups) — gemensam tratt för alla STT-vägar.
+    Ok(apply_stt_replacements(&text, &settings.stt_replacements))
+}
+
+/// Toast vid Groq→lokal-fallback — men bara en gång per avbrott, så en
+/// nere-period inte spammar en notis per diktering.
+fn notify_stt_fallback(app: &AppHandle, reason: &str) {
+    if !GROQ_FALLBACK_ACTIVE.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        emit_error_toast(
+            app,
+            "STT: använder lokal modell",
+            &format!(
+                "{reason}. Dikteringen fortsätter med KB-Whisper lokalt — kan gå långsammare."
+            ),
+        );
     }
+}
+
+/// Applicera användarens ordbok på transkriberad text. Längre fraser
+/// appliceras först så "Sectra Forms"-regeln vinner över en "Sectra"-regel.
+fn apply_stt_replacements(text: &str, replacements: &[SttReplacement]) -> String {
+    if replacements.is_empty() {
+        return text.to_string();
+    }
+    let mut rules: Vec<&SttReplacement> = replacements
+        .iter()
+        .filter(|r| !r.from.trim().is_empty())
+        .collect();
+    rules.sort_by_key(|r| std::cmp::Reverse(r.from.trim().chars().count()));
+    let mut result = text.to_string();
+    for rule in rules {
+        // `\n` i ersättningen = radbrytning — gör röstkommandon som
+        // "ny rad" → ↵ möjliga. Tom ersättning tar bort ordet helt
+        // (utfyllnadsord som "eh").
+        let to = rule.to.trim().replace("\\n", "\n");
+        result = replace_word_ci(&result, rule.from.trim(), &to);
+    }
+    result
+}
+
+/// Skiftlägesokänslig hela-ord-ersättning. Matchar bara där ordet/frasen
+/// avgränsas av icke-alfanumeriska tecken (eller strängens kanter), och
+/// behåller inledande versal från originalet (meningsstart).
+fn replace_word_ci(haystack: &str, from: &str, to: &str) -> String {
+    fn lower1(c: char) -> char {
+        c.to_lowercase().next().unwrap_or(c)
+    }
+    let h: Vec<char> = haystack.chars().collect();
+    let h_lower: Vec<char> = h.iter().map(|&c| lower1(c)).collect();
+    let f: Vec<char> = from.chars().map(lower1).collect();
+    if f.is_empty() {
+        return haystack.to_string();
+    }
+    let mut out = String::with_capacity(haystack.len());
+    let mut i = 0;
+    while i < h.len() {
+        let end = i + f.len();
+        let boundary_before = i == 0 || !h[i - 1].is_alphanumeric();
+        if boundary_before
+            && end <= h.len()
+            && h_lower[i..end] == f[..]
+            && (end == h.len() || !h[end].is_alphanumeric())
+        {
+            let mut to_chars = to.chars();
+            match to_chars.next() {
+                Some(first) if h[i].is_uppercase() => {
+                    out.extend(first.to_uppercase());
+                    out.extend(to_chars);
+                }
+                Some(first) => {
+                    out.push(first);
+                    out.extend(to_chars);
+                }
+                None => {}
+            }
+            i = end;
+        } else {
+            out.push(h[i]);
+            i += 1;
+        }
+    }
+    out
+}
+
+/// Texten som var markerad när paletten öppnades (fångas vid hotkey-press
+/// via capture_selection). None om inget var markerat. Används av palettens
+/// "Lägg till i ordbok"-post.
+#[tauri::command]
+fn palette_selection_text() -> Option<String> {
+    PALETTE_SELECTION
+        .lock()
+        .ok()
+        .and_then(|g| g.clone())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 /// Stäng palette-fönstret från backend. Mer pålitligt än frontend

@@ -121,7 +121,13 @@ impl PythonStt {
             language: cfg.language.clone(),
         })
         .await?;
-        match sc.read_response().await? {
+        // Load kan inkludera implicit HF-nedladdning av en ej cachad modell
+        // (Large ~3 GB) — generös gräns, men inte oändlig: en död Python-
+        // process ska ge fel istället för att frysa dikteringen för alltid.
+        match sc
+            .read_response_timeout(std::time::Duration::from_secs(1800))
+            .await?
+        {
             SttResponse::Loaded {
                 load_ms,
                 vram_used_mb,
@@ -151,28 +157,46 @@ impl PythonStt {
                 cfg.condition_on_previous_text,
             )
         };
-        let guard = self.sidecar.lock().await;
+        let mut guard = self.sidecar.lock().await;
         let sc = guard.as_ref().ok_or(SttError::NotLoaded)?;
-        sc.send_request(&SttRequest::Transcribe {
-            audio_samples: audio.len() as u32,
-            sample_rate: 16000,
-            beam_size,
-            vad_filter,
-            initial_prompt,
-            no_speech_threshold,
-            condition_on_previous_text: condition_on_prev,
-        })
-        .await?;
-        sc.send_audio(audio).await?;
-        match sc.read_response().await? {
-            SttResponse::Transcript {
+        let outcome = async {
+            sc.send_request(&SttRequest::Transcribe {
+                audio_samples: audio.len() as u32,
+                sample_rate: 16000,
+                beam_size,
+                vad_filter,
+                initial_prompt,
+                no_speech_threshold,
+                condition_on_previous_text: condition_on_prev,
+            })
+            .await?;
+            sc.send_audio(audio).await?;
+            // 5 min täcker värsta fallet (120 s audio, stor modell på CPU)
+            // med marginal — men en hängd sidecar blockerar inte PTT-tråden
+            // för evigt.
+            sc.read_response_timeout(std::time::Duration::from_secs(300))
+                .await
+        }
+        .await;
+        match outcome {
+            Ok(SttResponse::Transcript {
                 text, inference_ms, ..
-            } => {
+            }) => {
                 tracing::info!("STT: {} ms → \"{}\"", inference_ms, text);
                 Ok(text)
             }
-            SttResponse::Error { message, .. } => Err(SttError::Remote(message)),
-            other => Err(SttError::Unexpected(format!("{other:?}"))),
+            Ok(SttResponse::Error { message, .. }) => Err(SttError::Remote(message)),
+            Ok(other) => Err(SttError::Unexpected(format!("{other:?}"))),
+            Err(e) => {
+                // Timeout/IO/protokollfel = sidecaren kan vara död eller ur
+                // synk (ett sent svar skulle para ihop sig med fel request).
+                // Kasta den (kill_on_drop städar processen) så nästa
+                // diktering spawnar en fräsch istället för att ärva trasigt
+                // tillstånd.
+                tracing::warn!("sidecar-fel under transcribe ({e}) — respawnar vid nästa anrop");
+                *guard = None;
+                Err(e.into())
+            }
         }
     }
 
@@ -198,7 +222,12 @@ impl PythonStt {
         // Läs events tills Downloaded eller Error. Vi kan få DownloadStarted
         // först (status-event), sen Downloaded som terminal.
         loop {
-            match sc.read_response().await? {
+            // 30 min per svar: nedladdning av Large (~3 GB) på långsam lina
+            // ska hinna, men en död sidecar ger fel istället för evig väntan.
+            match sc
+                .read_response_timeout(std::time::Duration::from_secs(1800))
+                .await?
+            {
                 SttResponse::DownloadStarted { model: m } => {
                     tracing::info!("STT download: start {m}");
                     on_event("startar");
